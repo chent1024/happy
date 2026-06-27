@@ -15,7 +15,6 @@ import { useConnectTerminal } from '@/hooks/useConnectTerminal';
 import { useLocalSettingMutable, useSetting } from '@/sync/storage';
 import { sync } from '@/sync/sync';
 import { isUsingCustomServer } from '@/sync/serverConfig';
-import { trackWhatsNewClicked } from '@/track';
 import { Modal } from '@/modal';
 import { useMultiClick } from '@/hooks/useMultiClick';
 import { useAllMachines } from '@/sync/storage';
@@ -384,7 +383,6 @@ export const SettingsView = React.memo(function SettingsView() {
                     subtitle={t('settings.whatsNewSubtitle')}
                     icon={<Ionicons name="sparkles-outline" size={29} color="#FF9500" />}
                     onPress={() => {
-                        trackWhatsNewClicked();
                         router.push('/changelog');
                     }}
                 />

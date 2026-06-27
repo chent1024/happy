@@ -1,6 +1,5 @@
 import { deriveKey } from "@/encryption/deriveKey";
 import { AES256Encryption, BoxEncryption, SecretBoxEncryption, Encryptor, Decryptor } from "./encryptor";
-import { encodeHex } from "@/encryption/hex";
 import { EncryptionCache } from "./encryptionCache";
 import { SessionEncryption } from "./sessionEncryption";
 import { MachineEncryption } from "./machineEncryption";
@@ -10,7 +9,6 @@ import { decryptBox, encryptBox } from "@/encryption/libsodium";
 import { randomUUID } from 'expo-crypto';
 
 export class Encryption {
-
     static async create(masterSecret: Uint8Array) {
 
         // Derive content data key to open session and machine records
@@ -19,20 +17,16 @@ export class Encryption {
         // Derive content data key keypair
         const contentKeyPair = sodium.crypto_box_seed_keypair(contentDataKey);
 
-        // Derive anonymous ID
-        const anonID = encodeHex((await deriveKey(masterSecret, 'Happy Coder', ['analytics', 'id']))).slice(0, 16).toLowerCase();
-
         // Derive master blob key for legacy sessions (those with no per-session dataKey)
         const masterBlobKey = await deriveKey(masterSecret, 'Happy Blobs', ['master']);
 
         // Create encryption
-        return new Encryption(anonID, masterSecret, contentKeyPair, masterBlobKey);
+        return new Encryption(masterSecret, contentKeyPair, masterBlobKey);
     }
 
     private readonly legacyEncryption: SecretBoxEncryption;
     private readonly contentKeyPair: sodium.KeyPair;
     private readonly masterBlobKey: Uint8Array;
-    readonly anonID: string;
     readonly contentDataKey: Uint8Array;
 
     // Session and machine encryption management
@@ -41,8 +35,7 @@ export class Encryption {
     private sessionBlobKeys = new Map<string, Uint8Array>();
     private cache: EncryptionCache;
 
-    private constructor(anonID: string, masterSecret: Uint8Array, contentKeyPair: sodium.KeyPair, masterBlobKey: Uint8Array) {
-        this.anonID = anonID;
+    private constructor(masterSecret: Uint8Array, contentKeyPair: sodium.KeyPair, masterBlobKey: Uint8Array) {
         this.contentKeyPair = contentKeyPair;
         this.legacyEncryption = new SecretBoxEncryption(masterSecret);
         this.masterBlobKey = masterBlobKey;

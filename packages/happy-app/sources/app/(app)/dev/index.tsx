@@ -9,7 +9,6 @@ import Constants from 'expo-constants';
 import * as Application from 'expo-application';
 import { useLocalSettingMutable, useSocketStatus } from '@/sync/storage';
 import { Modal } from '@/modal';
-import { sync } from '@/sync/sync';
 import { getServerUrl, setServerUrl, validateServerUrl, getLogServerUrl, setLogServerUrl } from '@/sync/serverConfig';
 import { Switch } from '@/components/Switch';
 import { useUnistyles } from 'react-native-unistyles';
@@ -21,7 +20,6 @@ export default function DevScreen() {
     const [verboseLogging, setVerboseLogging] = useLocalSettingMutable('verboseLogging');
     const [consoleLoggingEnabled, setConsoleLoggingEnabled] = useLocalSettingMutable('consoleLoggingEnabled');
     const socketStatus = useSocketStatus();
-    const anonymousId = sync.encryption!.anonID;
     const { theme } = useUnistyles();
 
     const handleEditServerUrl = async () => {
@@ -172,10 +170,6 @@ export default function DevScreen() {
                 <Item
                     title="平台"
                     detail={`${Constants.platform?.ios ? 'iOS' : 'Android'} ${Constants.systemVersion || ''}`}
-                />
-                <Item
-                    title="匿名 ID"
-                    detail={anonymousId}
                 />
             </ItemGroup>
 

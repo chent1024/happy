@@ -27,7 +27,7 @@ RN 0.81 is out of the 3-version support window (0.82, 0.83, 0.84 supported). SDK
 ## Upgrade order
 
 1. Safe patches first (reanimated 4.2.3, livekit, socket.io, zustand) — no native rebuild
-2. JS-only minors (flash-list 2.3, posthog, purchases) — no native rebuild
+2. JS-only minors (flash-list 2.3, purchases) — no native rebuild
 3. **Expo SDK 54 -> 55** via `npx expo install --fix` — native rebuild required
 4. keyboard-controller 1.21, skia 2.5.3, unistyles 3.1.1, gesture-handler 2.30
 5. Major migrations last: zod 4, react-native-mmkv 4 (independent, breaking API changes)
@@ -53,4 +53,3 @@ RN 0.81 is out of the 3-version support window (0.82, 0.83, 0.84 supported). SDK
 | react-native-skia | 2.2.12 | 2.5.3 |
 | react-native-screens | 4.16.0 | 4.22+ (avoid 4.24) |
 | purchases | 9.4.2 | 9.14.0 |
-| posthog | 4.16.2 | 4.37.5 |

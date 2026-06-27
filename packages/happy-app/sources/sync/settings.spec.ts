@@ -47,6 +47,21 @@ describe('settings', () => {
             });
         });
 
+        it('should drop removed analytics settings', () => {
+            const result = settingsParse({
+                viewInline: true,
+                analyticsOptOut: true,
+                unknownField: 'keep me',
+            });
+
+            expect(result).toEqual({
+                ...settingsDefaults,
+                viewInline: true,
+                unknownField: 'keep me',
+            });
+            expect('analyticsOptOut' in result).toBe(false);
+        });
+
         it('should handle partial settings and merge with defaults', () => {
             const partialSettings = {
                 viewInline: true
@@ -181,7 +196,6 @@ describe('settings', () => {
                 showLineNumbersInToolViews: false,
                 wrapLinesInDiffs: true,
                 diffStyle: 'unified',
-                analyticsOptOut: false,
                 inferenceOpenAIKey: null,
                 experiments: false,
                 alwaysShowContextSize: false,
@@ -189,6 +203,7 @@ describe('settings', () => {
                 avatarStyle: 'brutalist',
                 showFlavorIcons: false,
                 hideInactiveSessions: false,
+                sortSessionsByActivity: false,
                 expResumeSession: false,
                 fileDiffsSidebar: false,
                 groupToolCalls: false,
@@ -345,13 +360,13 @@ describe('settings', () => {
 
             const pendingChanges: Partial<Settings> = {
                 experiments: true,
-                analyticsOptOut: true,
+                wrapLinesInDiffs: false,
             };
 
             const merged = applySettings(serverSettings, pendingChanges);
 
             expect(merged.experiments).toBe(true);
-            expect(merged.analyticsOptOut).toBe(true);
+            expect(merged.wrapLinesInDiffs).toBe(false);
             expect(merged.viewInline).toBe(false);
         });
 
@@ -416,18 +431,18 @@ describe('settings', () => {
             const serverSettings = settingsParse({
                 viewInline: false,
                 experiments: false,
-                analyticsOptOut: false
+                wrapLinesInDiffs: true
             });
 
             const pendingChanges: Partial<Settings> = {
                 viewInline: true,
-                analyticsOptOut: true
+                wrapLinesInDiffs: false
             };
 
             const merged = applySettings(serverSettings, pendingChanges);
 
             expect(merged.viewInline).toBe(true);
-            expect(merged.analyticsOptOut).toBe(true);
+            expect(merged.wrapLinesInDiffs).toBe(false);
             expect(merged.experiments).toBe(false);
         });
 

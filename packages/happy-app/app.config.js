@@ -204,7 +204,6 @@ export default {
                 projectId: "4558dd3d-cd5a-47cd-bad9-e591a241cc06"
             },
             app: {
-                postHogKey: process.env.EXPO_PUBLIC_POSTHOG_API_KEY,
                 consoleLoggingDefault,
                 buildCommitSha: buildMetadata.commitSha,
                 buildCommitTimestamp: buildMetadata.commitTimestamp,

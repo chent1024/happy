@@ -295,7 +295,7 @@ Goal: talk to users regularly to understand why they use Happy, what their day-t
 
 ### Outreach
 
-- In-app PostHog survey offering your phone number / way to reach you directly
+- In-app feedback prompt offering your phone number / way to reach you directly
 - Make it personal — "text me, I want to hear how it's going"
 
 ### Interview process

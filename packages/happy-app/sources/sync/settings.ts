@@ -19,7 +19,6 @@ export const SettingsSchema = z.object({
     showLineNumbersInToolViews: z.boolean().describe('Whether to show line numbers in tool view diffs'),
     wrapLinesInDiffs: z.boolean().describe('Whether to wrap long lines in diff views'),
     diffStyle: z.enum(['unified', 'split']).describe('Diff view style (split is web-only)'),
-    analyticsOptOut: z.boolean().describe('Whether to opt out of anonymous analytics'),
     experiments: z.boolean().describe('Whether to enable experimental features'),
     alwaysShowContextSize: z.boolean().describe('Always show context size in agent input'),
     agentInputEnterToSend: z.boolean().describe('Whether pressing Enter submits/sends in the agent input (web)'),
@@ -78,6 +77,10 @@ const SettingsSchemaPartial = SettingsSchema.partial();
 
 export type Settings = z.infer<typeof SettingsSchema>;
 
+function dropRemovedSettings(fields: Record<string, unknown>) {
+    delete fields.analyticsOptOut;
+}
+
 //
 // Defaults
 //
@@ -91,7 +94,6 @@ export const settingsDefaults: Settings = {
     showLineNumbersInToolViews: false,
     wrapLinesInDiffs: true,
     diffStyle: 'unified',
-    analyticsOptOut: false,
     experiments: false,
     alwaysShowContextSize: false,
     agentInputEnterToSend: true,
@@ -136,6 +138,7 @@ export function settingsParse(settings: unknown): Settings {
         // Remove all known schema fields from unknownFields
         const knownFields = Object.keys(SettingsSchema.shape);
         knownFields.forEach(key => delete unknownFields[key]);
+        dropRemovedSettings(unknownFields);
         return { ...settingsDefaults, ...unknownFields };
     }
 
@@ -149,6 +152,7 @@ export function settingsParse(settings: unknown): Settings {
     const unknownFields = { ...(settings as any) };
     // Remove known fields from unknownFields to preserve only the unknown ones
     Object.keys(parsed.data).forEach(key => delete unknownFields[key]);
+    dropRemovedSettings(unknownFields);
 
     return { ...settingsDefaults, ...parsed.data, ...unknownFields };
 }

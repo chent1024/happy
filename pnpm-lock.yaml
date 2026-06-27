@@ -698,9 +698,6 @@ importers:
       mermaid:
         specifier: ^11.12.1
         version: 11.12.2
-      posthog-react-native:
-        specifier: ~4.37.5
-        version: 4.37.6(@react-native-async-storage/async-storage@2.2.0(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0)))(@react-navigation/native@7.2.0(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0))(react@19.2.0))(expo-application@55.0.10(expo@55.0.8))(expo-device@55.0.10(expo@55.0.8))(expo-file-system@55.0.11(expo@55.0.8)(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0)))(expo-localization@55.0.9(expo@55.0.8)(react@19.2.0))(react-native-device-info@14.1.1(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0)))(react-native-localize@3.6.1(@expo/config-plugins@55.0.7)(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0))(react@19.2.0))(react-native-safe-area-context@5.7.0(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0))(react@19.2.0))(react-native-svg@15.12.1(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0))(react@19.2.0))
       preact:
         specifier: ^10.29.1
         version: 10.29.1
@@ -3860,9 +3857,6 @@ packages:
 
   '@pondwader/socks5-server@1.0.10':
     resolution: {integrity: sha512-bQY06wzzR8D2+vVCUoBsr5QS2U6UgPUQRmErNwtsuI6vLcyRKkafjkr3KxbtGFf9aBBIV2mcvlsKD1UYaIV+sg==}
-
-  '@posthog/core@1.24.1':
-    resolution: {integrity: sha512-e8AciAnc6MRFws89ux8lJKFAaI03yEon0ASDoUO7yS91FVqbUGXYekObUUR3LHplcg+pmyiJBI0jolY0SFbGRA==}
 
   '@preact/signals-core@1.14.1':
     resolution: {integrity: sha512-vxPpfXqrwUe9lpjqfYNjAF/0RF/eFGeLgdJzdmIIZjpOnTmGmAB4BjWone562mJGMRP4frU6iZ6ei3PDsu52Ng==}
@@ -10027,45 +10021,6 @@ packages:
     resolution: {integrity: sha512-nAUSGfSDGOaOAEGwqsRY27GPOea7CNipJPOA7lPbdEpx5Kg3qzdP0AaWC5MlhTWV9s4hFX39nomVZ+C4tnGOJQ==}
     engines: {node: '>=12'}
 
-  posthog-react-native@4.37.6:
-    resolution: {integrity: sha512-LoZTcSYPebr125QFdTySwLyZT/LVU8xmkRAYPCwS18IqLpXY6hsbgjeIyQhi9RpEKIbdvUR6sNuCKx/EaKnqNg==}
-    peerDependencies:
-      '@react-native-async-storage/async-storage': '>=1.0.0'
-      '@react-navigation/native': '>= 5.0.0'
-      expo-application: '>= 4.0.0'
-      expo-device: '>= 4.0.0'
-      expo-file-system: '>= 13.0.0'
-      expo-localization: '>= 11.0.0'
-      posthog-react-native-session-replay: '>= 1.5.0'
-      react-native-device-info: '>= 10.0.0'
-      react-native-localize: '>= 3.0.0'
-      react-native-navigation: '>= 6.0.0'
-      react-native-safe-area-context: '>= 4.0.0'
-      react-native-svg: '>= 15.0.0'
-    peerDependenciesMeta:
-      '@react-native-async-storage/async-storage':
-        optional: true
-      '@react-navigation/native':
-        optional: true
-      expo-application:
-        optional: true
-      expo-device:
-        optional: true
-      expo-file-system:
-        optional: true
-      expo-localization:
-        optional: true
-      posthog-react-native-session-replay:
-        optional: true
-      react-native-device-info:
-        optional: true
-      react-native-localize:
-        optional: true
-      react-native-navigation:
-        optional: true
-      react-native-safe-area-context:
-        optional: true
-
   preact@10.29.1:
     resolution: {integrity: sha512-gQCLc/vWroE8lIpleXtdJhTFDogTdZG9AjMUpVkDf2iTCNwYNWA+u16dL41TqUDJO4gm2IgrcMv3uTpjd4Pwmg==}
 
@@ -15295,10 +15250,6 @@ snapshots:
     optional: true
 
   '@pondwader/socks5-server@1.0.10': {}
-
-  '@posthog/core@1.24.1':
-    dependencies:
-      cross-spawn: 7.0.6
 
   '@preact/signals-core@1.14.1': {}
 
@@ -22521,21 +22472,6 @@ snapshots:
       source-map-js: 1.2.1
 
   postgres-array@3.0.4: {}
-
-  posthog-react-native@4.37.6(@react-native-async-storage/async-storage@2.2.0(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0)))(@react-navigation/native@7.2.0(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0))(react@19.2.0))(expo-application@55.0.10(expo@55.0.8))(expo-device@55.0.10(expo@55.0.8))(expo-file-system@55.0.11(expo@55.0.8)(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0)))(expo-localization@55.0.9(expo@55.0.8)(react@19.2.0))(react-native-device-info@14.1.1(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0)))(react-native-localize@3.6.1(@expo/config-plugins@55.0.7)(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0))(react@19.2.0))(react-native-safe-area-context@5.7.0(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0))(react@19.2.0))(react-native-svg@15.12.1(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0))(react@19.2.0)):
-    dependencies:
-      '@posthog/core': 1.24.1
-      react-native-svg: 15.12.1(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0))(react@19.2.0)
-    optionalDependencies:
-      '@react-native-async-storage/async-storage': 2.2.0(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0))
-      '@react-navigation/native': 7.2.0(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0))(react@19.2.0)
-      expo-application: 55.0.10(expo@55.0.8)
-      expo-device: 55.0.10(expo@55.0.8)
-      expo-file-system: 55.0.11(expo@55.0.8)(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0))
-      expo-localization: 55.0.9(expo@55.0.8)(react@19.2.0)
-      react-native-device-info: 14.1.1(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0))
-      react-native-localize: 3.6.1(@expo/config-plugins@55.0.7)(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0))(react@19.2.0)
-      react-native-safe-area-context: 5.7.0(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0))(react@19.2.0)
 
   preact@10.29.1: {}
 

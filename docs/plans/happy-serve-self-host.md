@@ -94,56 +94,9 @@ Production `app.happy.engineering` never has `__HAPPY_CONFIG__` set → no behav
 
 Because the daemon reads `configuration.serverUrl` like every other entry point, and `configuration` now reads from `settings.serverUrl`, the daemon Just Works™ when a user has run `happy server`. Zero code in `daemon/run.ts`. (v2 can add daemon-managed lifecycle if needed.)
 
-## Disabling analytics (defense in depth)
+## Analytics
 
-### State of the world today
-- **happy-cli, happy-agent, happy-server: no analytics at all** (verified — see Audit reference below).
-- **happy-app (web + mobile): PostHog only**, already gated: `tracking = config.postHogKey ? new PostHog(...) : null` (`packages/happy-app/sources/track/tracking.ts:4`). Every call site is `tracking?.capture(...)`, so absence of the key already short-circuits everything.
-
-### Three-layer kill switch
-
-The existing gate is the key. We add two more layers so analytics is impossible in self-host mode regardless of build flags or user mistakes.
-
-**Layer 1 — Existing key gate (already works).** Build the package without `EXPO_PUBLIC_POSTHOG_API_KEY` → `config.postHogKey` is undefined → `tracking` is `null` → no PostHog instance, no events, no network.
-
-**Layer 2 — Runtime env var kill switch (NEW).** Patch `tracking.ts`:
-
-```ts
-import { config } from '@/config';
-import PostHog from 'posthog-react-native';
-
-const analyticsDisabled =
-  process.env.EXPO_PUBLIC_DISABLE_ANALYTICS === '1' ||
-  process.env.EXPO_PUBLIC_DISABLE_ANALYTICS === 'true' ||
-  (globalThis as any).__HAPPY_CONFIG__?.disableAnalytics === true;
-
-export const tracking = (analyticsDisabled || !config.postHogKey)
-  ? null
-  : new PostHog(config.postHogKey, {
-      host: 'https://us.i.posthog.com',
-      captureAppLifecycleEvents: true,
-    });
-```
-
-Two ways to flip it:
-- `EXPO_PUBLIC_DISABLE_ANALYTICS=1` at build OR runtime (Expo public env vars are inlined into the bundle, but `process.env` lookups remain queryable on web).
-- `window.__HAPPY_CONFIG__.disableAnalytics = true` injected by happy-server's static handler.
-
-**Layer 3 — Self-host mode auto-disables.** The HTML rewrite in `happy server` always includes `disableAnalytics: true`:
-
-```ts
-injectHtmlConfig: { serverUrl: '/', disableAnalytics: true }
-```
-
-So any webapp served by `happy server` has analytics off regardless of what was baked into the bundle at build time. If a user's enterprise rebuilds happy with their own PostHog key (intentionally), they still can't accidentally leak when they `happy server` — the script-tag injection wins.
-
-### What this does NOT do (yet, optional)
-
-- Doesn't remove the `posthog-react-native` dependency from the bundle. Code is still there, just unreachable.
-- Truly auditable "no PostHog code at all" would need a build-time stub swap (e.g. Metro resolver alias `tracking.ts` → `tracking.empty.ts`). Listed as a v2 idea.
-
-### CLI / server / agent — nothing to add
-No analytics code exists. Nothing to disable. (If we ever add CLI telemetry in the future, the same env var name `HAPPY_DISABLE_ANALYTICS=1` should be the kill switch — drop `EXPO_PUBLIC_` prefix.)
+No Happy package includes product analytics or telemetry code. The web app, mobile app, CLI, agent, and server do not initialize an analytics SDK or emit usage events.
 
 ## How current users are unaffected
 
@@ -240,9 +193,6 @@ When `staticDir` set, register `@fastify/static` on `/*` with an `onSend` hook t
 **`packages/happy-app/sources/sync/serverConfig.ts`**
 - 3-line `__HAPPY_CONFIG__` fallback
 
-**`packages/happy-app/sources/track/tracking.ts`**
-- 3-layer kill switch (env var + `__HAPPY_CONFIG__.disableAnalytics`) (~8 LOC)
-
 ## Net LOC
 
 | File | LOC |
@@ -305,7 +255,6 @@ No daemon changes. Bundle adds ~30 MB to the npm tarball.
 - Process isolation so a server crash doesn't take the daemon down.
 - Admin-token / auto-pair-first-client for single-user enforcement.
 - `happy server status` / `happy server stop` as ergonomics on top of the foreground command.
-- Build-time stub swap to fully remove `posthog-react-native` from the bundle (Metro resolver alias `tracking.ts` → empty module).
 - Parameterize the 5 cosmetic `happy.engineering` URLs.
 - `PUBLIC_WEBAPP_URL` for happy-server OAuth redirects.
 
@@ -317,7 +266,7 @@ No daemon changes. Bundle adds ~30 MB to the npm tarball.
 ## Audit reference (state of the repo when this plan was written)
 
 ### Analytics
-Only `happy-app` has PostHog (`packages/happy-app/sources/track/tracking.ts:4`), already gated by `config.postHogKey`. CLI / agent / server have zero analytics (grepped).
+No Happy package contains product analytics or telemetry code.
 
 ### Server URL configurability (already exists)
 - CLI / agent: `HAPPY_SERVER_URL` env var (default `https://api.cluster-fluster.com`).

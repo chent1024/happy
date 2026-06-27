@@ -2,7 +2,6 @@ import Constants from 'expo-constants';
 import { requireOptionalNativeModule } from 'expo-modules-core';
 
 export interface AppConfig {
-    postHogKey?: string;
     consoleLoggingDefault?: boolean;
     serverUrl?: string;
     buildCommitSha?: string;
@@ -66,10 +65,6 @@ export function loadAppConfig(): AppConfig {
     // Why: Native config is baked at prebuild time, but EXPO_PUBLIC_* vars
     // are available at runtime via process.env. This allows devs to change
     // keys without rebuilding native code.
-    if (process.env.EXPO_PUBLIC_POSTHOG_KEY && config.postHogKey !== process.env.EXPO_PUBLIC_POSTHOG_KEY) {
-        console.log('[loadAppConfig] Override postHogKey from EXPO_PUBLIC_POSTHOG_KEY');
-        config.postHogKey = process.env.EXPO_PUBLIC_POSTHOG_KEY;
-    }
     if (process.env.EXPO_PUBLIC_SERVER_URL && config.serverUrl !== process.env.EXPO_PUBLIC_SERVER_URL) {
         console.log('[loadAppConfig] Override serverUrl from EXPO_PUBLIC_SERVER_URL');
         config.serverUrl = process.env.EXPO_PUBLIC_SERVER_URL;
