@@ -1,4 +1,4 @@
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 
 // Apply patches to node_modules
 require('../patches/fix-pglite-prisma-bytes.cjs');
@@ -12,6 +12,6 @@ if (process.env.SKIP_HAPPY_WIRE_BUILD === '1') {
   process.exit(0);
 }
 
-execSync('pnpm --filter @slopus/happy-wire build', {
+execFileSync('corepack', ['pnpm', '--filter', '@slopus/happy-wire', 'build'], {
   stdio: 'inherit',
 });

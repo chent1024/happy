@@ -104,7 +104,7 @@ function runRelease(target, releaseArgs = []) {
     commandArgs.push(...releaseArgs);
   }
 
-  const result = spawnSync("pnpm", commandArgs, {
+  const result = spawnSync("corepack", ["pnpm", ...commandArgs], {
     cwd: repoRoot,
     stdio: "inherit",
     env: {
