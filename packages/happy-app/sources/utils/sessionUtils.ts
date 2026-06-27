@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Session } from '@/sync/storageTypes';
-import { t } from '@/text';
+import { getCurrentLanguage, t } from '@/text';
 import { buildResumeCommand, buildResumeCommandBlock, ResumeCommandBlock } from './resumeCommand';
 
 export type SessionState = 'disconnected' | 'thinking' | 'waiting' | 'permission_required';
@@ -24,7 +24,7 @@ export function useSessionStatus(session: Session): SessionStatus {
     const hasPermissions = (session.agentState?.requests && Object.keys(session.agentState.requests).length > 0 ? true : false);
 
     const vibingMessage = React.useMemo(() => {
-        return vibingMessages[Math.floor(Math.random() * vibingMessages.length)].toLowerCase() + '…';
+        return getVibingMessage();
     }, [isOnline, hasPermissions, session.thinking]);
 
     if (!isOnline) {
@@ -224,3 +224,27 @@ export function formatLastSeen(activeAt: number, isActive: boolean = false): str
 }
 
 export const vibingMessages = ["Accomplishing", "Actioning", "Actualizing", "Baking", "Booping", "Brewing", "Calculating", "Cerebrating", "Channelling", "Churning", "Clauding", "Coalescing", "Cogitating", "Computing", "Combobulating", "Concocting", "Conjuring", "Considering", "Contemplating", "Cooking", "Crafting", "Creating", "Crunching", "Deciphering", "Deliberating", "Determining", "Discombobulating", "Divining", "Doing", "Effecting", "Elucidating", "Enchanting", "Envisioning", "Finagling", "Flibbertigibbeting", "Forging", "Forming", "Frolicking", "Generating", "Germinating", "Hatching", "Herding", "Honking", "Ideating", "Imagining", "Incubating", "Inferring", "Manifesting", "Marinating", "Meandering", "Moseying", "Mulling", "Mustering", "Musing", "Noodling", "Percolating", "Perusing", "Philosophising", "Pontificating", "Pondering", "Processing", "Puttering", "Puzzling", "Reticulating", "Ruminating", "Scheming", "Schlepping", "Shimmying", "Simmering", "Smooshing", "Spelunking", "Spinning", "Stewing", "Sussing", "Synthesizing", "Thinking", "Tinkering", "Transmuting", "Unfurling", "Unravelling", "Vibing", "Wandering", "Whirring", "Wibbling", "Wizarding", "Working", "Wrangling"];
+
+const chineseVibingMessages = [
+    '思考中',
+    '处理中',
+    '生成中',
+    '分析中',
+    '执行中',
+    '规划中',
+    '检查中',
+    '整理中',
+    '推理中',
+    '编写中',
+    '验证中',
+    '准备中',
+];
+
+export function getVibingMessage(index = Math.floor(Math.random() * vibingMessages.length)): string {
+    const language = getCurrentLanguage();
+    if (language === 'zh-Hans' || language === 'zh-Hant') {
+        return `${chineseVibingMessages[index % chineseVibingMessages.length]}…`;
+    }
+
+    return `${vibingMessages[index % vibingMessages.length].toLowerCase()}…`;
+}

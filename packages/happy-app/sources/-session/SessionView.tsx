@@ -230,7 +230,12 @@ export const SessionView = React.memo((props: { id: string }) => {
                         folderName={headerProps.folderName}
                         isConnected={headerProps.isConnected}
                         extraPathSegment={fileViewPath ?? undefined}
-                        rightSlot={(diffViewOpen || !!fileViewPath) ? headerRightSlot : null}
+                        rightSlot={session ? (
+                            <>
+                                {(diffViewOpen || !!fileViewPath) ? headerRightSlot : null}
+                                <SessionHeaderDetailsButton session={session} />
+                            </>
+                        ) : null}
                         onTitlePress={session ? () => router.push(`/session/${sessionId}/info`) : undefined}
                         onBackPress={() => router.back()}
                     />
@@ -776,6 +781,33 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
             }
         </>
     )
+}
+
+function SessionHeaderDetailsButton(props: { session: Session }) {
+    const { theme } = useUnistyles();
+    const router = useRouter();
+
+    return (
+        <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('profile.details')}
+            onPress={() => router.push(`/session/${props.session.id}/info`)}
+            hitSlop={8}
+            style={({ pressed }) => ({
+                width: 40,
+                height: 40,
+                alignItems: 'center',
+                justifyContent: 'center',
+                opacity: pressed ? 0.55 : 1,
+            })}
+        >
+            <Ionicons
+                name="information-circle-outline"
+                size={26}
+                color={theme.colors.header.tint}
+            />
+        </Pressable>
+    );
 }
 
 function InactiveArchivedHint(props: {
