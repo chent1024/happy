@@ -49,6 +49,9 @@ export function isTerminalToolName(name: string): boolean {
 }
 
 export function shouldRenderToolCardHeader(toolName: string, platformOS: string): boolean {
+    if (toolName === 'file' || toolName === 'CodexPatch') {
+        return false;
+    }
     return !(platformOS === 'web' && toolName === 'CodexPatch');
 }
 

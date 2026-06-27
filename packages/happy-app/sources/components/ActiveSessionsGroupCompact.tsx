@@ -6,7 +6,6 @@ import { Machine } from '@/sync/storageTypes';
 import { SessionRowData } from '@/sync/storage';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { type SessionState, formatPathRelativeToHome, vibingMessages, formatLastSeen } from '@/utils/sessionUtils';
-import { Avatar } from './Avatar';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from './StatusDot';
 import { useAllMachines, useSessionGitStatus } from '@/sync/storage';
@@ -54,6 +53,24 @@ function useSectionGitInfo(sessionId: string) {
     }, [gitStatus]);
 }
 
+function getProjectInitial(name: string) {
+    const match = name.trim().match(/[A-Za-z0-9]/u);
+    return match ? match[0].toLocaleUpperCase() : '?';
+}
+
+const ProjectInitialAvatar = React.memo(({ name, size }: { name: string; size: number }) => {
+    const styles = stylesheet;
+    const initial = React.useMemo(() => getProjectInitial(name), [name]);
+
+    return (
+        <View style={[styles.projectInitialAvatar, { width: size, height: size, borderRadius: size / 2 }]}>
+            <Text style={styles.projectInitialText} numberOfLines={1}>
+                {initial}
+            </Text>
+        </View>
+    );
+});
+
 // Section header: avatar | path + branch + tree icon + line changes | + button
 const SectionHeader = React.memo(({ session, displayPath }: { session: SessionRowData; displayPath: string }) => {
     const styles = stylesheet;
@@ -98,7 +115,7 @@ const SectionHeader = React.memo(({ session, displayPath }: { session: SessionRo
         >
             {/* Avatar — vertically centered */}
             <View style={styles.sectionHeaderAvatar}>
-                <Avatar id={session.avatarId} size={24} flavor={null} />
+                <ProjectInitialAvatar name={repoFolderName} size={24} />
             </View>
 
             {/* Path + branch */}
@@ -432,6 +449,18 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     sectionHeaderAvatar: {
         marginRight: 8,
+    },
+    projectInitialAvatar: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.text,
+    },
+    projectInitialText: {
+        ...Typography.default('semiBold'),
+        color: theme.colors.groupped.background,
+        fontSize: 12,
+        lineHeight: 16,
+        fontWeight: '700',
     },
     sectionHeaderContent: {
         flex: 1,

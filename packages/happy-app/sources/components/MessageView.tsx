@@ -135,7 +135,7 @@ function UserTextBlock(props: {
           delayLongPress={400}
           style={[styles.userMessageBubble, styles.goalMessageBubble]}
         >
-          <MarkdownView markdown={parsed.goal} onOptionPress={handleOptionPress} sessionId={props.sessionId} />
+          <MarkdownView markdown={parsed.goal} onOptionPress={handleOptionPress} sessionId={props.sessionId} compact />
         </Pressable>
         <View style={styles.goalSentRow}>
           <Ionicons name="locate-outline" size={16} color={styles.goalSentText.color} />
@@ -153,7 +153,7 @@ function UserTextBlock(props: {
             delayLongPress={400}
             style={[styles.userMessageBubble, styles.commandMessageBubble]}
           >
-            <MarkdownView markdown={parsed.args} onOptionPress={handleOptionPress} sessionId={props.sessionId} />
+            <MarkdownView markdown={parsed.args} onOptionPress={handleOptionPress} sessionId={props.sessionId} compact />
           </Pressable>
         ) : null}
         <View style={styles.commandChip}>
@@ -170,7 +170,7 @@ function UserTextBlock(props: {
         delayLongPress={400}
         style={styles.userMessageBubble}
       >
-        <MarkdownView markdown={parsed.text} onOptionPress={handleOptionPress} sessionId={props.sessionId} />
+        <MarkdownView markdown={parsed.text} onOptionPress={handleOptionPress} sessionId={props.sessionId} compact />
       </Pressable>
     </View>
   );
@@ -282,10 +282,10 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: 16,
   },
   userMessageBubble: {
-    backgroundColor: theme.colors.userMessageBackground,
+    backgroundColor: theme.colors.surfaceHighest,
     paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingVertical: 5,
+    borderRadius: 24,
     marginBottom: 12,
     maxWidth: '100%',
   },
@@ -308,10 +308,10 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: 14,
   },
   commandChip: {
-    backgroundColor: theme.colors.userMessageBackground,
+    backgroundColor: theme.colors.surfaceHighest,
     paddingHorizontal: 10,
-    paddingVertical: 2,
-    borderRadius: 10,
+    paddingVertical: 4,
+    borderRadius: 14,
     marginBottom: 12,
     maxWidth: '100%',
     opacity: 0.65,

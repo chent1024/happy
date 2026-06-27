@@ -27,6 +27,7 @@ export const MarkdownView = React.memo((props: {
     markdown: string;
     onOptionPress?: (option: Option) => void;
     sessionId?: string;
+    compact?: boolean;
 }) => {
     const blocks = React.useMemo(() => parseMarkdown(props.markdown), [props.markdown]);
     
@@ -61,7 +62,7 @@ export const MarkdownView = React.memo((props: {
             <View style={{ width: '100%' }}>
                 {blocks.map((block, index) => {
                     if (block.type === 'text') {
-                        return <RenderTextBlock spans={block.content} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} onLinkPress={handleLinkPress} />;
+                        return <RenderTextBlock spans={block.content} key={index} first={index === 0} last={index === blocks.length - 1} compact={props.compact === true} selectable={selectable} onLinkPress={handleLinkPress} />;
                     } else if (block.type === 'header') {
                         return <RenderHeaderBlock level={block.level} spans={block.content} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} onLinkPress={handleLinkPress} />;
                     } else if (block.type === 'horizontal-rule') {
@@ -121,8 +122,8 @@ type RenderSpanProps = {
     onLinkPress: (url: string) => void;
 };
 
-function RenderTextBlock(props: { spans: MarkdownSpan[], first: boolean, last: boolean, selectable: boolean, onLinkPress: (url: string) => void }) {
-    return <Text selectable={props.selectable} style={[style.text, props.first && style.first, props.last && style.last]}><RenderSpans spans={props.spans} baseStyle={style.text} selectable={props.selectable} onLinkPress={props.onLinkPress} /></Text>;
+function RenderTextBlock(props: { spans: MarkdownSpan[], first: boolean, last: boolean, compact: boolean, selectable: boolean, onLinkPress: (url: string) => void }) {
+    return <Text useDefaultTypography={false} selectable={props.selectable} style={[style.text, props.first && style.first, props.last && style.last, props.compact && props.first && style.compactFirst, props.compact && props.last && style.compactLast]}><RenderSpans spans={props.spans} baseStyle={style.text} selectable={props.selectable} onLinkPress={props.onLinkPress} /></Text>;
 }
 
 function RenderHeaderBlock(props: { level: 1 | 2 | 3 | 4 | 5 | 6, spans: MarkdownSpan[], first: boolean, last: boolean, selectable: boolean, onLinkPress: (url: string) => void }) {
@@ -139,8 +140,8 @@ function RenderListBlock(props: { items: { depth: number, spans: MarkdownSpan[] 
         <View style={{ flexDirection: 'column', marginBottom: 8, gap: 6 }}>
             {props.items.map((item, index) => (
                 <View key={index} style={{ flexDirection: 'row', alignItems: 'flex-start', paddingLeft: item.depth * 16 }}>
-                    <Text selectable={false} style={[listStyle, { marginRight: 8, marginTop: 1 }]}>{BULLETS[Math.min(item.depth, BULLETS.length - 1)]}</Text>
-                    <Text selectable={props.selectable} style={[listStyle, { flex: 1 }]}><RenderSpans spans={item.spans} baseStyle={listStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} /></Text>
+                    <Text useDefaultTypography={false} selectable={false} style={[listStyle, { marginRight: 8, marginTop: 1 }]}>{BULLETS[Math.min(item.depth, BULLETS.length - 1)]}</Text>
+                    <Text useDefaultTypography={false} selectable={props.selectable} style={[listStyle, { flex: 1 }]}><RenderSpans spans={item.spans} baseStyle={listStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} /></Text>
                 </View>
             ))}
         </View>
@@ -153,8 +154,8 @@ function RenderNumberedListBlock(props: { items: { number: number, depth: number
         <View style={{ flexDirection: 'column', marginBottom: 8, gap: 6 }}>
             {props.items.map((item, index) => (
                 <View key={index} style={{ flexDirection: 'row', alignItems: 'flex-start', paddingLeft: item.depth * 16 }}>
-                    <Text selectable={false} style={[listStyle, { marginRight: 8, marginTop: 1 }]}>{item.number}.</Text>
-                    <Text selectable={props.selectable} style={[listStyle, { flex: 1 }]}><RenderSpans spans={item.spans} baseStyle={listStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} /></Text>
+                    <Text useDefaultTypography={false} selectable={false} style={[listStyle, { marginRight: 8, marginTop: 1 }]}>{item.number}.</Text>
+                    <Text useDefaultTypography={false} selectable={props.selectable} style={[listStyle, { flex: 1 }]}><RenderSpans spans={item.spans} baseStyle={listStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} /></Text>
                 </View>
             ))}
         </View>
@@ -268,6 +269,7 @@ function RenderSpans(props: RenderSpanProps) {
                 return (
                     <Text
                         key={index}
+                        useDefaultTypography={false}
                         selectable={props.selectable}
                         accessibilityRole={isExternalLink ? 'link' : undefined}
                         style={[props.baseStyle, isExternalLink && style.link, span.styles.map(s => style[s])]}
@@ -280,7 +282,7 @@ function RenderSpans(props: RenderSpanProps) {
                     </Text>
                 );
             } else {
-                return <Text key={index} selectable={props.selectable} style={[props.baseStyle, span.styles.map(s => style[s])]}>{span.text}</Text>
+                return <Text key={index} useDefaultTypography={false} selectable={props.selectable} style={[props.baseStyle, span.styles.map(s => style[s])]}>{span.text}</Text>
             }
         })}
     </>)
@@ -383,36 +385,30 @@ const style = StyleSheet.create((theme) => ({
     // Plain text
 
     text: {
-        ...Typography.default(),
-        fontSize: 16,
-        lineHeight: 24, // Reduced from 28 to 24
+        fontSize: 18,
+        lineHeight: 27,
         marginTop: 8,
         marginBottom: 8,
         color: theme.colors.text,
-        fontWeight: '400',
     },
 
     italic: {
         fontStyle: 'italic',
     },
     bold: {
-        ...Typography.default('semiBold'),
         fontWeight: '700',
     },
     semibold: {
-        ...Typography.default('semiBold'),
         fontWeight: '600',
     },
     code: {
         ...Typography.mono(),
-        fontSize: 16,
-        lineHeight: 24,
+        fontSize: 18,
+        lineHeight: 27,
         color: theme.colors.text,
     },
     link: {
-        ...Typography.default(),
         color: theme.colors.text,
-        fontWeight: '400',
         textDecorationLine: 'underline',
         cursor: 'pointer',
     },
@@ -467,7 +463,6 @@ const style = StyleSheet.create((theme) => ({
     //
 
     list: {
-        ...Typography.default(),
         color: theme.colors.text,
         marginTop: 0,
         marginBottom: 0,
@@ -482,6 +477,12 @@ const style = StyleSheet.create((theme) => ({
     },
     last: {
         // marginBottom: 0
+    },
+    compactFirst: {
+        marginTop: 0,
+    },
+    compactLast: {
+        marginBottom: 0,
     },
 
     //

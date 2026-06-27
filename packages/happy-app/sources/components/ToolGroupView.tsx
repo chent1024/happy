@@ -39,6 +39,15 @@ export const ToolGroupView = React.memo<ToolGroupViewProps>((props) => {
     const singleToolMessage = suppressChildren && group.messages[0]?.kind === 'tool-call'
         ? group.messages[0]
         : null;
+    const headerLabel = React.useMemo(() => {
+        if (!singleToolMessage) {
+            return summary;
+        }
+        const category = getToolSummaryCategory(singleToolMessage.tool.name);
+        const title = getToolRowTitle(category, singleToolMessage.tool.name);
+        const detail = getToolSummaryDetail(singleToolMessage.tool);
+        return detail ? `${title} ${detail}` : title;
+    }, [singleToolMessage, summary]);
     const handleSingleToolPress = React.useCallback(() => {
         if (!singleToolMessage) {
             onToggle();
@@ -67,7 +76,7 @@ export const ToolGroupView = React.memo<ToolGroupViewProps>((props) => {
             <CollapseHeader
                 expanded={expanded}
                 hasRunning={group.hasRunning}
-                label={summary}
+                label={headerLabel}
                 onPress={singleToolMessage ? handleSingleToolPress : onToggle}
                 category={summaryCategory}
                 showChevron
@@ -228,9 +237,11 @@ function CollapseHeader(props: {
                     <ToolSummaryIcon category={props.category} color={theme.colors.textSecondary} />
                 </View>
             ) : null}
-            <Text style={styles.summaryText} numberOfLines={1}>
-                {props.label}
-            </Text>
+            <View style={styles.headerTextSlot}>
+                <Text style={styles.summaryText} numberOfLines={1}>
+                    {props.label}
+                </Text>
+            </View>
             {props.hasRunning && (
                 <ActivityIndicator
                     size="small"
@@ -239,11 +250,13 @@ function CollapseHeader(props: {
                 />
             )}
             {showChevron ? (
-                <Ionicons
-                    name={props.expanded ? 'chevron-down' : 'chevron-forward'}
-                    size={13}
-                    color={theme.colors.textSecondary}
-                />
+                <View style={styles.headerIcon}>
+                    <Ionicons
+                        name={props.expanded ? 'chevron-down' : 'chevron-forward'}
+                        size={13}
+                        color={theme.colors.textSecondary}
+                    />
+                </View>
             ) : null}
         </>
     );
@@ -331,16 +344,18 @@ function ToolSummaryRow(props: {
             <View style={styles.toolSummaryIcon}>
                 <ToolSummaryIcon category={category} color={theme.colors.textSecondary} />
             </View>
-            <Text style={styles.toolSummaryTitle} numberOfLines={1}>
-                {title}
-            </Text>
-            {detail ? (
-                <View style={styles.toolSummaryDetailPill}>
-                    <Text style={styles.toolSummaryDetailText} numberOfLines={1}>
-                        {detail}
-                    </Text>
-                </View>
-            ) : null}
+            <View style={styles.toolSummaryTextSlot}>
+                <Text style={styles.toolSummaryText} numberOfLines={1}>
+                    {detail ? `${title} ${detail}` : title}
+                </Text>
+            </View>
+            <View style={styles.toolSummaryIcon}>
+                <Ionicons
+                    name="chevron-forward"
+                    size={13}
+                    color={theme.colors.textSecondary}
+                />
+            </View>
         </>
     );
 
@@ -453,26 +468,31 @@ const styles = StyleSheet.create((theme) => ({
         gap: 6,
         alignSelf: 'stretch',
         marginHorizontal: 16,
-        minHeight: 24,
-        paddingVertical: 2,
+        height: 28,
         borderRadius: 4,
+        backgroundColor: 'transparent',
     },
     headerPressed: {
         opacity: 0.6,
     },
     headerIcon: {
         width: 14,
-        height: 18,
+        height: 16,
         alignItems: 'center',
         justifyContent: 'center',
         flexShrink: 0,
     },
     summaryText: {
-        flexShrink: 1,
-        minWidth: 0,
         fontSize: 13,
-        lineHeight: 20,
+        lineHeight: 18,
+        includeFontPadding: false,
         color: theme.colors.textSecondary,
+    },
+    headerTextSlot: {
+        flex: 1,
+        minWidth: 0,
+        height: 18,
+        justifyContent: 'center',
     },
     content: {
         marginTop: 2,
@@ -482,41 +502,32 @@ const styles = StyleSheet.create((theme) => ({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        minHeight: 24,
+        height: 28,
         marginHorizontal: 16,
-        paddingVertical: 2,
         borderRadius: 4,
         overflow: 'hidden',
+        backgroundColor: 'transparent',
     },
     toolSummaryRowPressed: {
         opacity: 0.65,
     },
     toolSummaryIcon: {
         width: 14,
-        height: 18,
+        height: 16,
         alignItems: 'center',
         justifyContent: 'center',
         flexShrink: 0,
     },
-    toolSummaryTitle: {
-        flexShrink: 0,
+    toolSummaryTextSlot: {
+        flex: 1,
+        minWidth: 0,
+        height: 18,
+        justifyContent: 'center',
+    },
+    toolSummaryText: {
         fontSize: 13,
         lineHeight: 18,
+        includeFontPadding: false,
         color: theme.colors.textSecondary,
-    },
-    toolSummaryDetailPill: {
-        flexShrink: 1,
-        minWidth: 0,
-        maxWidth: '100%',
-        borderRadius: 3,
-        paddingHorizontal: 4,
-        paddingVertical: 1,
-        backgroundColor: theme.colors.surfaceHighest,
-    },
-    toolSummaryDetailText: {
-        fontSize: 12,
-        lineHeight: 16,
-        color: theme.colors.textSecondary,
-        fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
     },
 }));

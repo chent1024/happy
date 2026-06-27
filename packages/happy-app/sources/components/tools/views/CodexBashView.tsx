@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View, Text } from 'react-native';
+import { View, Text, Platform } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Octicons } from '@expo/vector-icons';
 import { ToolCall } from '@/sync/typesMessage';
@@ -9,6 +9,8 @@ import { Metadata } from '@/sync/storageTypes';
 import { resolvePath } from '@/utils/pathUtils';
 import { stringifyToolCommand } from '@/utils/toolCommand';
 import { t } from '@/text';
+
+const OPERATION_ICON_SIZE = Platform.OS === 'web' ? 18 : 12;
 
 interface CodexBashViewProps {
     tool: ToolCall;
@@ -39,13 +41,13 @@ export const CodexBashView = React.memo<CodexBashViewProps>(({ tool, metadata })
     let icon: React.ReactNode;
     switch (operationType) {
         case 'read':
-            icon = <Octicons name="eye" size={18} color={theme.colors.textSecondary} />;
+            icon = <Octicons name="eye" size={OPERATION_ICON_SIZE} color={theme.colors.textSecondary} />;
             break;
         case 'write':
-            icon = <Octicons name="file-diff" size={18} color={theme.colors.textSecondary} />;
+            icon = <Octicons name="file-diff" size={OPERATION_ICON_SIZE} color={theme.colors.textSecondary} />;
             break;
         default:
-            icon = <Octicons name="terminal" size={18} color={theme.colors.textSecondary} />;
+            icon = <Octicons name="terminal" size={OPERATION_ICON_SIZE} color={theme.colors.textSecondary} />;
     }
 
     // Format the display based on operation type

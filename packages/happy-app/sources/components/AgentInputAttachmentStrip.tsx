@@ -11,8 +11,8 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
 import { thumbhashToDataUri } from '@/utils/thumbhash';
 
-const THUMB_SIZE = 64;
-const BORDER_RADIUS = 8;
+const THUMB_SIZE = 56;
+const BORDER_RADIUS = 14;
 
 interface AgentInputAttachmentStripProps {
     images: AttachmentPreview[];
@@ -89,13 +89,14 @@ function AttachmentThumbnail({
 
 const styles = StyleSheet.create(() => ({
     strip: {
-        marginBottom: 8,
-        marginHorizontal: 8,
+        marginBottom: 6,
+        marginHorizontal: 10,
     },
     stripContent: {
         flexDirection: 'row',
-        gap: 8,
-        paddingHorizontal: 4,
+        gap: 6,
+        paddingHorizontal: 2,
+        paddingTop: 2,
     },
     thumbContainer: {
         width: THUMB_SIZE,
@@ -110,11 +111,11 @@ const styles = StyleSheet.create(() => ({
     },
     removeButton: {
         position: 'absolute',
-        top: -6,
-        right: -6,
-        width: 18,
-        height: 18,
-        borderRadius: 9,
+        top: -5,
+        right: -5,
+        width: 17,
+        height: 17,
+        borderRadius: 8.5,
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 10,

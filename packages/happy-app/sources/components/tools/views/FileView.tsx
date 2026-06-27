@@ -8,7 +8,7 @@
  * ratio is used until the actual image lands and contentFit shows it.
  */
 import * as React from 'react';
-import { View, Text } from 'react-native';
+import { View, Text, Platform, Pressable, Modal as RNModal, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -28,17 +28,19 @@ const fileInputSchema = z.object({
     }).optional(),
 });
 
-const BORDER_RADIUS = 8;
-const MAX_IMAGE_WIDTH = 280;
-const MAX_IMAGE_HEIGHT = 360;
+const BORDER_RADIUS = 16;
+const MAX_IMAGE_WIDTH = 180;
+const MAX_IMAGE_HEIGHT = 240;
 const DEFAULT_ASPECT = 4 / 3; // when wire-format omits image{} dimensions
 
 export const FileView = React.memo<ToolViewProps>(({ tool, sessionId }) => {
     const { theme } = useUnistyles();
+    const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
+    const [previewVisible, setPreviewVisible] = React.useState(false);
     const parsed = fileInputSchema.safeParse(tool.input);
     if (!parsed.success) return null;
 
-    const { name, image, ref } = parsed.data;
+    const { image, ref } = parsed.data;
 
     const placeholder = React.useMemo(() => {
         if (!image?.thumbhash) return undefined;
@@ -66,12 +68,20 @@ export const FileView = React.memo<ToolViewProps>(({ tool, sessionId }) => {
 
     return (
         <View style={styles.inlineContainer}>
-            <View style={[styles.inlineWrapper, { borderColor: theme.colors.divider }]}>
+            <Pressable
+                disabled={!uri}
+                onPress={() => setPreviewVisible(true)}
+                style={({ pressed }) => [
+                    styles.inlineWrapper,
+                    { borderColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHighest },
+                    pressed && uri ? styles.inlineWrapperPressed : null,
+                ]}
+            >
                 <Image
                     source={uri ? { uri } : undefined}
                     placeholder={placeholder}
                     style={[{ width: displayW, height: displayH }, styles.inlineImage]}
-                    contentFit="cover"
+                    contentFit="contain"
                     transition={150}
                 />
                 {error && !uri && (
@@ -79,24 +89,75 @@ export const FileView = React.memo<ToolViewProps>(({ tool, sessionId }) => {
                         <Ionicons name="alert-circle-outline" size={20} color={theme.colors.textSecondary} />
                     </View>
                 )}
-            </View>
-            <Text style={[styles.filename, { color: theme.colors.textSecondary }]} numberOfLines={1}>{name}</Text>
+            </Pressable>
+            <RNModal
+                visible={previewVisible && !!uri}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setPreviewVisible(false)}
+            >
+                <View style={styles.previewRoot}>
+                    <Pressable
+                        style={styles.previewBackdrop}
+                        onPress={() => setPreviewVisible(false)}
+                    >
+                        <Image
+                            source={uri ? { uri } : undefined}
+                            placeholder={placeholder}
+                            style={[
+                                styles.previewImage,
+                                {
+                                    width: viewportWidth,
+                                    height: viewportHeight,
+                                },
+                            ]}
+                            contentFit="contain"
+                            transition={150}
+                        />
+                    </Pressable>
+                    <Pressable
+                        onPress={() => setPreviewVisible(false)}
+                        hitSlop={12}
+                        style={styles.previewCloseButton}
+                    >
+                        <Ionicons name="close" size={22} color="#fff" />
+                    </Pressable>
+                </View>
+            </RNModal>
         </View>
     );
 });
 
 const styles = StyleSheet.create(() => ({
     inlineContainer: {
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        gap: 4,
+        width: '100%',
+        paddingLeft: 16,
+        paddingRight: 8,
+        paddingTop: 2,
+        paddingBottom: 12,
+        alignItems: 'flex-end',
     },
     inlineWrapper: {
         borderRadius: BORDER_RADIUS,
         borderWidth: 1,
         overflow: 'hidden',
-        alignSelf: 'flex-start',
+        alignSelf: 'flex-end',
         position: 'relative',
+        ...Platform.select({
+            ios: {
+                shadowColor: '#000',
+                shadowOpacity: 0.08,
+                shadowRadius: 10,
+                shadowOffset: { width: 0, height: 4 },
+            },
+            android: {
+                elevation: 2,
+            },
+            default: {},
+        }),
+    },
+    inlineWrapperPressed: {
+        opacity: 0.86,
     },
     inlineImage: {
         borderRadius: BORDER_RADIUS,
@@ -111,8 +172,27 @@ const styles = StyleSheet.create(() => ({
         alignItems: 'center',
         justifyContent: 'center',
     },
-    filename: {
-        fontSize: 13,
-        fontWeight: '500',
+    previewRoot: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.94)',
+    },
+    previewBackdrop: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    previewImage: {
+        flexShrink: 0,
+    },
+    previewCloseButton: {
+        position: 'absolute',
+        top: Platform.OS === 'ios' ? 54 : 28,
+        right: 18,
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(255,255,255,0.18)',
     },
 }));

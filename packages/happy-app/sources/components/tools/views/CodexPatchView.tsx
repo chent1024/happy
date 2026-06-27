@@ -3,7 +3,6 @@ import { Pressable, View, Text } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Ionicons, Octicons } from '@expo/vector-icons';
 import { ToolCall } from '@/sync/typesMessage';
-import { ToolSectionView } from '../ToolSectionView';
 import { Metadata } from '@/sync/storageTypes';
 import { resolvePath } from '@/utils/pathUtils';
 import { ToolDiffView } from '@/components/tools/ToolDiffView';
@@ -216,88 +215,115 @@ const CodexPatchFileView = React.memo(function CodexPatchFileView(props: {
             ? getPatchDiffStats(displayPatch ?? diffInput.patch)
             : getDiffStats(diffInput.oldText, diffInput.newText);
 
-    return (
-        <ToolSectionView fullWidth>
-            <View style={styles.editedFileGroup}>
-                <Pressable
-                    onPress={() => setExpanded((value) => !value)}
-                    style={({ pressed }) => [
-                        styles.editToggle,
-                        pressed && styles.editTogglePressed,
-                    ]}
-                >
-                    <Text style={styles.editToggleText} numberOfLines={1}>
-                        {t('toolGroup.editedFile')}
-                    </Text>
-                    <Ionicons
-                        name={expanded ? 'chevron-down' : 'chevron-forward'}
-                        size={14}
-                        color={theme.colors.textSecondary}
-                    />
-                </Pressable>
-                {expanded ? (
-                    <View style={styles.patchContainer}>
-                        <View style={styles.fileHeader}>
-                            <View style={styles.fileHeaderMain}>
-                                <Octicons name="file-diff" size={16} color={theme.colors.textSecondary} />
-                                <Text style={styles.filePath}>{filePath}</Text>
-                                {kindLabel ? <Text style={styles.kindLabel}>{kindLabel}</Text> : null}
-                                {stats && (stats.additions > 0 || stats.deletions > 0) ? (
-                                    <View style={styles.stats}>
-                                        {stats.additions > 0 ? <Text style={styles.added}>+{stats.additions}</Text> : null}
-                                        {stats.deletions > 0 ? <Text style={styles.removed}>-{stats.deletions}</Text> : null}
-                                    </View>
-                                ) : null}
-                            </View>
-                            {movePath ? <Text style={styles.movePath}>{movePath}</Text> : null}
-                        </View>
-                        {displayPatch ? (
-                            <ToolDiffView patch={displayPatch} fileName={fileName} />
-                        ) : diffInput?.kind === 'pair' && (diffInput.oldText.length > 0 || diffInput.newText.length > 0) ? (
-                            <ToolDiffView
-                                oldText={diffInput.oldText}
-                                newText={diffInput.newText}
-                                fileName={fileName}
-                            />
-                        ) : null}
-                        {permissionFooter ? (
-                            <View style={styles.permissionFooterContainer}>
-                                {permissionFooter}
-                            </View>
-                        ) : null}
-                    </View>
-                ) : null}
+    const toggle = (
+        <Pressable
+            onPress={() => setExpanded((value) => !value)}
+            style={({ pressed }) => [
+                styles.compactPatchRow,
+                pressed && styles.compactPatchRowPressed,
+            ]}
+        >
+            <View style={styles.compactPatchIcon}>
+                <Octicons name="file-diff" size={12} color={theme.colors.textSecondary} />
             </View>
-        </ToolSectionView>
+            <View style={styles.compactPatchTextSlot}>
+                <Text style={styles.compactPatchText} numberOfLines={1}>
+                    {`${t('tools.names.applyChanges')} ${fileName}`}
+                </Text>
+            </View>
+            <View style={styles.compactPatchIcon}>
+                <Ionicons
+                    name={expanded ? 'chevron-down' : 'chevron-forward'}
+                    size={13}
+                    color={theme.colors.textSecondary}
+                />
+            </View>
+        </Pressable>
+    );
+
+    if (!expanded) {
+        return toggle;
+    }
+
+    return (
+        <View style={styles.editedFileGroup}>
+            {toggle}
+            {expanded ? (
+                <View style={styles.patchContainer}>
+                    <View style={styles.fileHeader}>
+                        <View style={styles.fileHeaderMain}>
+                            <Octicons name="file-diff" size={16} color={theme.colors.textSecondary} />
+                            <Text style={styles.filePath}>{filePath}</Text>
+                            {kindLabel ? <Text style={styles.kindLabel}>{kindLabel}</Text> : null}
+                            {stats && (stats.additions > 0 || stats.deletions > 0) ? (
+                                <View style={styles.stats}>
+                                    {stats.additions > 0 ? <Text style={styles.added}>+{stats.additions}</Text> : null}
+                                    {stats.deletions > 0 ? <Text style={styles.removed}>-{stats.deletions}</Text> : null}
+                                </View>
+                            ) : null}
+                        </View>
+                        {movePath ? <Text style={styles.movePath}>{movePath}</Text> : null}
+                    </View>
+                    {displayPatch ? (
+                        <ToolDiffView patch={displayPatch} fileName={fileName} />
+                    ) : diffInput?.kind === 'pair' && (diffInput.oldText.length > 0 || diffInput.newText.length > 0) ? (
+                        <ToolDiffView
+                            oldText={diffInput.oldText}
+                            newText={diffInput.newText}
+                            fileName={fileName}
+                        />
+                    ) : null}
+                    {permissionFooter ? (
+                        <View style={styles.permissionFooterContainer}>
+                            {permissionFooter}
+                        </View>
+                    ) : null}
+                </View>
+            ) : null}
+        </View>
     );
 });
 
 const styles = StyleSheet.create((theme) => ({
     editedFileGroup: {
-        gap: 6,
+        gap: 4,
     },
-    editToggle: {
+    compactPatchRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        alignSelf: 'flex-start',
-        gap: 4,
+        alignSelf: 'stretch',
+        gap: 6,
         maxWidth: '100%',
-        paddingHorizontal: 14,
-        paddingTop: 2,
-        paddingBottom: 4,
+        height: 28,
+        paddingHorizontal: 8,
+        backgroundColor: 'transparent',
     },
-    editTogglePressed: {
+    compactPatchRowPressed: {
         opacity: 0.6,
     },
-    editToggleText: {
-        flexShrink: 1,
-        fontSize: 14,
+    compactPatchIcon: {
+        width: 14,
+        height: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+    },
+    compactPatchTextSlot: {
+        flex: 1,
+        minWidth: 0,
+        height: 18,
+        justifyContent: 'center',
+    },
+    compactPatchText: {
+        fontSize: 13,
+        lineHeight: 18,
+        includeFontPadding: false,
         color: theme.colors.textSecondary,
     },
     patchContainer: {
         backgroundColor: theme.colors.surface,
         overflow: 'hidden',
-        marginHorizontal: 14,
+        marginHorizontal: 8,
         borderRadius: 8,
         borderWidth: 1,
         borderColor: theme.colors.divider,
@@ -307,8 +333,8 @@ const styles = StyleSheet.create((theme) => ({
         paddingTop: 8,
     },
     fileHeader: {
-        paddingHorizontal: 16,
-        paddingVertical: 10,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
         backgroundColor: theme.colors.surfaceHigh,
         borderBottomWidth: 1,
         borderBottomColor: theme.colors.divider,
