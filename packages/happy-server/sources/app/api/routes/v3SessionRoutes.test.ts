@@ -1,4 +1,5 @@
 import fastify from "fastify";
+import fastifyCompress from "@fastify/compress";
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from "fastify-type-provider-zod";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type Fastify } from "../types";
@@ -22,6 +23,7 @@ type MessageRecord = {
 const {
     state,
     emitUpdateMock,
+    logMock,
     dbMock,
     resetState,
     seedSession,
@@ -196,10 +198,12 @@ const {
     };
 
     const emitUpdateMock = vi.fn();
+    const logMock = vi.fn();
 
     return {
         state,
         emitUpdateMock,
+        logMock,
         dbMock,
         resetState,
         seedSession,
@@ -213,6 +217,10 @@ vi.mock("@/storage/db", () => ({
 
 vi.mock("@/utils/randomKeyNaked", () => ({
     randomKeyNaked: vi.fn(() => "update-id")
+}));
+
+vi.mock("@/utils/log", () => ({
+    log: logMock
 }));
 
 vi.mock("@/app/events/eventRouter", () => ({
@@ -235,6 +243,10 @@ import { v3SessionRoutes } from "./v3SessionRoutes";
 
 async function createApp() {
     const app = fastify();
+    await app.register(fastifyCompress, {
+        global: true,
+        threshold: 1024
+    });
     app.setValidatorCompiler(validatorCompiler);
     app.setSerializerCompiler(serializerCompiler);
     const typed = app.withTypeProvider<ZodTypeProvider>() as unknown as Fastify;
@@ -258,9 +270,11 @@ describe("v3SessionRoutes", () => {
     beforeEach(() => {
         resetState();
         emitUpdateMock.mockClear();
+        logMock.mockClear();
     });
 
     afterEach(async () => {
+        vi.useRealTimers();
         if (app) {
             await app.close();
         }
@@ -282,6 +296,61 @@ describe("v3SessionRoutes", () => {
         const body = response.json();
         expect(body.hasMore).toBe(false);
         expect(body.messages.map((message: any) => message.seq)).toEqual([1, 2]);
+    });
+
+    it("logs read performance and response size for message pages", async () => {
+        seedSession({ id: "session-1", accountId: "user-1" });
+        seedMessage({ sessionId: "session-1", seq: 1, localId: "l1", content: { t: "encrypted", c: "a" } });
+
+        app = await createApp();
+        const response = await app.inject({
+            method: "GET",
+            url: "/v3/sessions/session-1/messages?after_seq=0&limit=2",
+            headers: { "x-user-id": "user-1" }
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(logMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                module: "session-messages",
+                userId: "user-1",
+                sessionId: "session-1",
+                direction: "forward",
+                limit: 2,
+                returnedCount: 1,
+                hasMore: false,
+                responseBytes: expect.any(Number),
+                dbMs: expect.any(Number),
+                totalMs: expect.any(Number)
+            }),
+            "Fetched session messages page"
+        );
+    });
+
+    it("compresses large message pages when the client accepts gzip", async () => {
+        seedSession({ id: "session-1", accountId: "user-1" });
+        for (let seq = 1; seq <= 3; seq += 1) {
+            seedMessage({
+                sessionId: "session-1",
+                seq,
+                localId: `l${seq}`,
+                content: { t: "encrypted", c: "x".repeat(1200) }
+            });
+        }
+
+        app = await createApp();
+        const response = await app.inject({
+            method: "GET",
+            url: "/v3/sessions/session-1/messages?after_seq=0&limit=3",
+            headers: {
+                "x-user-id": "user-1",
+                "accept-encoding": "gzip"
+            }
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.headers["content-encoding"]).toBe("gzip");
+        expect(response.headers["vary"]).toContain("accept-encoding");
     });
 
     it("supports cursor pagination with hasMore", async () => {
@@ -320,6 +389,9 @@ describe("v3SessionRoutes", () => {
     });
 
     it("supports backward pagination with before_seq returning newest first", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-06-25T00:00:00.000Z"));
+
         seedSession({ id: "session-1", accountId: "user-1" });
         for (let seq = 1; seq <= 5; seq += 1) {
             seedMessage({ sessionId: "session-1", seq, localId: `l${seq}`, content: { t: "encrypted", c: String(seq) } });
@@ -341,24 +413,223 @@ describe("v3SessionRoutes", () => {
         expect(body1.hasMore).toBe(true);
 
         // Cursor backward from the lowest seq returned in the previous page.
-        const older = await app.inject({
+        const olderPromise = app.inject({
             method: "GET",
             url: "/v3/sessions/session-1/messages?before_seq=4&limit=2",
             headers: { "x-user-id": "user-1" }
         });
+        await vi.advanceTimersByTimeAsync(1000);
+        const older = await olderPromise;
         const body2 = older.json();
         expect(body2.messages.map((message: any) => message.seq)).toEqual([3, 2]);
         expect(body2.hasMore).toBe(true);
 
         // Final page: only seq=1 remains.
-        const oldest = await app.inject({
+        const oldestPromise = app.inject({
             method: "GET",
             url: "/v3/sessions/session-1/messages?before_seq=2&limit=2",
             headers: { "x-user-id": "user-1" }
         });
+        await vi.advanceTimersByTimeAsync(1000);
+        const oldest = await oldestPromise;
         const body3 = oldest.json();
         expect(body3.messages.map((message: any) => message.seq)).toEqual([1]);
         expect(body3.hasMore).toBe(false);
+    });
+
+    it("caps backward history pages at 50 messages without reducing forward pages", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-06-25T00:00:00.000Z"));
+
+        seedSession({ id: "cap-session", accountId: "cap-user" });
+        for (let seq = 1; seq <= 80; seq += 1) {
+            seedMessage({ sessionId: "cap-session", seq, localId: `l${seq}`, content: { t: "encrypted", c: String(seq) } });
+        }
+
+        app = await createApp();
+        const forward = await app.inject({
+            method: "GET",
+            url: "/v3/sessions/cap-session/messages?after_seq=0&limit=80",
+            headers: { "x-user-id": "cap-user" }
+        });
+        expect(forward.statusCode).toBe(200);
+        expect(forward.json().messages).toHaveLength(80);
+
+        const backwardPromise = app.inject({
+            method: "GET",
+            url: `/v3/sessions/cap-session/messages?before_seq=${Number.MAX_SAFE_INTEGER}&limit=100`,
+            headers: { "x-user-id": "cap-user" }
+        });
+        const backward = await backwardPromise;
+        const backwardBody = backward.json();
+        expect(backward.statusCode).toBe(200);
+        expect(backwardBody.messages).toHaveLength(50);
+        expect(backwardBody.messages[0].seq).toBe(80);
+        expect(backwardBody.messages[49].seq).toBe(31);
+        expect(backwardBody.hasMore).toBe(true);
+        expect(logMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                module: "session-messages",
+                direction: "backward",
+                requestedLimit: 100,
+                limit: 50,
+                returnedCount: 50,
+                fetchedCount: 51,
+                hasMore: true
+            }),
+            "Fetched session messages page"
+        );
+    });
+
+    it("coalesces repeated empty forward pages for a short TTL", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-06-25T00:00:00.000Z"));
+
+        seedSession({ id: "empty-forward-session", accountId: "user-1" });
+        dbMock.sessionMessage.findMany.mockClear();
+
+        app = await createApp();
+        const first = await app.inject({
+            method: "GET",
+            url: "/v3/sessions/empty-forward-session/messages?after_seq=10&limit=100",
+            headers: { "x-user-id": "user-1" }
+        });
+        expect(first.statusCode).toBe(200);
+        expect(first.json()).toEqual({ messages: [], hasMore: false });
+        expect(dbMock.sessionMessage.findMany).toHaveBeenCalledTimes(1);
+
+        const second = await app.inject({
+            method: "GET",
+            url: "/v3/sessions/empty-forward-session/messages?after_seq=10&limit=100",
+            headers: { "x-user-id": "user-1" }
+        });
+        expect(second.statusCode).toBe(200);
+        expect(second.json()).toEqual({ messages: [], hasMore: false });
+        expect(dbMock.sessionMessage.findMany).toHaveBeenCalledTimes(1);
+        expect(logMock).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                module: "session-messages",
+                direction: "forward",
+                cacheHit: true,
+                returnedCount: 0,
+                messagesQueryMs: 0
+            }),
+            "Fetched session messages page"
+        );
+
+        await vi.advanceTimersByTimeAsync(751);
+        const third = await app.inject({
+            method: "GET",
+            url: "/v3/sessions/empty-forward-session/messages?after_seq=10&limit=100",
+            headers: { "x-user-id": "user-1" }
+        });
+        expect(third.statusCode).toBe(200);
+        expect(dbMock.sessionMessage.findMany).toHaveBeenCalledTimes(2);
+    });
+
+    it("soft-throttles repeated backward history pages per user session", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-06-25T00:00:00.000Z"));
+
+        seedSession({ id: "throttle-session", accountId: "user-1" });
+        for (let seq = 1; seq <= 5; seq += 1) {
+            seedMessage({ sessionId: "throttle-session", seq, localId: `l${seq}`, content: { t: "encrypted", c: String(seq) } });
+        }
+
+        app = await createApp();
+        const first = await app.inject({
+            method: "GET",
+            url: "/v3/sessions/throttle-session/messages?before_seq=6&limit=2",
+            headers: { "x-user-id": "user-1" }
+        });
+        expect(first.statusCode).toBe(200);
+
+        const secondPromise = app.inject({
+            method: "GET",
+            url: "/v3/sessions/throttle-session/messages?before_seq=4&limit=2",
+            headers: { "x-user-id": "user-1" }
+        });
+
+        await vi.advanceTimersByTimeAsync(999);
+        let settled = false;
+        void secondPromise.then(() => {
+            settled = true;
+        });
+        await Promise.resolve();
+        expect(settled).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(1);
+        const second = await secondPromise;
+        expect(second.statusCode).toBe(200);
+        expect(logMock).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                module: "session-messages",
+                direction: "backward",
+                throttleDelayMs: 1000
+            }),
+            "Fetched session messages page"
+        );
+    });
+
+    it("backs off continuous backward history pages after the first pages", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-06-25T00:00:00.000Z"));
+
+        seedSession({ id: "backoff-session", accountId: "user-1" });
+        for (let seq = 1; seq <= 10; seq += 1) {
+            seedMessage({ sessionId: "backoff-session", seq, localId: `l${seq}`, content: { t: "encrypted", c: String(seq) } });
+        }
+
+        app = await createApp();
+        const first = await app.inject({
+            method: "GET",
+            url: "/v3/sessions/backoff-session/messages?before_seq=11&limit=1",
+            headers: { "x-user-id": "user-1" }
+        });
+        expect(first.statusCode).toBe(200);
+
+        const secondPromise = app.inject({
+            method: "GET",
+            url: "/v3/sessions/backoff-session/messages?before_seq=10&limit=1",
+            headers: { "x-user-id": "user-1" }
+        });
+        await vi.advanceTimersByTimeAsync(1000);
+        expect((await secondPromise).statusCode).toBe(200);
+
+        const thirdPromise = app.inject({
+            method: "GET",
+            url: "/v3/sessions/backoff-session/messages?before_seq=9&limit=1",
+            headers: { "x-user-id": "user-1" }
+        });
+        await vi.advanceTimersByTimeAsync(1000);
+        expect((await thirdPromise).statusCode).toBe(200);
+
+        const fourthPromise = app.inject({
+            method: "GET",
+            url: "/v3/sessions/backoff-session/messages?before_seq=8&limit=1",
+            headers: { "x-user-id": "user-1" }
+        });
+        let settled = false;
+        void fourthPromise.then(() => {
+            settled = true;
+        });
+        await vi.advanceTimersByTimeAsync(1999);
+        await Promise.resolve();
+        expect(settled).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(1);
+        const fourth = await fourthPromise;
+        expect(fourth.statusCode).toBe(200);
+        expect(logMock).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                module: "session-messages",
+                direction: "backward",
+                backwardThrottleStreak: 4,
+                throttleDelayMs: 2000,
+                throttleIntervalMs: 2000
+            }),
+            "Fetched session messages page"
+        );
     });
 
     it("rejects requests that combine after_seq and before_seq", async () => {

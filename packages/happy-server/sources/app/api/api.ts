@@ -1,4 +1,6 @@
 import fastify from "fastify";
+import fastifyCompress from "@fastify/compress";
+import fastifyCors from "@fastify/cors";
 import { log, logger } from "@/utils/log";
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from "fastify-type-provider-zod";
 import { onShutdown } from "@/utils/shutdown";
@@ -26,6 +28,7 @@ import { attachmentRoutes } from "./routes/attachmentRoutes";
 import { isLocalStorage, getLocalFilesDir } from "@/storage/files";
 import * as path from "path";
 import * as fs from "fs";
+import { normalizeLeadingSlashes } from "./utils/requestUrl";
 
 export interface StartApiOptions {
     port?: number;
@@ -43,13 +46,17 @@ export async function startApi(opts: StartApiOptions = {}) {
     const app = fastify({
         loggerInstance: logger,
         bodyLimit: 1024 * 1024 * 100, // 100MB
+        rewriteUrl: (request) => normalizeLeadingSlashes(request.url) ?? request.url ?? "/",
     });
-    app.register(import('@fastify/cors'), {
+    await app.register(fastifyCors, {
         origin: '*',
         allowedHeaders: '*',
         methods: ['GET', 'POST', 'PUT', 'DELETE']
     });
-
+    await app.register(fastifyCompress, {
+        global: true,
+        threshold: 1024
+    });
     // Required for local-mode attachment uploads (PUT /v1/sessions/:id/attachments/:file).
     // Fastify v5 rejects unknown media types with 415 before reaching the handler.
     app.addContentTypeParser(

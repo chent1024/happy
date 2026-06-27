@@ -1,6 +1,8 @@
 import { buildNewMessageUpdate, eventRouter } from "@/app/events/eventRouter";
 import { db } from "@/storage/db";
 import { allocateSessionSeqBatch, allocateUserSeq } from "@/storage/seq";
+import { delay } from "@/utils/delay";
+import { log } from "@/utils/log";
 import { randomKeyNaked } from "@/utils/randomKeyNaked";
 import { z } from "zod";
 import { type Fastify } from "../types";
@@ -30,6 +32,33 @@ const sendMessagesBodySchema = z.object({
         localId: z.string().min(1)
     })).min(1).max(100)
 });
+
+const BACKWARD_MESSAGES_MIN_INTERVAL_MS = 1000;
+const BACKWARD_MESSAGES_EXTENDED_INTERVAL_MS = 2000;
+const BACKWARD_MESSAGES_EXTENDED_AFTER_PAGES = 3;
+const BACKWARD_MESSAGES_THROTTLE_RESET_MS = 10_000;
+const BACKWARD_MESSAGES_MAX_LIMIT = 50;
+const MAX_BACKWARD_THROTTLE_KEYS = 10_000;
+const FORWARD_EMPTY_CACHE_TTL_MS = 750;
+const MAX_FORWARD_EMPTY_CACHE_KEYS = 10_000;
+
+type BackwardThrottleEntry = {
+    nextAllowedAt: number;
+    lastReservedAt: number;
+    streak: number;
+};
+
+type ForwardEmptyCacheEntry = {
+    expiresAt: number;
+    responseBody: {
+        messages: [];
+        hasMore: false;
+    };
+    responseBytes: number;
+};
+
+const backwardMessagesThrottle = new Map<string, BackwardThrottleEntry>();
+const forwardEmptyMessagesCache = new Map<string, ForwardEmptyCacheEntry>();
 
 type SelectedMessage = {
     id: string;
@@ -61,6 +90,80 @@ function toSendResponseMessage(message: Omit<SelectedMessage, "content">) {
     };
 }
 
+function estimateJsonBytes(value: unknown): number {
+    return Buffer.byteLength(JSON.stringify(value));
+}
+
+function reserveBackwardMessagesThrottle(userId: string, sessionId: string, now = Date.now()) {
+    const key = `${userId}:${sessionId}`;
+    const current = backwardMessagesThrottle.get(key);
+    const shouldReset = !current || now - current.lastReservedAt > BACKWARD_MESSAGES_THROTTLE_RESET_MS;
+    const streak = shouldReset ? 1 : current.streak + 1;
+    const intervalMs = streak >= BACKWARD_MESSAGES_EXTENDED_AFTER_PAGES
+        ? BACKWARD_MESSAGES_EXTENDED_INTERVAL_MS
+        : BACKWARD_MESSAGES_MIN_INTERVAL_MS;
+    const nextAllowedAt = shouldReset ? now : current.nextAllowedAt;
+    const waitMs = Math.max(0, nextAllowedAt - now);
+    backwardMessagesThrottle.set(key, {
+        nextAllowedAt: now + waitMs + intervalMs,
+        lastReservedAt: now,
+        streak
+    });
+
+    if (backwardMessagesThrottle.size > MAX_BACKWARD_THROTTLE_KEYS) {
+        for (const [entryKey, entry] of backwardMessagesThrottle) {
+            if (entry.nextAllowedAt <= now && now - entry.lastReservedAt > BACKWARD_MESSAGES_THROTTLE_RESET_MS) {
+                backwardMessagesThrottle.delete(entryKey);
+            }
+        }
+    }
+
+    return { waitMs, intervalMs, streak };
+}
+
+function getForwardEmptyCacheKey(userId: string, sessionId: string, afterSeq: number, limit: number) {
+    return `${userId}:${sessionId}:${afterSeq}:${limit}`;
+}
+
+function readForwardEmptyCache(userId: string, sessionId: string, afterSeq: number, limit: number, now = Date.now()) {
+    const key = getForwardEmptyCacheKey(userId, sessionId, afterSeq, limit);
+    const cached = forwardEmptyMessagesCache.get(key);
+    if (!cached) {
+        return null;
+    }
+    if (cached.expiresAt <= now) {
+        forwardEmptyMessagesCache.delete(key);
+        return null;
+    }
+    return cached;
+}
+
+function writeForwardEmptyCache(userId: string, sessionId: string, afterSeq: number, limit: number, responseBytes: number, now = Date.now()) {
+    const key = getForwardEmptyCacheKey(userId, sessionId, afterSeq, limit);
+    forwardEmptyMessagesCache.set(key, {
+        expiresAt: now + FORWARD_EMPTY_CACHE_TTL_MS,
+        responseBody: { messages: [], hasMore: false },
+        responseBytes
+    });
+
+    if (forwardEmptyMessagesCache.size > MAX_FORWARD_EMPTY_CACHE_KEYS) {
+        for (const [entryKey, entry] of forwardEmptyMessagesCache) {
+            if (entry.expiresAt <= now) {
+                forwardEmptyMessagesCache.delete(entryKey);
+            }
+        }
+    }
+}
+
+function clearForwardEmptyCache(userId: string, sessionId: string) {
+    const prefix = `${userId}:${sessionId}:`;
+    for (const key of forwardEmptyMessagesCache.keys()) {
+        if (key.startsWith(prefix)) {
+            forwardEmptyMessagesCache.delete(key);
+        }
+    }
+}
+
 export function v3SessionRoutes(app: Fastify) {
     app.get('/v3/sessions/:sessionId/messages', {
         preHandler: app.authenticate,
@@ -71,10 +174,12 @@ export function v3SessionRoutes(app: Fastify) {
             querystring: getMessagesQuerySchema
         }
     }, async (request, reply) => {
+        const startedAt = Date.now();
         const userId = request.userId;
         const { sessionId } = request.params;
         const { after_seq, before_seq, limit } = request.query;
 
+        const sessionLookupStartedAt = Date.now();
         const session = await db.session.findFirst({
             where: {
                 id: sessionId,
@@ -82,6 +187,7 @@ export function v3SessionRoutes(app: Fastify) {
             },
             select: { id: true }
         });
+        const sessionLookupMs = Date.now() - sessionLookupStartedAt;
 
         if (!session) {
             return reply.code(404).send({ error: 'Session not found' });
@@ -90,17 +196,58 @@ export function v3SessionRoutes(app: Fastify) {
         // Backward direction is opt-in via `before_seq`; everything else (no
         // params, or explicit `after_seq`) keeps the legacy forward semantics.
         const isBackward = before_seq !== undefined;
+        const effectiveLimit = isBackward
+            ? Math.min(limit, BACKWARD_MESSAGES_MAX_LIMIT)
+            : limit;
+        const effectiveAfterSeq = after_seq ?? 0;
+        const cachedForwardEmpty = !isBackward
+            ? readForwardEmptyCache(userId, sessionId, effectiveAfterSeq, effectiveLimit)
+            : null;
+        if (cachedForwardEmpty) {
+            log({
+                module: 'session-messages',
+                userId,
+                sessionId,
+                direction: 'forward',
+                afterSeq: after_seq,
+                beforeSeq: before_seq,
+                requestedLimit: limit,
+                limit: effectiveLimit,
+                returnedCount: 0,
+                fetchedCount: 0,
+                hasMore: false,
+                responseBytes: cachedForwardEmpty.responseBytes,
+                throttleDelayMs: 0,
+                throttleIntervalMs: 0,
+                backwardThrottleStreak: 0,
+                cacheHit: true,
+                sessionLookupMs,
+                messagesQueryMs: 0,
+                dbMs: sessionLookupMs,
+                totalMs: Date.now() - startedAt
+            }, 'Fetched session messages page');
+
+            return reply.send(cachedForwardEmpty.responseBody);
+        }
+
         const where = isBackward
             ? { sessionId, seq: { lt: before_seq } }
-            : { sessionId, seq: { gt: after_seq ?? 0 } };
+            : { sessionId, seq: { gt: effectiveAfterSeq } };
         const orderBy = isBackward
             ? { seq: 'desc' as const }
             : { seq: 'asc' as const };
+        const throttle = isBackward
+            ? reserveBackwardMessagesThrottle(userId, sessionId)
+            : { waitMs: 0, intervalMs: 0, streak: 0 };
+        if (throttle.waitMs > 0) {
+            await delay(throttle.waitMs);
+        }
 
+        const messagesQueryStartedAt = Date.now();
         const messages = await db.sessionMessage.findMany({
             where,
             orderBy,
-            take: limit + 1,
+            take: effectiveLimit + 1,
             select: {
                 id: true,
                 seq: true,
@@ -110,14 +257,43 @@ export function v3SessionRoutes(app: Fastify) {
                 updatedAt: true
             }
         });
+        const messagesQueryMs = Date.now() - messagesQueryStartedAt;
 
-        const hasMore = messages.length > limit;
-        const page = hasMore ? messages.slice(0, limit) : messages;
-
-        return reply.send({
+        const hasMore = messages.length > effectiveLimit;
+        const page = hasMore ? messages.slice(0, effectiveLimit) : messages;
+        const responseBody = {
             messages: page.map(toResponseMessage),
             hasMore
-        });
+        };
+        const responseBytes = estimateJsonBytes(responseBody);
+        if (!isBackward && page.length === 0 && !hasMore) {
+            writeForwardEmptyCache(userId, sessionId, effectiveAfterSeq, effectiveLimit, responseBytes);
+        }
+
+        log({
+            module: 'session-messages',
+            userId,
+            sessionId,
+            direction: isBackward ? 'backward' : 'forward',
+            afterSeq: after_seq,
+            beforeSeq: before_seq,
+            requestedLimit: limit,
+            limit: effectiveLimit,
+            returnedCount: page.length,
+            fetchedCount: messages.length,
+            hasMore,
+            responseBytes,
+            throttleDelayMs: throttle.waitMs,
+            throttleIntervalMs: throttle.intervalMs,
+            backwardThrottleStreak: throttle.streak,
+            cacheHit: false,
+            sessionLookupMs,
+            messagesQueryMs,
+            dbMs: sessionLookupMs + messagesQueryMs,
+            totalMs: Date.now() - startedAt
+        }, 'Fetched session messages page');
+
+        return reply.send(responseBody);
     });
 
     app.post('/v3/sessions/:sessionId/messages', {
@@ -213,6 +389,7 @@ export function v3SessionRoutes(app: Fastify) {
                 createdMessages
             };
         });
+        clearForwardEmptyCache(userId, sessionId);
 
         for (const message of txResult.createdMessages) {
             const content = message.localId ? contentByLocalId.get(message.localId) : null;
