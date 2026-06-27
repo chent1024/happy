@@ -7,16 +7,22 @@ const SERVER_KEY = 'custom-server-url';
 const LOG_SERVER_KEY = 'log-server-url';
 const DEFAULT_SERVER_URL = 'https://api.cluster-fluster.com';
 
+function normalizeServerUrl(url: string): string {
+    return url.trim().replace(/\/+$/, '');
+}
+
 export function getServerUrl(): string {
-    return serverConfigStorage.getString(SERVER_KEY) ||
-           (globalThis as any).__HAPPY_CONFIG__?.serverUrl ||
-           process.env.EXPO_PUBLIC_HAPPY_SERVER_URL ||
-           DEFAULT_SERVER_URL;
+    return normalizeServerUrl(
+        serverConfigStorage.getString(SERVER_KEY) ||
+        (globalThis as any).__HAPPY_CONFIG__?.serverUrl ||
+        process.env.EXPO_PUBLIC_HAPPY_SERVER_URL ||
+        DEFAULT_SERVER_URL
+    );
 }
 
 export function setServerUrl(url: string | null): void {
     if (url && url.trim()) {
-        serverConfigStorage.set(SERVER_KEY, url.trim());
+        serverConfigStorage.set(SERVER_KEY, normalizeServerUrl(url));
     } else {
         serverConfigStorage.delete(SERVER_KEY);
     }

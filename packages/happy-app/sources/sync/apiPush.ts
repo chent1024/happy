@@ -64,23 +64,21 @@ export async function fetchPushTokens(credentials: AuthCredentials): Promise<Pus
 
 export async function unregisterPushToken(credentials: AuthCredentials, token: string): Promise<void> {
     const API_ENDPOINT = getServerUrl();
-    await backoff(async () => {
-        const response = await fetch(`${API_ENDPOINT}/v1/push-tokens/${encodeURIComponent(token)}`, {
-            method: 'DELETE',
-            headers: {
-                'Authorization': `Bearer ${credentials.token}`,
-                'Content-Type': 'application/json',
-                'X-Happy-Client': getHappyClientId(),
-            }
-        });
-
-        if (!response.ok) {
-            throw new Error(`Failed to unregister push token: ${response.status}`);
-        }
-
-        const data = await response.json();
-        if (!data.success) {
-            throw new Error('Failed to unregister push token');
+    const response = await fetch(`${API_ENDPOINT}/v1/push-tokens/${encodeURIComponent(token)}`, {
+        method: 'DELETE',
+        headers: {
+            'Authorization': `Bearer ${credentials.token}`,
+            'Content-Type': 'application/json',
+            'X-Happy-Client': getHappyClientId(),
         }
     });
+
+    if (!response.ok) {
+        throw new Error(`Failed to unregister push token: ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (!data.success) {
+        throw new Error('Failed to unregister push token');
+    }
 }

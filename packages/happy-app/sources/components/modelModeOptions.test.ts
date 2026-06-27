@@ -52,7 +52,7 @@ describe('modelModeOptions', () => {
         expect(getDefaultEffortKey('claude')).toBe('medium');
         expect(getDefaultPermissionModeKey('codex')).toBe('yolo');
         expect(getDefaultModelKey('codex')).toBe('gpt-5.5');
-        expect(getDefaultEffortKey('codex')).toBe('medium');
+        expect(getDefaultEffortKey('codex')).toBe('high');
     });
 
     it('prefers metadata models over hardcoded fallbacks', () => {
