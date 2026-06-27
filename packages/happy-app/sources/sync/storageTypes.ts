@@ -110,6 +110,28 @@ export const AgentGoalStatusSchema = z.discriminatedUnion('status', [
 
 export type AgentGoalStatus = z.infer<typeof AgentGoalStatusSchema>;
 
+export const CodexRateLimitWindowStateSchema = z.object({
+    usedPercent: z.number(),
+    remainingPercent: z.number(),
+    windowDurationMins: z.number().nullable(),
+    resetsAt: z.number().nullable(),
+}).strict();
+
+export const CodexAccountRateLimitsStateSchema = z.object({
+    updatedAt: z.number(),
+    limitId: z.string().nullable().optional(),
+    limitName: z.string().nullable().optional(),
+    planType: z.string().nullable().optional(),
+    rateLimitReachedType: z.string().nullable().optional(),
+    primary: CodexRateLimitWindowStateSchema.nullable().optional(),
+    secondary: CodexRateLimitWindowStateSchema.nullable().optional(),
+    credits: z.object({
+        hasCredits: z.boolean(),
+        unlimited: z.boolean(),
+        balance: z.string().nullable().optional(),
+    }).strict().nullable().optional(),
+}).strict();
+
 export const AgentStateSchema = z.object({
     controlledByUser: z.boolean().nullish(),
     requests: z.record(z.string(), z.object({
@@ -129,7 +151,8 @@ export const AgentStateSchema = z.object({
         decision: z.enum(['approved', 'approved_for_session', 'denied', 'abort']).nullish()
     })).nullish(),
     agentGoalStatus: AgentGoalStatusSchema.optional(),
-});
+    codexAccountRateLimits: CodexAccountRateLimitsStateSchema.nullish(),
+}).passthrough();
 
 export type AgentState = z.infer<typeof AgentStateSchema>;
 

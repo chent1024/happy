@@ -1,6 +1,7 @@
 import type { PermissionMode } from '@/api/types';
 import { CHANGE_TITLE_INSTRUCTION } from '@/gemini/constants';
 import { hashObject } from '@/utils/deterministicJson';
+import { hashAppendSystemPrompt } from '@/utils/optionsSystemPrompt';
 
 import type { ReasoningEffort } from './codexAppServerTypes';
 
@@ -17,7 +18,7 @@ export function hashCodexEnhancedMode(mode: CodexEnhancedMode): string {
     return hashObject({
         permissionMode: mode.permissionMode,
         model: mode.model,
-        appendSystemPrompt: mode.appendSystemPrompt,
+        appendSystemPrompt: hashAppendSystemPrompt(mode.appendSystemPrompt),
         effort: mode.effort,
     });
 }

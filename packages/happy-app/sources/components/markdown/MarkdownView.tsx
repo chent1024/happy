@@ -246,12 +246,14 @@ function RenderOptionsBlock(props: {
                             ]}
                             onPress={() => props.onOptionPress?.({ title: item })}
                         >
+                            <View style={style.optionRadio} />
                             <Text selectable={props.selectable} style={style.optionText}>{item}</Text>
                         </Pressable>
                     );
                 } else {
                     return (
                         <View key={index} style={style.optionItem}>
+                            <View style={style.optionRadio} />
                             <Text selectable={props.selectable} style={style.optionText}>{item}</Text>
                         </View>
                     );
@@ -591,25 +593,40 @@ const style = StyleSheet.create((theme) => ({
 
     optionsContainer: {
         flexDirection: 'column',
-        gap: 8,
-        marginVertical: 8,
+        alignItems: 'stretch',
+        gap: 5,
+        marginTop: 8,
+        marginBottom: 6,
     },
     optionItem: {
-        backgroundColor: theme.colors.surfaceHighest,
+        minHeight: 40,
+        alignSelf: 'stretch',
+        backgroundColor: theme.dark ? 'rgba(255, 255, 255, 0.032)' : 'rgba(0, 0, 0, 0.02)',
         borderRadius: 8,
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        borderWidth: 1,
-        borderColor: theme.colors.divider,
+        paddingLeft: 12,
+        paddingRight: 12,
+        paddingVertical: 6,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
     },
     optionItemPressed: {
-        opacity: 0.7,
-        backgroundColor: theme.colors.surfaceHigh,
+        opacity: 0.82,
+        backgroundColor: theme.colors.surfacePressed,
+    },
+    optionRadio: {
+        width: 14,
+        height: 14,
+        borderRadius: 7,
+        borderWidth: 1.5,
+        borderColor: theme.colors.textSecondary,
+        opacity: 0.42,
     },
     optionText: {
         ...Typography.default(),
+        flex: 1,
         fontSize: 16,
-        lineHeight: 24,
+        lineHeight: 20,
         color: theme.colors.text,
     },
 

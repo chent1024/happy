@@ -6,16 +6,22 @@ const serverConfigStorage = new MMKV({ id: 'server-config' });
 const SERVER_KEY = 'custom-server-url';
 const LOG_SERVER_KEY = 'log-server-url';
 const DEFAULT_SERVER_URL = 'https://api.cluster-fluster.com';
+const isDevRuntime = typeof __DEV__ !== 'undefined' && __DEV__;
 
 function normalizeServerUrl(url: string): string {
     return url.trim().replace(/\/+$/, '');
 }
 
 export function getServerUrl(): string {
-    return normalizeServerUrl(
-        serverConfigStorage.getString(SERVER_KEY) ||
+    const configuredServerUrl =
         (globalThis as any).__HAPPY_CONFIG__?.serverUrl ||
         process.env.EXPO_PUBLIC_HAPPY_SERVER_URL ||
+        process.env.EXPO_PUBLIC_SERVER_URL;
+
+    return normalizeServerUrl(
+        (isDevRuntime ? configuredServerUrl : null) ||
+        serverConfigStorage.getString(SERVER_KEY) ||
+        configuredServerUrl ||
         DEFAULT_SERVER_URL
     );
 }

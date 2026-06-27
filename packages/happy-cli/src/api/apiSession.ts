@@ -212,7 +212,6 @@ export class ApiSessionClient extends EventEmitter {
     private encryptionVariant: 'legacy' | 'dataKey';
     private reconnectInterval: NodeJS.Timeout | null = null;
     private ignoreArchiveSignal = false;
-    private skipInitialMessages = false;
     private claudeSessionProtocolState: ClaudeSessionProtocolState = {
         currentTurnId: null,
         uuidToProviderSubagent: new Map<string, string>(),
@@ -224,7 +223,7 @@ export class ApiSessionClient extends EventEmitter {
         startedSubagents: new Set<string>(),
         activeSubagents: new Set<string>(),
     };
-    private lastSeq = 0;
+    private lastSeq: number;
     private pendingOutbox: Array<{ content: string; localId: string }> = [];
     private readonly sendSync: InvalidateSync;
     private readonly receiveSync: InvalidateSync;
@@ -239,6 +238,7 @@ export class ApiSessionClient extends EventEmitter {
         this.agentStateVersion = session.agentStateVersion;
         this.encryptionKey = session.encryptionKey;
         this.encryptionVariant = session.encryptionVariant;
+        this.lastSeq = Math.max(0, session.seq);
         this.sendSync = new InvalidateSync(() => this.flushOutbox());
         this.receiveSync = new InvalidateSync(() => this.fetchMessages());
 
@@ -317,7 +317,12 @@ export class ApiSessionClient extends EventEmitter {
                         return;
                     }
                     const body = decrypt(this.encryptionKey, this.encryptionVariant, decodeBase64(data.body.message.content.c));
+                    const messageLocalKey = typeof (body as { localKey?: unknown })?.localKey === 'string'
+                        ? (body as { localKey: string }).localKey
+                        : undefined;
                     logger.debug('[SOCKET] [UPDATE] Decrypted message', {
+                        seq: messageSeq,
+                        localKey: messageLocalKey ?? null,
                         role: typeof (body as { role?: unknown })?.role === 'string'
                             ? (body as { role: string }).role
                             : 'unknown',
@@ -551,6 +556,10 @@ export class ApiSessionClient extends EventEmitter {
     private routeIncomingMessage(message: unknown) {
         const userResult = UserMessageSchema.safeParse(message);
         if (userResult.success) {
+            logger.debug('[API] Routing user message', {
+                localKey: userResult.data.localKey ?? null,
+                hasPendingCallback: Boolean(this.pendingMessageCallback),
+            });
             if (this.pendingMessageCallback) {
                 this.pendingMessageCallback(userResult.data);
             } else {
@@ -579,13 +588,6 @@ export class ApiSessionClient extends EventEmitter {
     }
 
     private async fetchMessages() {
-        // On reconnect, skip processing existing messages — just advance lastSeq
-        const skipRouting = this.skipInitialMessages;
-        if (skipRouting) {
-            this.skipInitialMessages = false;
-            logger.debug('[API] Reconnect mode: skipping existing messages, advancing lastSeq');
-        }
-
         let afterSeq = this.lastSeq;
         while (true) {
             const response = await axios.get<V3GetSessionMessagesResponse>(
@@ -608,14 +610,23 @@ export class ApiSessionClient extends EventEmitter {
                     maxSeq = message.seq;
                 }
 
-                if (skipRouting) continue;
-
                 if (message.content?.t !== 'encrypted') {
                     continue;
                 }
 
                 try {
                     const body = decrypt(this.encryptionKey, this.encryptionVariant, decodeBase64(message.content.c));
+                    const messageLocalKey = typeof (body as { localKey?: unknown })?.localKey === 'string'
+                        ? (body as { localKey: string }).localKey
+                        : undefined;
+                    logger.debug('[API] Fetched decrypted message', {
+                        sessionId: this.sessionId,
+                        seq: message.seq,
+                        localKey: messageLocalKey ?? null,
+                        role: typeof (body as { role?: unknown })?.role === 'string'
+                            ? (body as { role: string }).role
+                            : 'unknown',
+                    });
                     this.routeIncomingMessage(body);
                 } catch (error) {
                     logger.debug('[API] Failed to decrypt fetched message', {
@@ -917,7 +928,7 @@ export class ApiSessionClient extends EventEmitter {
     }
 
     skipExistingMessages() {
-        this.skipInitialMessages = true;
+        logger.debug('[API] skipExistingMessages ignored; message cursor is initialized from session seq');
     }
 
     updateMetadata(handler: (metadata: Metadata) => Metadata) {

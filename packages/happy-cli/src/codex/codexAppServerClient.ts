@@ -39,6 +39,7 @@ import type {
     InterruptConversationParams,
     TurnSteerParams,
     TurnSteerResponse,
+    GetAccountRateLimitsResponse,
     ReviewDecision,
     EventMsg,
     JsonRpcRequest,
@@ -306,6 +307,7 @@ export class CodexAppServerClient {
             || method === 'turn/completed'
             || method === 'thread/status/changed'
             || method === 'thread/tokenUsage/updated'
+            || method === 'account/rateLimits/updated'
             || method.startsWith('item/');
 
         if (!isRawNotification) {
@@ -424,6 +426,17 @@ export class CodexAppServerClient {
                 this.eventHandler?.({
                     type: 'token_count',
                     ...tokenUsage,
+                });
+            }
+            return true;
+        }
+
+        if (method === 'account/rateLimits/updated') {
+            const rateLimits = params?.rateLimits;
+            if (rateLimits && typeof rateLimits === 'object') {
+                this.eventHandler?.({
+                    type: 'account_rate_limits_updated',
+                    rateLimits,
                 });
             }
             return true;
@@ -835,6 +848,15 @@ export class CodexAppServerClient {
             includeTurns: opts.includeTurns ?? true,
         };
         return await this.request('thread/read', params) as ReadConversationResponse;
+    }
+
+    async readAccountRateLimits(): Promise<GetAccountRateLimitsResponse | null> {
+        try {
+            return await this.request('account/rateLimits/read') as GetAccountRateLimitsResponse;
+        } catch (error) {
+            logger.debug('[CodexAppServer] account/rateLimits/read failed:', error);
+            return null;
+        }
     }
 
     async rollbackThread(opts: {

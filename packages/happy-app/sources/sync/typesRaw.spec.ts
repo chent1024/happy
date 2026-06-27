@@ -952,6 +952,45 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
                 expect(result.data.content.text).toBe('User input message');
             }
         });
+
+        it('preserves localKey on user role messages for delivery tracing', () => {
+            const userMessage = {
+                role: 'user',
+                localKey: 'local-message-123',
+                content: {
+                    type: 'text',
+                    text: 'User input message'
+                }
+            };
+
+            const result = RawRecordSchema.safeParse(userMessage);
+
+            expect(result.success).toBe(true);
+            if (result.success && result.data.role === 'user') {
+                expect(result.data.localKey).toBe('local-message-123');
+            }
+        });
+
+        it('accepts lightweight options XML client capability metadata', () => {
+            const userMessage = {
+                role: 'user',
+                content: {
+                    type: 'text',
+                    text: 'User input message'
+                },
+                meta: {
+                    sentFrom: 'android',
+                    clientCapabilities: { optionsXml: true }
+                }
+            };
+
+            const result = RawRecordSchema.safeParse(userMessage);
+
+            expect(result.success).toBe(true);
+            if (result.success && result.data.role === 'user') {
+                expect(result.data.meta?.clientCapabilities?.optionsXml).toBe(true);
+            }
+        });
     });
 
     describe('Field preservation and edge cases', () => {

@@ -132,6 +132,71 @@ export type ThreadGoalClearResponse = {
     cleared: boolean;
 };
 
+// --- Account rate limits ---
+
+export type PlanType =
+    | "free"
+    | "go"
+    | "plus"
+    | "pro"
+    | "prolite"
+    | "team"
+    | "self_serve_business_usage_based"
+    | "business"
+    | "enterprise_cbp_usage_based"
+    | "enterprise"
+    | "edu"
+    | "unknown";
+
+export type RateLimitWindow = {
+    usedPercent: number;
+    windowDurationMins: number | null;
+    resetsAt: number | null;
+};
+
+export type CreditsSnapshot = {
+    hasCredits: boolean;
+    unlimited: boolean;
+    balance: string | null;
+};
+
+export type SpendControlLimitSnapshot = {
+    usedPercent: number | null;
+    resetsAt: number | null;
+};
+
+export type RateLimitReachedType =
+    | "rate_limit_reached"
+    | "workspace_owner_credits_depleted"
+    | "workspace_member_credits_depleted"
+    | "workspace_owner_usage_limit_reached"
+    | "workspace_member_usage_limit_reached";
+
+export type RateLimitSnapshot = {
+    limitId: string;
+    limitName: string | null;
+    primary: RateLimitWindow | null;
+    secondary: RateLimitWindow | null;
+    credits: CreditsSnapshot | null;
+    individualLimit: SpendControlLimitSnapshot | null;
+    planType: PlanType;
+    rateLimitReachedType: RateLimitReachedType | null;
+};
+
+export type RateLimitResetCreditsSummary = {
+    availableCount: number | string;
+};
+
+export type GetAccountRateLimitsResponse = {
+    rateLimits: RateLimitSnapshot;
+    rateLimitsByLimitId: Record<string, RateLimitSnapshot> | null;
+    rateLimitResetCredits: RateLimitResetCreditsSummary | null;
+};
+
+export type AccountRateLimitsUpdatedNotification = {
+    rateLimits: RateLimitSnapshot;
+};
+
 export type ForkConversationParams = {
     threadId: ThreadId;
     model?: string | null;

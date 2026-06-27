@@ -49,6 +49,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import type { ModelMode, PermissionMode } from '@/components/PermissionModeSelector';
 import { resolveAgentDefaultConfig } from '@/sync/agentDefaults';
 import { performAgentGoalAction } from './agentGoalActionHandler';
+import { CodexRateLimitsModal, type CodexRateLimitDetail } from './CodexRateLimitsModal';
 
 export const SessionView = React.memo((props: { id: string }) => {
     const sessionId = props.id;
@@ -232,8 +233,14 @@ export const SessionView = React.memo((props: { id: string }) => {
                         extraPathSegment={fileViewPath ?? undefined}
                         rightSlot={session ? (
                             <>
-                                {(diffViewOpen || !!fileViewPath) ? headerRightSlot : null}
-                                <SessionHeaderDetailsButton session={session} />
+                                {(diffViewOpen || !!fileViewPath) ? (
+                                    <>
+                                        {headerRightSlot}
+                                        <SessionHeaderDetailsButton session={session} />
+                                    </>
+                                ) : (
+                                    <SessionHeaderStatusCapsule session={session} />
+                                )}
                             </>
                         ) : null}
                         onTitlePress={session ? () => router.push(`/session/${sessionId}/info`) : undefined}
@@ -781,6 +788,175 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
             }
         </>
     )
+}
+
+type CodexAccountRateLimitsViewState = NonNullable<NonNullable<Session['agentState']>['codexAccountRateLimits']>;
+type CodexRateLimitWindowViewState = NonNullable<CodexAccountRateLimitsViewState['primary']>;
+
+function getRateLimitRemainingPercent(window: CodexRateLimitWindowViewState): number {
+    const remaining = typeof window.remainingPercent === 'number'
+        ? window.remainingPercent
+        : 100 - window.usedPercent;
+    return Math.max(0, Math.min(100, Math.round(remaining)));
+}
+
+function formatRateLimitWindowName(window: CodexRateLimitWindowViewState): string {
+    const mins = window.windowDurationMins;
+    if (!mins) {
+        return '额度';
+    }
+    if (mins === 300) {
+        return '5h';
+    }
+    if (mins >= 1440) {
+        return `${Math.round(mins / 1440)}d`;
+    }
+    if (mins >= 60) {
+        return `${Math.round(mins / 60)}h`;
+    }
+    return `${mins}m`;
+}
+
+function formatRateLimitResetTime(window: CodexRateLimitWindowViewState): string {
+    if (!window.resetsAt) {
+        return '重置时间未知';
+    }
+    const timestampMs = window.resetsAt < 10_000_000_000 ? window.resetsAt * 1000 : window.resetsAt;
+    return `重置 ${new Date(timestampMs).toLocaleString(undefined, {
+        month: 'numeric',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    })}`;
+}
+
+function getVisibleRateLimitWindows(limits: CodexAccountRateLimitsViewState): CodexRateLimitWindowViewState[] {
+    return [limits.primary, limits.secondary].filter((window): window is CodexRateLimitWindowViewState => !!window);
+}
+
+function pickTightestRateLimitWindow(limits: CodexAccountRateLimitsViewState): CodexRateLimitWindowViewState | null {
+    const windows = getVisibleRateLimitWindows(limits);
+    if (windows.length === 0) {
+        return null;
+    }
+    return windows.sort((a, b) => getRateLimitRemainingPercent(a) - getRateLimitRemainingPercent(b))[0] ?? null;
+}
+
+function getRateLimitAccent(theme: ReturnType<typeof useUnistyles>['theme']) {
+    return {
+        color: theme.colors.textSecondary,
+        backgroundColor: theme.dark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+    };
+}
+
+function SessionHeaderStatusCapsule(props: { session: Session }) {
+    const { theme } = useUnistyles();
+    const router = useRouter();
+    const limits = props.session.agentState?.codexAccountRateLimits;
+    if (!limits) {
+        return <SessionHeaderDetailsButton session={props.session} />;
+    }
+
+    const tightestWindow = pickTightestRateLimitWindow(limits);
+    if (!tightestWindow) {
+        return <SessionHeaderDetailsButton session={props.session} />;
+    }
+
+    const remainingPercent = getRateLimitRemainingPercent(tightestWindow);
+    const windowName = formatRateLimitWindowName(tightestWindow);
+    const accent = getRateLimitAccent(theme);
+
+    const showDetails = () => {
+        const windows: CodexRateLimitDetail[] = getVisibleRateLimitWindows(limits).map((window) => ({
+            id: `${window.windowDurationMins ?? 'unknown'}-${window.resetsAt ?? 'unknown'}`,
+            label: formatRateLimitWindowName(window),
+            remainingPercent: getRateLimitRemainingPercent(window),
+            resetText: formatRateLimitResetTime(window),
+            isTightest: window === tightestWindow,
+        }));
+        const creditsLabel = limits.credits?.hasCredits
+            ? (limits.credits.unlimited ? 'Credits 不限量' : `Credits ${limits.credits.balance ?? '未知'}`)
+            : null;
+        const statusLabel = limits.rateLimitReachedType ? `状态 ${limits.rateLimitReachedType}` : null;
+
+        Modal.show({
+            component: CodexRateLimitsModal,
+            props: {
+                windows,
+                creditsLabel,
+                statusLabel,
+            },
+        });
+    };
+
+    return (
+        <View
+            style={{
+                height: 32,
+                minWidth: 86,
+                borderRadius: 16,
+                flexDirection: 'row',
+                alignItems: 'center',
+                overflow: 'hidden',
+                backgroundColor: accent.backgroundColor,
+            }}
+        >
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Codex 剩余额度"
+                onPress={showDetails}
+                hitSlop={{ top: 5, bottom: 5, left: 4, right: 0 }}
+                style={({ pressed }) => ({
+                    width: 55,
+                    height: 32,
+                    paddingLeft: 8,
+                    paddingRight: 5,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    opacity: pressed ? 0.62 : 1,
+                })}
+            >
+                <Text
+                    numberOfLines={1}
+                    style={{
+                        color: accent.color,
+                        fontSize: 12,
+                        lineHeight: 16,
+                        fontWeight: '600',
+                    }}
+                >
+                    {windowName} {remainingPercent}%
+                </Text>
+            </Pressable>
+            <View
+                style={{
+                    width: 1,
+                    height: 16,
+                    backgroundColor: accent.color,
+                    opacity: 0.18,
+                }}
+            />
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t('profile.details')}
+                onPress={() => router.push(`/session/${props.session.id}/info`)}
+                hitSlop={{ top: 5, bottom: 5, left: 0, right: 4 }}
+                style={({ pressed }) => ({
+                    width: 30,
+                    height: 32,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    opacity: pressed ? 0.55 : 1,
+                })}
+            >
+                <Ionicons
+                    name="information-circle-outline"
+                    size={18}
+                    color={accent.color}
+                />
+            </Pressable>
+        </View>
+    );
 }
 
 function SessionHeaderDetailsButton(props: { session: Session }) {

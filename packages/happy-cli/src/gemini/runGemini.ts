@@ -51,6 +51,7 @@ import {
   formatOptionsXml,
 } from '@/gemini/utils/optionsParser';
 import { ConversationHistory } from '@/gemini/utils/conversationHistory';
+import { resolveAppendSystemPrompt } from '@/utils/optionsSystemPrompt';
 
 
 /**
@@ -270,13 +271,14 @@ export async function runGemini(opts: {
     // Only include system prompt for the first message to avoid forcing tool usage on every message
     const originalUserMessage = message.content.text;
     let fullPrompt = originalUserMessage;
-    if (isFirstMessage && message.meta?.appendSystemPrompt) {
+    const appendSystemPrompt = resolveAppendSystemPrompt(message.meta);
+    if (isFirstMessage && appendSystemPrompt) {
       // Prepend system prompt to user message only for first message
       // Also add change_title instruction (like Codex does)
       // Use EXACT same format as Codex: add instruction AFTER user message
       // This matches Codex's approach exactly - instruction comes after user message
       // Codex format: system prompt + user message + change_title instruction
-      fullPrompt = message.meta.appendSystemPrompt + '\n\n' + originalUserMessage + '\n\n' + CHANGE_TITLE_INSTRUCTION;
+      fullPrompt = appendSystemPrompt + '\n\n' + originalUserMessage + '\n\n' + CHANGE_TITLE_INSTRUCTION;
       isFirstMessage = false;
     }
 

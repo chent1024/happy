@@ -23,7 +23,7 @@ import { CodexDisplay } from "@/ui/ink/CodexDisplay";
 import { trimIdent } from "@/utils/trimIdent";
 import { notifyDaemonSessionStarted } from "@/daemon/controlClient";
 import { encodeBase64, decodeBase64 } from '@/api/encryption';
-import type { Session as ApiSession, UserMessage } from '@/api/types';
+import type { CodexAccountRateLimitsState, Session as ApiSession, UserMessage } from '@/api/types';
 import { registerKillSessionHandler } from "@/claude/registerKillSessionHandler";
 import { connectionState } from '@/utils/serverConnectionErrors';
 import { setupOfflineReconnection } from '@/utils/setupOfflineReconnection';
@@ -47,6 +47,7 @@ import {
     type CodexEnhancedMode,
 } from './codexPrompt';
 import { discoverCodexSkillCommands } from './codexSkills';
+import { resolveAppendSystemPrompt } from '@/utils/optionsSystemPrompt';
 import {
     codexGoalActionCapabilities,
     mapCodexGoalEventToAgentGoalStatus,
@@ -68,6 +69,81 @@ function describeCodexFailure(msg: any): string | null {
         return err.message;
     }
     return 'Unknown error';
+}
+
+function clampPercent(value: number): number {
+    return Math.max(0, Math.min(100, value));
+}
+
+function normalizeCodexRateLimitWindow(value: unknown): CodexAccountRateLimitsState['primary'] {
+    if (!value || typeof value !== 'object') {
+        return null;
+    }
+    const record = value as Record<string, unknown>;
+    const usedPercent = typeof record.usedPercent === 'number' && Number.isFinite(record.usedPercent)
+        ? clampPercent(record.usedPercent)
+        : null;
+    if (usedPercent === null) {
+        return null;
+    }
+    return {
+        usedPercent,
+        remainingPercent: clampPercent(100 - usedPercent),
+        windowDurationMins: typeof record.windowDurationMins === 'number' && Number.isFinite(record.windowDurationMins)
+            ? record.windowDurationMins
+            : null,
+        resetsAt: typeof record.resetsAt === 'number' && Number.isFinite(record.resetsAt)
+            ? record.resetsAt
+            : null,
+    };
+}
+
+function normalizeCodexCredits(value: unknown): CodexAccountRateLimitsState['credits'] {
+    if (!value || typeof value !== 'object') {
+        return null;
+    }
+    const record = value as Record<string, unknown>;
+    return {
+        hasCredits: record.hasCredits === true,
+        unlimited: record.unlimited === true,
+        balance: typeof record.balance === 'string' ? record.balance : null,
+    };
+}
+
+function normalizeCodexAccountRateLimits(payload: unknown): CodexAccountRateLimitsState | null {
+    if (!payload || typeof payload !== 'object') {
+        return null;
+    }
+
+    const response = payload as Record<string, unknown>;
+    const byLimitId = response.rateLimitsByLimitId && typeof response.rateLimitsByLimitId === 'object'
+        ? response.rateLimitsByLimitId as Record<string, unknown>
+        : null;
+    const snapshot = (byLimitId?.codex && typeof byLimitId.codex === 'object'
+        ? byLimitId.codex
+        : response.rateLimits) ?? payload;
+
+    if (!snapshot || typeof snapshot !== 'object') {
+        return null;
+    }
+
+    const record = snapshot as Record<string, unknown>;
+    const primary = normalizeCodexRateLimitWindow(record.primary);
+    const secondary = normalizeCodexRateLimitWindow(record.secondary);
+    if (!primary && !secondary) {
+        return null;
+    }
+
+    return {
+        updatedAt: Date.now(),
+        limitId: typeof record.limitId === 'string' ? record.limitId : null,
+        limitName: typeof record.limitName === 'string' ? record.limitName : null,
+        planType: typeof record.planType === 'string' ? record.planType : null,
+        rateLimitReachedType: typeof record.rateLimitReachedType === 'string' ? record.rateLimitReachedType : null,
+        primary,
+        secondary,
+        credits: normalizeCodexCredits(record.credits),
+    };
 }
 
 const DEFAULT_CODEX_MODEL = 'gpt-5.5';
@@ -286,6 +362,14 @@ export async function runCodex(opts: {
 
     const handleUserMessage = createSerialAsyncHandler<UserMessage>(async (message) => {
         const attachmentsForThisMessage = await session.drainAttachmentsForUserMessage();
+        const messageLocalKey = message.localKey ?? null;
+        logger.debug('[Codex] User message received for routing', {
+            localKey: messageLocalKey,
+            deliveryIntent: message.meta?.deliveryIntent ?? 'normal',
+            hasActiveThread: client.hasActiveThread(),
+            hasTurnId: client.turnId !== null,
+            attachmentCount: attachmentsForThisMessage?.length ?? 0,
+        });
 
         // Resolve permission mode (validate against Codex-native modes)
         let messagePermissionMode = currentPermissionMode;
@@ -334,8 +418,11 @@ export async function runCodex(opts: {
         }
 
         let messageAppendSystemPrompt = currentAppendSystemPrompt;
-        if (message.meta?.hasOwnProperty('appendSystemPrompt')) {
-            messageAppendSystemPrompt = message.meta.appendSystemPrompt || undefined;
+        if (
+            message.meta?.hasOwnProperty('appendSystemPrompt')
+            || message.meta?.clientCapabilities?.optionsXml
+        ) {
+            messageAppendSystemPrompt = resolveAppendSystemPrompt(message.meta);
             currentAppendSystemPrompt = messageAppendSystemPrompt;
             logger.debug(`[Codex] Append system prompt updated from user message: ${messageAppendSystemPrompt ? 'set' : 'reset to none'}`);
         } else {
@@ -378,10 +465,15 @@ export async function runCodex(opts: {
                 extraInputItems: imageInputs.inputItems,
             });
             if (steerResult.steered) {
-                logger.debug('[Codex] Steered active turn from user message');
+                logger.debug('[Codex] Steered active turn from user message', {
+                    localKey: messageLocalKey,
+                });
                 return;
             }
-            logger.debug(`[Codex] Steer unavailable (${steerResult.reason ?? 'unknown'}); queueing user message`);
+            logger.debug('[Codex] Steer unavailable; queueing user message', {
+                localKey: messageLocalKey,
+                reason: steerResult.reason ?? 'unknown',
+            });
         }
 
         const enqueueResult = enqueueCodexUserText({
@@ -389,6 +481,10 @@ export async function runCodex(opts: {
             mode: enhancedMode,
             queue: messageQueue,
             attachments: attachmentsForThisMessage,
+        });
+        logger.debug('[Codex] User message queued for next turn', {
+            localKey: messageLocalKey,
+            enqueueResult,
         });
         if (enqueueResult === 'clear') {
             logger.debug('[Codex] /clear command pushed to isolated queue');
@@ -619,6 +715,22 @@ export async function runCodex(opts: {
             session.sendSessionProtocolMessage(envelope);
         }
     });
+    const updateCodexAccountRateLimitsState = (payload: unknown) => {
+        const codexAccountRateLimits = normalizeCodexAccountRateLimits(payload);
+        if (!codexAccountRateLimits) {
+            return;
+        }
+        session.updateAgentState((currentState) => ({
+            ...currentState,
+            codexAccountRateLimits,
+        }));
+    };
+    const refreshCodexAccountRateLimitsState = async () => {
+        const rateLimits = await client.readAccountRateLimits();
+        if (rateLimits) {
+            updateCodexAccountRateLimitsState(rateLimits);
+        }
+    };
     const updateCodexGoalState = (message: Record<string, unknown>) => {
         const capabilities = codexGoalActionCapabilities(client.supportsGoalActions());
         const goalStatus = mapCodexGoalEventToAgentGoalStatus(
@@ -800,6 +912,9 @@ export async function runCodex(opts: {
         if (msg.type === 'thread_goal_updated' || msg.type === 'thread_goal_cleared') {
             updateCodexGoalState(msg);
         }
+        if (msg.type === 'account_rate_limits_updated') {
+            updateCodexAccountRateLimitsState({ rateLimits: msg.rateLimits });
+        }
 
         // Convert events into the unified session-protocol envelope stream.
         // Reasoning deltas are handled by ReasoningProcessor to avoid duplicate text output.
@@ -840,6 +955,7 @@ export async function runCodex(opts: {
         logger.debug('[codex]: client.connect begin');
         await client.connect();
         logger.debug('[codex]: client.connect done');
+        await refreshCodexAccountRateLimitsState();
 
         if (opts.resumeThreadId) {
             await resumeExistingThread({

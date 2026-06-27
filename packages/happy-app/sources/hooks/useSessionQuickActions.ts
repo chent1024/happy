@@ -14,9 +14,15 @@ import { copySessionMetadataToClipboard, copySessionMetadataAndLogsToClipboard }
 import { useSessionStatus } from '@/utils/sessionUtils';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { getSessionForkSource } from '@/utils/sessionFork';
-import { useRouter } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import { useSession } from '@/sync/storage';
 import { DuplicateSheet } from '@/components/DuplicateSheet';
+import {
+    buildOptimisticResumedSession,
+    getResumeNavigationAction,
+    getResumedSessionPath,
+    shouldReapplyOptimisticResume,
+} from './sessionResumeResult';
 
 export interface SessionActionItem {
     id: string;
@@ -107,6 +113,7 @@ export function useSessionQuickActions(
         onAfterCopySessionMetadata,
     } = options;
     const router = useRouter();
+    const pathname = usePathname();
     const navigateToSession = useNavigateToSession();
     const sessionStatus = useSessionStatus(session);
     const machineId = session.metadata?.machineId ?? '';
@@ -179,8 +186,13 @@ export function useSessionQuickActions(
         switch (result.type) {
             case 'success': {
                 // Session reconnects to the same ID, so messages are preserved.
-                // Refresh to pick up the updated session state.
-                await sync.refreshSessions();
+                // Reflect the successful daemon resume immediately; server
+                // activity updates can arrive after the RPC response.
+                const resumeStartedAt = Date.now();
+                const currentSession = storage.getState().sessions[result.sessionId] ?? session;
+                storage.getState().applySessions([
+                    buildOptimisticResumedSession(currentSession, resumeStartedAt),
+                ]);
 
                 if (session.permissionMode) {
                     storage.getState().updateSessionPermissionMode(result.sessionId, session.permissionMode);
@@ -189,7 +201,28 @@ export function useSessionQuickActions(
                     storage.getState().updateSessionModelMode(result.sessionId, session.modelMode);
                 }
 
-                navigateToSession(result.sessionId);
+                const navigationAction = getResumeNavigationAction({
+                    pathname,
+                    currentSessionId: session.id,
+                    resumedSessionId: result.sessionId,
+                });
+                if (navigationAction === 'replace') {
+                    router.replace(getResumedSessionPath(result.sessionId) as any);
+                } else if (navigationAction === 'push') {
+                    navigateToSession(result.sessionId);
+                }
+
+                try {
+                    await sync.refreshSessions();
+                    const refreshedSession = storage.getState().sessions[result.sessionId];
+                    if (shouldReapplyOptimisticResume(refreshedSession, resumeStartedAt)) {
+                        storage.getState().applySessions([
+                            buildOptimisticResumedSession(refreshedSession, resumeStartedAt),
+                        ]);
+                    }
+                } catch {
+                    // Realtime activity updates will still reconcile the row.
+                }
                 return;
             }
             case 'requestToApproveDirectoryCreation':

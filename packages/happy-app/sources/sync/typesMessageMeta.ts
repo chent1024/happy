@@ -8,6 +8,9 @@ export const MessageMetaSchema = z.object({
     fallbackModel: z.string().nullable().optional(), // Fallback model for this message (null = reset)
     customSystemPrompt: z.string().nullable().optional(), // Custom system prompt for this message (null = reset)
     appendSystemPrompt: z.string().nullable().optional(), // Append to system prompt for this message (null = reset)
+    clientCapabilities: z.object({
+        optionsXml: z.boolean().optional(), // Client can render <options> XML blocks as tappable choices
+    }).optional(),
     allowedTools: z.array(z.string()).nullable().optional(), // Allowed tools for this message (null = reset)
     disallowedTools: z.array(z.string()).nullable().optional(), // Disallowed tools for this message (null = reset)
     effort: z.string().nullable().optional(), // Reasoning / thinking effort for this message (null = reset)

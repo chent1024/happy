@@ -108,6 +108,9 @@ const stylesheet = StyleSheet.create((theme) => ({
         marginLeft: 16,
         justifyContent: 'center',
     },
+    sessionContentWithoutAvatar: {
+        marginLeft: 0,
+    },
     sessionTitleRow: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -371,6 +374,7 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }
                 : session.state === 'permission_required'
                     ? t('status.permissionRequired')
                     : t('status.online');
+    const showAvatar = session.active;
 
     const handlePress = React.useCallback(() => {
         navigateToSession(session.id);
@@ -411,19 +415,24 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }
             onPress={handlePress}
             {...menuProps}
         >
-            <View style={styles.avatarContainer}>
-                <Avatar id={session.avatarId} size={48} monochrome={!status.isConnected} flavor={session.flavor} />
-                {session.hasDraft && (
-                    <View style={styles.draftIconContainer}>
-                        <Ionicons
-                            name="create-outline"
-                            size={12}
-                            style={styles.draftIconOverlay}
-                        />
-                    </View>
-                )}
-            </View>
-            <View style={styles.sessionContent}>
+            {showAvatar && (
+                <View style={styles.avatarContainer}>
+                    <Avatar id={session.avatarId} size={48} monochrome={!status.isConnected} flavor={session.flavor} />
+                    {session.hasDraft && (
+                        <View style={styles.draftIconContainer}>
+                            <Ionicons
+                                name="create-outline"
+                                size={12}
+                                style={styles.draftIconOverlay}
+                            />
+                        </View>
+                    )}
+                </View>
+            )}
+            <View style={[
+                styles.sessionContent,
+                !showAvatar && styles.sessionContentWithoutAvatar,
+            ]}>
                 <View style={styles.sessionTitleRow}>
                     <Text style={[
                         styles.sessionTitle,

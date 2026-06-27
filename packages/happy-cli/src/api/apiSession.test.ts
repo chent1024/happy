@@ -775,6 +775,52 @@ describe('ApiSessionClient v3 messages API migration', () => {
         expect((client as any).lastSeq).toBe(1);
     });
 
+    it('routes messages created after reconnect baseline instead of skipping them', async () => {
+        const reconnectSession = {
+            ...session,
+            seq: 5,
+        };
+        const client = new ApiSessionClient('fake-token', reconnectSession);
+        const onUserMessage = vi.fn();
+        client.onUserMessage(onUserMessage);
+        client.skipExistingMessages();
+
+        const userMessage = {
+            role: 'user',
+            localKey: 'local-msg-6',
+            content: {
+                type: 'text',
+                text: 'sent while reconnecting',
+            },
+        };
+
+        mockAxiosGet.mockResolvedValueOnce({
+            data: {
+                messages: [
+                    {
+                        id: 'msg-6',
+                        seq: 6,
+                        content: {
+                            t: 'encrypted',
+                            c: encryptContent(reconnectSession, userMessage),
+                        },
+                        localId: null,
+                        createdAt: 6000,
+                        updatedAt: 6000,
+                    },
+                ],
+                hasMore: false,
+            },
+        });
+
+        await (client as any).fetchMessages();
+
+        expect(mockAxiosGet).toHaveBeenCalledTimes(1);
+        expect(mockAxiosGet.mock.calls[0][1].params.after_seq).toBe(5);
+        expect(onUserMessage).toHaveBeenCalledWith(userMessage);
+        expect((client as any).lastSeq).toBe(6);
+    });
+
     it('fetchMessages uses incremental cursor and paginates while hasMore is true', async () => {
         const client = new ApiSessionClient('fake-token', session);
         const onUserMessage = vi.fn();

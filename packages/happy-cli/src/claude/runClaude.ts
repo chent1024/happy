@@ -39,6 +39,7 @@ import { getProjectPath } from './utils/path';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { RawJSONLinesSchema, type RawJSONLines } from './types';
+import { hashAppendSystemPrompt, resolveAppendSystemPrompt } from '@/utils/optionsSystemPrompt';
 
 /** JavaScript runtime to use for spawning Claude Code */
 export type JsRuntime = 'node' | 'bun'
@@ -511,7 +512,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         model: mode.model,
         fallbackModel: mode.fallbackModel,
         customSystemPrompt: mode.customSystemPrompt,
-        appendSystemPrompt: mode.appendSystemPrompt,
+        appendSystemPrompt: hashAppendSystemPrompt(mode.appendSystemPrompt),
         allowedTools: mode.allowedTools,
         disallowedTools: mode.disallowedTools,
         effort: mode.effort,
@@ -702,8 +703,11 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
 
         // Resolve append system prompt - use message.meta.appendSystemPrompt if provided, otherwise use current
         let messageAppendSystemPrompt = currentAppendSystemPrompt;
-        if (message.meta?.hasOwnProperty('appendSystemPrompt')) {
-            messageAppendSystemPrompt = message.meta.appendSystemPrompt || undefined; // null becomes undefined
+        if (
+            message.meta?.hasOwnProperty('appendSystemPrompt')
+            || message.meta?.clientCapabilities?.optionsXml
+        ) {
+            messageAppendSystemPrompt = resolveAppendSystemPrompt(message.meta);
             currentAppendSystemPrompt = messageAppendSystemPrompt;
             logger.debug(`[loop] Append system prompt updated from user message: ${messageAppendSystemPrompt ? 'set' : 'reset to none'}`);
         } else {

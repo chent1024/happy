@@ -156,4 +156,35 @@ describe('AgentGoalStatusSchema', () => {
 
         expect(state.agentGoalStatus?.status).toBe('active');
     });
+
+    it('preserves codex account rate limits through AgentStateSchema', () => {
+        const state = AgentStateSchema.parse({
+            futureStateField: 'ignored',
+            codexAccountRateLimits: {
+                updatedAt: 1710000000000,
+                limitId: 'codex',
+                limitName: 'Codex',
+                planType: 'pro',
+                primary: {
+                    usedPercent: 42,
+                    remainingPercent: 58,
+                    windowDurationMins: 300,
+                    resetsAt: 1710003600000,
+                },
+                secondary: {
+                    usedPercent: 12,
+                    remainingPercent: 88,
+                    windowDurationMins: 10080,
+                    resetsAt: 1710604800000,
+                },
+                credits: {
+                    hasCredits: true,
+                    unlimited: false,
+                    balance: '10',
+                },
+            },
+        });
+
+        expect(state.codexAccountRateLimits?.primary?.remainingPercent).toBe(58);
+    });
 });

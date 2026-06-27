@@ -1,6 +1,6 @@
 import { Ionicons, Octicons } from '@expo/vector-icons';
 import * as React from 'react';
-import { View, Platform, useWindowDimensions, ViewStyle, Text, ActivityIndicator, TouchableWithoutFeedback, Image as RNImage, Pressable } from 'react-native';
+import { View, Platform, useWindowDimensions, ViewStyle, Text, ActivityIndicator, TouchableWithoutFeedback, Image as RNImage, Pressable, Keyboard } from 'react-native';
 import { Image } from 'expo-image';
 import { AgentInputAttachmentStrip } from './AgentInputAttachmentStrip';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
@@ -812,6 +812,13 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         sendBlockShakerRef.current?.shake();
     }, [hasText, isSendBlocked, props.isSending]);
 
+    const submitAndDismissKeyboard = React.useCallback(() => {
+        props.onSend();
+        if (Platform.OS !== 'web') {
+            Keyboard.dismiss();
+        }
+    }, [props.onSend]);
+
     const handleSendPress = React.useCallback(() => {
         if (isSendBlocked) {
             handleBlockedSendAttempt();
@@ -823,11 +830,11 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         // Live read avoids stalling behind the transitioned `hasText`.
         const liveHasText = (inputRef.current?.getText() ?? '').trim().length > 0;
         if (liveHasText || hasImages) {
-            props.onSend();
+            submitAndDismissKeyboard();
         } else {
             props.onMicPress?.();
         }
-    }, [handleBlockedSendAttempt, hasImages, isSendBlocked, props.isSendDisabled, props.isSending, props.onSend, props.onMicPress]);
+    }, [handleBlockedSendAttempt, hasImages, isSendBlocked, props.isSendDisabled, props.isSending, submitAndDismissKeyboard, props.onMicPress]);
 
     // Handle keyboard navigation
     const handleKeyPress = React.useCallback((event: KeyPressEvent): boolean => {
@@ -870,7 +877,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                 if (isSendBlocked) {
                     handleBlockedSendAttempt();
                 } else if (!props.isSendDisabled) {
-                    props.onSend();
+                    submitAndDismissKeyboard();
                 }
                 return true;
             }
@@ -891,7 +898,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                     if (isSendBlocked) {
                         handleBlockedSendAttempt();
                     } else if (!props.isSendDisabled) {
-                        props.onSend();
+                        submitAndDismissKeyboard();
                     }
                     return true; // Key was handled
                 }
@@ -907,7 +914,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
 
         }
         return false; // Key was not handled
-    }, [suggestions, moveUp, moveDown, selected, handleSuggestionSelect, props.showAbortButton, props.onAbort, isAborting, handleAbortPress, hasImages, isSendBlocked, handleBlockedSendAttempt, props.isSendDisabled, props.onSend, agentInputEnterToSend, props.onPermissionModeChange, availableModes, permissionModeKey]);
+    }, [suggestions, moveUp, moveDown, selected, handleSuggestionSelect, props.showAbortButton, props.onAbort, isAborting, handleAbortPress, hasImages, isSendBlocked, handleBlockedSendAttempt, props.isSendDisabled, submitAndDismissKeyboard, agentInputEnterToSend, props.onPermissionModeChange, availableModes, permissionModeKey]);
 
 
 
@@ -1242,15 +1249,15 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                     {/* Action buttons below input */}
                     <View style={styles.actionButtonsContainer}>
                         <View style={{ flexDirection: 'column', flex: 1, gap: 2 }}>
-                            {/* Row 1: Settings, Profile (FIRST), Agent, Abort, Git Status */}
+                            {/* Row 1: Images, Profile (FIRST), Agent, Abort, Git Status, Settings */}
                             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                                 {props.zenMode && <View style={{ flex: 1 }} />}
                                 {!props.zenMode && <View style={styles.actionButtonsLeft}>
 
-                                {/* Settings button */}
-                                {props.onPermissionModeChange && (
+                                {/* Image picker button (expImageUpload) */}
+                                {props.onPickImages && (
                                     <Pressable
-                                        onPress={handleSettingsPress}
+                                        onPress={props.onPickImages}
                                         hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
                                         style={(p) => ({
                                             flexDirection: 'row',
@@ -1263,10 +1270,12 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                             opacity: p.pressed ? 0.7 : 1,
                                         })}
                                     >
-                                        <Octicons
-                                            name={'gear'}
+                                        <Ionicons
+                                            name="image-outline"
                                             size={16}
-                                            color={theme.colors.button.secondary.tint}
+                                            color={(props.selectedImages?.length ?? 0) > 0
+                                                ? theme.colors.radio.active
+                                                : theme.colors.button.secondary.tint}
                                         />
                                     </Pressable>
                                 )}
@@ -1331,9 +1340,9 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                                     color={theme.colors.button.secondary.tint}
                                                 />
                                             ) : (
-                                                <Octicons
-                                                    name={"stop"}
-                                                    size={16}
+                                                <Ionicons
+                                                    name="stop-circle-outline"
+                                                    size={18}
                                                     color={theme.colors.button.secondary.tint}
                                                 />
                                             )}
@@ -1344,10 +1353,10 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                 {/* Git Status Badge */}
                                 <GitStatusButton sessionId={props.sessionId} onPress={props.onFileViewerPress} />
 
-                                {/* Image picker button (expImageUpload) */}
-                                {props.onPickImages && (
+                                {/* Settings button */}
+                                {props.onPermissionModeChange && (
                                     <Pressable
-                                        onPress={props.onPickImages}
+                                        onPress={handleSettingsPress}
                                         hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
                                         style={(p) => ({
                                             flexDirection: 'row',
@@ -1360,12 +1369,10 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                             opacity: p.pressed ? 0.7 : 1,
                                         })}
                                     >
-                                        <Ionicons
-                                            name="image-outline"
+                                        <Octicons
+                                            name={'gear'}
                                             size={16}
-                                            color={(props.selectedImages?.length ?? 0) > 0
-                                                ? theme.colors.radio.active
-                                                : theme.colors.button.secondary.tint}
+                                            color={theme.colors.button.secondary.tint}
                                         />
                                     </Pressable>
                                 )}
@@ -1478,11 +1485,7 @@ function GitStatusButton({ sessionId, onPress }: { sessionId?: string, onPress?:
             {hasMeaningfulGitStatus ? (
                 <GitStatusBadge sessionId={sessionId} />
             ) : (
-                <Octicons
-                    name="git-branch"
-                    size={16}
-                    color={theme.colors.button.secondary.tint}
-                />
+                null
             )}
         </Pressable>
     );

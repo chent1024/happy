@@ -6,6 +6,7 @@ import {
     hashCodexEnhancedMode,
     type CodexEnhancedMode,
 } from './codexPrompt';
+import { OPTIONS_SYSTEM_PROMPT } from '@/utils/optionsSystemPrompt';
 
 describe('buildCodexTurnPrompt', () => {
     it('prepends Happy append system prompt before the first Codex user message', () => {
@@ -80,6 +81,28 @@ describe('hashCodexEnhancedMode', () => {
         })).not.toBe(hashCodexEnhancedMode({
             ...baseMode,
             appendSystemPrompt: 'options B',
+        }));
+    });
+
+    it('hashes the built-in options prompt by stable capability key', () => {
+        const baseMode: CodexEnhancedMode = {
+            permissionMode: 'default',
+            model: 'gpt-5.5',
+            effort: 'medium',
+        };
+
+        const builtInHash = hashCodexEnhancedMode({
+            ...baseMode,
+            appendSystemPrompt: OPTIONS_SYSTEM_PROMPT,
+        });
+
+        expect(builtInHash).toBe(hashCodexEnhancedMode({
+            ...baseMode,
+            appendSystemPrompt: OPTIONS_SYSTEM_PROMPT,
+        }));
+        expect(builtInHash).not.toBe(hashCodexEnhancedMode({
+            ...baseMode,
+            appendSystemPrompt: 'optionsXml',
         }));
     });
 });

@@ -93,6 +93,7 @@ export default {
             ],
             blockedPermissions: [
                 "android.permission.ACTIVITY_RECOGNITION",
+                "android.permission.RECORD_AUDIO",
                 // Not using external storage/media access for now — blocks Google Play photo/video permission declaration
                 "android.permission.READ_EXTERNAL_STORAGE",
                 "android.permission.WRITE_EXTERNAL_STORAGE",
@@ -156,6 +157,7 @@ export default {
                 "expo-camera",
                 {
                     cameraPermission: "Allow $(PRODUCT_NAME) to access your camera to scan QR codes and share photos with AI.",
+                    recordAudioAndroid: false,
                 }
             ],
             [

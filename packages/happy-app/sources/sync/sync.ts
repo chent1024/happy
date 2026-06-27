@@ -38,7 +38,6 @@ import { log } from '@/log';
 import { gitStatusSync } from './gitStatusSync';
 import { AsyncLock } from '@/utils/lock';
 import { EncryptionCache } from './encryption/encryptionCache';
-import { systemPrompt } from './prompt/systemPrompt';
 import { fetchArtifact, fetchArtifacts, createArtifact, updateArtifact } from './apiArtifacts';
 import { DecryptedArtifact, Artifact, ArtifactCreateRequest, ArtifactUpdateRequest } from './artifactTypes';
 import { ArtifactEncryption } from './encryption/artifactEncryption';
@@ -662,13 +661,14 @@ class Sync {
         // Create user message content with metadata
         const content: RawRecord = {
             role: 'user',
+            localKey: localId,
             content: {
                 type: 'text',
                 text
             },
             meta: {
                 sentFrom,
-                appendSystemPrompt: systemPrompt,
+                clientCapabilities: { optionsXml: true },
                 ...(modeMeta.permissionMode !== undefined ? { permissionMode: modeMeta.permissionMode } : {}),
                 ...(modeMeta.model !== undefined ? { model: modeMeta.model } : {}),
                 ...(modeMeta.effort !== undefined ? { effort: modeMeta.effort } : {}),
@@ -677,6 +677,13 @@ class Sync {
             }
         };
         const encryptedRawRecord = await encryption.encryptRawRecord(content);
+        log.log(`[message-delivery] queued user message for outbox ${JSON.stringify({
+            sessionId,
+            localId,
+            source,
+            deliveryIntent: deliveryIntent ?? 'normal',
+            attachmentCount: effectiveAttachments?.length ?? 0,
+        })}`);
 
         // Add to messages - normalize the raw record
         const createdAt = Date.now();
@@ -1508,8 +1515,24 @@ class Sync {
                     }
                 }
                 this.sessionLastSeq.set(sessionId, maxSeq);
+                log.log(`[message-delivery] outbox batch accepted ${JSON.stringify({
+                    sessionId,
+                    localIds: batch.map((message) => message.localId),
+                    maxSeq,
+                    acceptedCount: data.messages.length,
+                })}`);
+            } else {
+                log.log(`[message-delivery] outbox batch accepted without message echoes ${JSON.stringify({
+                    sessionId,
+                    localIds: batch.map((message) => message.localId),
+                })}`);
             }
         } catch (error) {
+            log.log(`[message-delivery] outbox batch failed ${JSON.stringify({
+                sessionId,
+                localIds: batch.map((message) => message.localId),
+                error: error instanceof Error ? error.message : String(error),
+            })}`);
             this.maybeStartBackgroundSendWatchdog();
             throw error;
         } finally {

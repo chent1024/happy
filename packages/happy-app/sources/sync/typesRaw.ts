@@ -440,6 +440,7 @@ const rawRecordSchema = z.preprocess(
         }),
         z.object({
             role: z.literal('user'),
+            localKey: z.string().optional(),
             content: z.object({
                 type: z.literal('text'),
                 text: z.string()
