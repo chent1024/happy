@@ -120,3 +120,16 @@ export async function cleanupStdinAfterInk(opts: {
         opts.onDebug?.({ kind: 'drain-byte-count', bytes, chunks });
     }
 }
+
+export function clearStdinEncoding(stdin: unknown): void {
+    const readableState = (stdin as {
+    _readableState?: {
+        decoder?: unknown;
+        encoding?: BufferEncoding | null;
+    };
+    })._readableState;
+    if (!readableState) return;
+
+    readableState.decoder = null;
+    readableState.encoding = null;
+}

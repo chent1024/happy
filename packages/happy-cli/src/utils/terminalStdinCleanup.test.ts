@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { cleanupStdinAfterInk } from './terminalStdinCleanup';
+import { Readable } from 'node:stream';
+import { cleanupStdinAfterInk, clearStdinEncoding } from './terminalStdinCleanup';
 
 function createFakeStdin() {
     const listeners = new Map<string, Set<(...args: any[]) => void>>();
@@ -109,5 +110,17 @@ describe('cleanupStdinAfterInk', () => {
         (stdin as any).isTTY = false;
         await cleanupStdinAfterInk({ stdin: stdin as any, drainMs: 50 });
         expect(stdin.__calls.length).toBe(0);
+    });
+});
+
+describe('clearStdinEncoding', () => {
+    it('clears the readable decoder so future consumers receive buffers', () => {
+        const stdin = new Readable({ read() {} });
+        stdin.setEncoding('utf8');
+
+        clearStdinEncoding(stdin);
+
+        expect(stdin.readableEncoding).toBeNull();
+        expect((stdin as any)._readableState.decoder).toBeNull();
     });
 });

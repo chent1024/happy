@@ -23,6 +23,7 @@ import { Platform, AppState, type AppStateStatus } from 'react-native';
 import { isRunningOnMac } from '@/utils/platform';
 import { NormalizedMessage, normalizeRawMessage, RawRecord } from './typesRaw';
 import { applySettings, Settings, settingsDefaults, settingsParse, settingsToSyncPayload, SUPPORTED_SCHEMA_VERSION } from './settings';
+import { isEmptyAgentDefaultOverrides } from './agentDefaults';
 import { Profile, profileParse } from './profile';
 import { loadPendingSettings, savePendingSettings } from './persistence';
 import {
@@ -60,6 +61,15 @@ type V3GetSessionMessagesResponse = {
 // 2_147_483_647. We use that exact upper bound to keep the request safely
 // within int4 while still being effectively "infinite" for any session.
 const SEQ_BACKWARD_INITIAL_SENTINEL = 2_147_483_647;
+
+// Coalescing window for applying incoming messages. Streaming agents emit many
+// tokens per second; applying each one individually re-sorts the entire message
+// map and re-renders the chat list per token, saturating the main thread and
+// making text input feel laggy. Batching arrivals within one ~frame collapses
+// those storms into a single update. The trade-off is that a message appears
+// at most ~one frame later than today (e.g. the local echo of a just-sent
+// message), which is well worth removing the per-token re-render storms.
+const MESSAGE_COALESCE_MS = 24;
 
 type V3PostSessionMessagesResponse = {
     messages: Array<{
@@ -307,23 +317,27 @@ class Sync {
         }
 
         this.sessionQueueProcessing.add(sessionId);
-        const lock = this.getSessionMessageLock(sessionId);
-        void lock.inLock(() => {
-            while (true) {
+        // Coalesce bursts OUTSIDE the per-session lock: let tokens that arrive
+        // within one frame accumulate, then apply them in a single batch. The
+        // wait must not hold the lock — fetchMessages/loadOlderMessages share it,
+        // and a continuous stream would otherwise starve gap recovery and
+        // scroll-up history loading for as long as the agent keeps talking.
+        setTimeout(() => {
+            const lock = this.getSessionMessageLock(sessionId);
+            void lock.inLock(() => {
                 const pending = this.sessionMessageQueue.get(sessionId);
-                if (!pending || pending.length === 0) {
-                    break;
+                if (pending && pending.length > 0) {
+                    const batch = pending.splice(0, pending.length);
+                    this.applyMessages(sessionId, batch);
                 }
-                const batch = pending.splice(0, pending.length);
-                this.applyMessages(sessionId, batch);
-            }
-        }).finally(() => {
-            this.sessionQueueProcessing.delete(sessionId);
-            const pending = this.sessionMessageQueue.get(sessionId);
-            if (pending && pending.length > 0) {
-                this.scheduleQueuedMessagesProcessing(sessionId);
-            }
-        });
+            }).finally(() => {
+                this.sessionQueueProcessing.delete(sessionId);
+                const pending = this.sessionMessageQueue.get(sessionId);
+                if (pending && pending.length > 0) {
+                    this.scheduleQueuedMessagesProcessing(sessionId);
+                }
+            });
+        }, MESSAGE_COALESCE_MS);
     }
 
     private hasPendingOutboxMessages() {
@@ -709,9 +723,20 @@ class Sync {
 
     /** Server sent us settings — merge any pending local changes on top, then apply as one update. */
     private applyServerSettings = (serverSettings: Settings, version: number) => {
-        const merged = Object.keys(this.pendingSettings).length > 0
+        let merged = Object.keys(this.pendingSettings).length > 0
             ? applySettings(serverSettings, this.pendingSettings)
             : serverSettings;
+
+        // settingsToSyncPayload() omits agentDefaultOverrides when it is empty, so
+        // an absent/empty value from the server is ambiguous — it means "no info",
+        // not an explicit "user cleared their defaults". Never let it erase a
+        // non-empty local override, otherwise the user's agent defaults silently
+        // revert on the next server sync / app restart.
+        const localOverrides = storage.getState().settings.agentDefaultOverrides;
+        if (isEmptyAgentDefaultOverrides(merged.agentDefaultOverrides) && !isEmptyAgentDefaultOverrides(localOverrides)) {
+            merged = { ...merged, agentDefaultOverrides: localOverrides };
+        }
+
         storage.getState().applySettings(merged, version);
     }
 
