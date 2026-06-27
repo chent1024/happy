@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Canvas, Rect, Group, Skia } from "@shopify/react-native-skia";
+import { View } from "react-native";
 
 const ELEMENTS = 64;
 const GRID_SIZE = 8; // 8x8 grid
@@ -56,9 +56,8 @@ const grayscaleColors = ['#070707', '#242424', '#575757', '#979797', '#bbbbbb'];
 
 export const AvatarSkia = React.memo((props: AvatarProps) => {
     const { id, square, size = 48, monochrome } = props;
-    
     const defaultColors = monochrome ? grayscaleColors : colors;
-    const pixelColors = generateColors(id, defaultColors, monochrome);
+    const pixelColors = React.useMemo(() => generateColors(id, defaultColors, monochrome), [id, defaultColors, monochrome]);
     
     // Calculate cell size based on the avatar size
     const cellSize = size / GRID_SIZE;
@@ -81,31 +80,29 @@ export const AvatarSkia = React.memo((props: AvatarProps) => {
         return positions;
     }, [cellSize]);
 
-    // Create clipping path
-    const clipPath = React.useMemo(() => {
-        const path = Skia.Path.Make();
-        if (square) {
-            path.addRect(Skia.XYWHRect(0, 0, size, size));
-        } else {
-            path.addRRect(Skia.RRectXY(Skia.XYWHRect(0, 0, size, size), size/2, size/2));
-        }
-        return path;
-    }, [square, size]);
-
     return (
-        <Canvas style={{ width: size, height: size }}>
-            <Group clip={clipPath}>
-                {rects.map((rect, index) => (
-                    <Rect
-                        key={index}
-                        x={rect.x}
-                        y={rect.y}
-                        width={cellSize}
-                        height={cellSize}
-                        color={pixelColors[rect.colorIndex]}
-                    />
-                ))}
-            </Group>
-        </Canvas>
+        <View
+            style={{
+                width: size,
+                height: size,
+                borderRadius: square ? 0 : size / 2,
+                overflow: 'hidden',
+                position: 'relative',
+            }}
+        >
+            {rects.map((rect, index) => (
+                <View
+                    key={index}
+                    style={{
+                        position: 'absolute',
+                        left: rect.x,
+                        top: rect.y,
+                        width: cellSize,
+                        height: cellSize,
+                        backgroundColor: pixelColors[rect.colorIndex],
+                    }}
+                />
+            ))}
+        </View>
     );
 });

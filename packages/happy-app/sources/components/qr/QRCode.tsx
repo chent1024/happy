@@ -1,5 +1,5 @@
 import React from 'react';
-import { Canvas, Rect, Path, RoundedRect, DiffRect, rrect, rect, Group } from '@shopify/react-native-skia';
+import Svg, { Path, Rect } from 'react-native-svg';
 import { createQRMatrix } from './qrMatrix';
 
 // Check if point is in a locator pattern area
@@ -13,7 +13,7 @@ function isInLocatorPattern(x: number, y: number, matrixSize: number): boolean {
     return false;
 }
 
-// Generate path string for rectangle with selective rounded corners
+// Generate SVG path string for rectangle with selective rounded corners
 function getRectPath(x: number, y: number, w: number, h: number,
     tlr: number, trr: number, brr: number, blr: number): string {
     return `M ${x} ${y + tlr}
@@ -73,11 +73,13 @@ export const QRCode = React.memo((props: QRCodeProps) => {
                     if (!neighbors.bottom && !neighbors.left) trr = cornerRadius; // top-right (when no bottom and no left)
                     if (!neighbors.bottom && !neighbors.right) brr = cornerRadius; // bottom-right
 
+                    const offset = moduleSize * 2;
+
                     // Use Path if any corner is rounded
                     if (tlr || trr || brr || blr) {
                         const path = getRectPath(
-                            x * moduleSize - 0.5,
-                            y * moduleSize - 0.5,
+                            x * moduleSize - 0.5 + offset,
+                            y * moduleSize - 0.5 + offset,
                             moduleSize + 1,  // Slight overlap to avoid gaps
                             moduleSize + 1,
                             tlr, trr, brr, blr
@@ -86,8 +88,8 @@ export const QRCode = React.memo((props: QRCodeProps) => {
                         elements.push(
                             <Path
                                 key={`${x}-${y}`}
-                                path={path}
-                                color={foregroundColor}
+                                d={path}
+                                fill={foregroundColor}
                             />
                         );
                     } else {
@@ -95,11 +97,11 @@ export const QRCode = React.memo((props: QRCodeProps) => {
                         elements.push(
                             <Rect
                                 key={`${x}-${y}`}
-                                x={x * moduleSize - 0.5}
-                                y={y * moduleSize - 0.5}
+                                x={x * moduleSize - 0.5 + offset}
+                                y={y * moduleSize - 0.5 + offset}
                                 width={moduleSize + 1}
                                 height={moduleSize + 1}
-                                color={foregroundColor}
+                                fill={foregroundColor}
                             />
                         );
                     }
@@ -113,66 +115,107 @@ export const QRCode = React.memo((props: QRCodeProps) => {
     const baseRadius = 0.5;
 
     return (
-        <Canvas style={{ width: size, height: size }}>
+        <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
             {/* Background */}
-            <RoundedRect
+            <Rect
                 x={0}
                 y={0}
                 width={size}
                 height={size}
-                color={backgroundColor}
-                r={moduleSize * baseRadius * 3}
+                fill={backgroundColor}
+                rx={moduleSize * baseRadius * 3}
+                ry={moduleSize * baseRadius * 3}
             />
 
-            <Group transform={[{ translateX: moduleSize * 2 }, { translateY: moduleSize * 2 }]}>
-                {/* QR modules with rounded corners */}
-                {modules}
+            {/* QR modules with rounded corners */}
+            {modules}
 
-                {/* Top-left locator pattern */}
-                <DiffRect
-                    inner={rrect(rect(moduleSize, moduleSize, 5 * moduleSize, 5 * moduleSize), moduleSize * baseRadius, moduleSize * baseRadius)}
-                    outer={rrect(rect(0, 0, 7 * moduleSize, 7 * moduleSize), moduleSize * (baseRadius + 1), moduleSize * (baseRadius + 1))}
-                    color={foregroundColor}
-                />
-                <RoundedRect
-                    x={2 * moduleSize}
-                    y={2 * moduleSize}
-                    width={3 * moduleSize}
-                    height={3 * moduleSize}
-                    r={moduleSize}
-                    color={foregroundColor}
-                />
+            {/* Top-left locator pattern */}
+            <Rect
+                x={2 * moduleSize}
+                y={2 * moduleSize}
+                width={7 * moduleSize}
+                height={7 * moduleSize}
+                rx={moduleSize * (baseRadius + 1)}
+                ry={moduleSize * (baseRadius + 1)}
+                fill={foregroundColor}
+            />
+            <Rect
+                x={3 * moduleSize}
+                y={3 * moduleSize}
+                width={5 * moduleSize}
+                height={5 * moduleSize}
+                rx={moduleSize * baseRadius}
+                ry={moduleSize * baseRadius}
+                fill={backgroundColor}
+            />
+            <Rect
+                x={4 * moduleSize}
+                y={4 * moduleSize}
+                width={3 * moduleSize}
+                height={3 * moduleSize}
+                rx={moduleSize}
+                ry={moduleSize}
+                fill={foregroundColor}
+            />
 
-                {/* Top-right locator pattern */}
-                <DiffRect
-                    inner={rrect(rect((qrMatrix.size - 7 + 1) * moduleSize, moduleSize, 5 * moduleSize, 5 * moduleSize), moduleSize * baseRadius, moduleSize * baseRadius)}
-                    outer={rrect(rect((qrMatrix.size - 7) * moduleSize, 0, 7 * moduleSize, 7 * moduleSize), moduleSize * (baseRadius + 1), moduleSize * (baseRadius + 1))}
-                    color={foregroundColor}
-                />
-                <RoundedRect
-                    x={(qrMatrix.size - 7 + 2) * moduleSize}
-                    y={2 * moduleSize}
-                    width={3 * moduleSize}
-                    height={3 * moduleSize}
-                    r={moduleSize}
-                    color={foregroundColor}
-                />
+            {/* Top-right locator pattern */}
+            <Rect
+                x={(qrMatrix.size - 7 + 2) * moduleSize}
+                y={2 * moduleSize}
+                width={7 * moduleSize}
+                height={7 * moduleSize}
+                rx={moduleSize * (baseRadius + 1)}
+                ry={moduleSize * (baseRadius + 1)}
+                fill={foregroundColor}
+            />
+            <Rect
+                x={(qrMatrix.size - 7 + 3) * moduleSize}
+                y={3 * moduleSize}
+                width={5 * moduleSize}
+                height={5 * moduleSize}
+                rx={moduleSize * baseRadius}
+                ry={moduleSize * baseRadius}
+                fill={backgroundColor}
+            />
+            <Rect
+                x={(qrMatrix.size - 7 + 4) * moduleSize}
+                y={4 * moduleSize}
+                width={3 * moduleSize}
+                height={3 * moduleSize}
+                rx={moduleSize}
+                ry={moduleSize}
+                fill={foregroundColor}
+            />
 
-                {/* Bottom-left locator pattern */}
-                <DiffRect
-                    inner={rrect(rect(moduleSize, (qrMatrix.size - 7 + 1) * moduleSize, 5 * moduleSize, 5 * moduleSize), moduleSize * baseRadius, moduleSize * baseRadius)}
-                    outer={rrect(rect(0, (qrMatrix.size - 7) * moduleSize, 7 * moduleSize, 7 * moduleSize), moduleSize * (baseRadius + 1), moduleSize * (baseRadius + 1))}
-                    color={foregroundColor}
-                />
-                <RoundedRect
-                    x={2 * moduleSize}
-                    y={(qrMatrix.size - 7 + 2) * moduleSize}
-                    width={3 * moduleSize}
-                    height={3 * moduleSize}
-                    r={moduleSize}
-                    color={foregroundColor}
-                />
-            </Group>
-        </Canvas>
+            {/* Bottom-left locator pattern */}
+            <Rect
+                x={2 * moduleSize}
+                y={(qrMatrix.size - 7 + 2) * moduleSize}
+                width={7 * moduleSize}
+                height={7 * moduleSize}
+                rx={moduleSize * (baseRadius + 1)}
+                ry={moduleSize * (baseRadius + 1)}
+                fill={foregroundColor}
+            />
+            <Rect
+                x={3 * moduleSize}
+                y={(qrMatrix.size - 7 + 3) * moduleSize}
+                width={5 * moduleSize}
+                height={5 * moduleSize}
+                rx={moduleSize * baseRadius}
+                ry={moduleSize * baseRadius}
+                fill={backgroundColor}
+            />
+            <Rect
+                x={4 * moduleSize}
+                y={(qrMatrix.size - 7 + 4) * moduleSize}
+                width={3 * moduleSize}
+                height={3 * moduleSize}
+                rx={moduleSize}
+                ry={moduleSize}
+                fill={foregroundColor}
+            />
+        </Svg>
     );
 });

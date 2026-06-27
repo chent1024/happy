@@ -74,13 +74,6 @@ export const SettingsView = React.memo(function SettingsView() {
     const { theme } = useUnistyles();
     const router = useRouter();
     const appVersion = Constants.expoConfig?.version || '1.0.0';
-    const runtimeVersion = typeof Constants.expoConfig?.runtimeVersion === 'string'
-        ? Constants.expoConfig.runtimeVersion
-        : undefined;
-    const versionDetail = [
-        appVersion,
-        runtimeVersion ? `runtime ${runtimeVersion}` : undefined,
-    ].filter(Boolean).join(' / ');
     const versionSubtitle = formatBuildSubtitle(getBuildConfig());
     const auth = useAuth();
     const [devModeEnabled, setDevModeEnabled] = useLocalSettingMutable('devModeEnabled');
@@ -418,7 +411,7 @@ export const SettingsView = React.memo(function SettingsView() {
                     title={t('common.version')}
                     subtitle={versionSubtitle}
                     subtitleLines={2}
-                    detail={versionDetail}
+                    detail={appVersion}
                     icon={<Ionicons name="information-circle-outline" size={29} color={theme.colors.textSecondary} />}
                     onPress={handleVersionClick}
                     showChevron={false}

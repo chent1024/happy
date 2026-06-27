@@ -45,7 +45,6 @@
             "@more-tech/react-native-libsodium",
             "@prisma/client",
             "@prisma/engines",
-            "@shopify/react-native-skia",
             "@tailwindcss/oxide",
             "better-sqlite3",
             "electron",

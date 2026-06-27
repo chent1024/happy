@@ -53,7 +53,6 @@ export default {
         name,
         slug: "happy",
         version: "1.7.0",
-        runtimeVersion: "21",
         orientation: "default",
         icon: "./sources/assets/images/icon.png",
         scheme: "happy",
@@ -123,6 +122,7 @@ export default {
             favicon: "./sources/assets/images/favicon.png"
         },
         plugins: [
+            require("./plugins/withAndroidApkUpdate.js"),
             require("./plugins/withEinkCompatibility.js"),
             require("./plugins/withAndroidArm64Only.js"),
             [
@@ -131,7 +131,6 @@ export default {
                     root: "./sources/app"
                 }
             ],
-            "expo-updates",
             "expo-asset",
             "expo-localization",
             "expo-mail-composer",
@@ -187,12 +186,6 @@ export default {
                 }
             ]
         ],
-        updates: {
-            url: "https://u.expo.dev/4558dd3d-cd5a-47cd-bad9-e591a241cc06",
-            requestHeaders: {
-                "expo-channel-name": "production"
-            }
-        },
         experiments: {
             typedRoutes: true
         },

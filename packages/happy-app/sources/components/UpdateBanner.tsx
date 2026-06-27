@@ -3,48 +3,36 @@ import { Ionicons } from '@expo/vector-icons';
 import { Item } from './Item';
 import { ItemGroup } from './ItemGroup';
 import { useUnistyles } from 'react-native-unistyles';
-import { useUpdates } from '@/hooks/useUpdates';
 import { useChangelog } from '@/hooks/useChangelog';
-import { useNativeUpdate } from '@/hooks/useNativeUpdate';
+import { NativeUpdateInstallState, useNativeUpdate } from '@/hooks/useNativeUpdate';
 import { useRouter } from 'expo-router';
 import { Platform } from 'react-native';
-import { openExternalUrl } from '@/utils/openExternalUrl';
 import { t } from '@/text';
+
+function getNativeUpdateSubtitle(installState: NativeUpdateInstallState) {
+    if (installState.status === 'downloading') {
+        return `${Math.round(installState.progress * 100)}%`;
+    }
+
+    return installState.message ?? t('updateBanner.pressToApply');
+}
 
 export const UpdateBanner = React.memo(() => {
     const { theme } = useUnistyles();
-    const { updateAvailable, reloadApp } = useUpdates();
     const { hasUnread, markAsRead } = useChangelog();
-    const updateUrl = useNativeUpdate();
+    const { updateUrl, installState, installUpdate } = useNativeUpdate();
     const router = useRouter();
 
     // Show native app update banner (highest priority)
     if (updateUrl) {
-        const handleOpenStore = () => openExternalUrl(updateUrl);
-
         return (
             <ItemGroup>
                 <Item
                     title={t('updateBanner.nativeUpdateAvailable')}
-                    subtitle={Platform.OS === 'ios' ? t('updateBanner.tapToUpdateAppStore') : t('updateBanner.tapToUpdatePlayStore')}
+                    subtitle={Platform.OS === 'ios' ? t('updateBanner.tapToUpdateAppStore') : getNativeUpdateSubtitle(installState)}
                     icon={<Ionicons name="download-outline" size={28} color={theme.colors.success} />}
                     showChevron={true}
-                    onPress={handleOpenStore}
-                />
-            </ItemGroup>
-        );
-    }
-
-    // Show OTA update banner if available (second priority)
-    if (updateAvailable) {
-        return (
-            <ItemGroup>
-                <Item
-                    title={t('updateBanner.updateAvailable')}
-                    subtitle={t('updateBanner.pressToApply')}
-                    icon={<Ionicons name="download-outline" size={28} color={theme.colors.success} />}
-                    showChevron={false}
-                    onPress={reloadApp}
+                    onPress={installUpdate}
                 />
             </ItemGroup>
         );
