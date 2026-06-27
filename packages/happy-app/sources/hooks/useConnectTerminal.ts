@@ -5,6 +5,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { decodeBase64 } from '@/encryption/base64';
 import { encryptBox } from '@/encryption/libsodium';
 import { authApprove } from '@/auth/authApprove';
+import { QrScannerModal } from '@/components/qr/QrScannerModal';
 import { useCheckScannerPermissions } from '@/hooks/useCheckCameraPermissions';
 import { Modal } from '@/modal';
 import { t } from '@/text';
@@ -54,16 +55,40 @@ export function useConnectTerminal(options?: UseConnectTerminalOptions) {
         }
     }, [auth.credentials, options]);
 
+    const openInlineScanner = React.useCallback(() => {
+        Modal.show({
+            component: QrScannerModal,
+            props: {
+                onScanned: async (data: string) => {
+                    if (!data.startsWith('happy://terminal?')) {
+                        Modal.alert(t('common.error'), t('modals.invalidAuthUrl'), [{ text: t('common.ok') }]);
+                        return false;
+                    }
+                    return await processAuthUrl(data);
+                },
+            },
+        });
+    }, [processAuthUrl]);
+
     const connectTerminal = React.useCallback(async () => {
         if (await checkScannerPermissions()) {
-            // Use camera scanner
-            CameraView.launchScanner({
-                barcodeTypes: ['qr']
-            });
+            if (Platform.OS === 'android' || !CameraView.isModernBarcodeScannerAvailable) {
+                openInlineScanner();
+                return;
+            }
+
+            try {
+                await CameraView.launchScanner({
+                    barcodeTypes: ['qr']
+                });
+            } catch (error) {
+                console.warn('Failed to launch system barcode scanner, using inline scanner', error);
+                openInlineScanner();
+            }
         } else {
             Modal.alert(t('common.error'), t('modals.cameraPermissionsRequiredToConnectTerminal'), [{ text: t('common.ok') }]);
         }
-    }, [checkScannerPermissions]);
+    }, [checkScannerPermissions, openInlineScanner]);
 
     const connectWithUrl = React.useCallback(async (url: string) => {
         return await processAuthUrl(url);
