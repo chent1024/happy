@@ -77,3 +77,4 @@ happy-workspaces/
 
 # third party tools
 .supervibe/
+.codegraph/
