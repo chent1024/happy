@@ -133,6 +133,7 @@ export default {
         },
         plugins: [
             require("./plugins/withEinkCompatibility.js"),
+            require("./plugins/withAndroidArm64Only.js"),
             [
                 "expo-router",
                 {

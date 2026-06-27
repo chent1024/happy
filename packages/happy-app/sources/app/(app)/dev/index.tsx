@@ -28,11 +28,11 @@ export default function DevScreen() {
         const currentUrl = getServerUrl();
 
         const newUrl = await Modal.prompt(
-            'Edit API Endpoint',
-            'Enter the server URL:',
+            '编辑 API 端点',
+            '请输入服务器 URL：',
             {
                 defaultValue: currentUrl,
-                confirmText: 'Save'
+                confirmText: '保存'
             }
         );
 
@@ -40,9 +40,9 @@ export default function DevScreen() {
             const validation = validateServerUrl(newUrl);
             if (validation.valid) {
                 setServerUrl(newUrl);
-                Modal.alert('Success', 'Server URL updated. Please restart the app for changes to take effect.');
+                Modal.alert('成功', '服务器 URL 已更新。请重启应用以使更改生效。');
             } else {
-                Modal.alert('Invalid URL', validation.error || 'Please enter a valid URL');
+                Modal.alert('URL 无效', validation.error || '请输入有效的 URL');
             }
         }
     };
@@ -51,25 +51,25 @@ export default function DevScreen() {
         const currentUrl = getLogServerUrl() || '';
 
         const newUrl = await Modal.prompt(
-            'Remote Log Server',
-            'Sends ALL console output as unencrypted plaintext over HTTP to this URL. Use your Mac\'s local IP (e.g. http://192.168.1.5:8787). Run "yarn app-logs" on your Mac to receive. Clear to disable.',
+            '远程日志服务器',
+            '会通过 HTTP 将所有控制台输出以未加密明文发送到此 URL。请使用 Mac 的局域网 IP（例如 http://192.168.1.5:8787），并在 Mac 上运行 "yarn app-logs" 接收日志。清空可禁用。',
             {
                 defaultValue: currentUrl,
-                confirmText: 'Save'
+                confirmText: '保存'
             }
         );
 
         if (newUrl !== undefined && newUrl !== currentUrl) {
             if (!newUrl || !newUrl.trim()) {
                 setLogServerUrl(null);
-                Modal.alert('Success', 'Remote logging disabled. Restart app for changes to take effect.');
+                Modal.alert('成功', '远程日志已禁用。请重启应用以使更改生效。');
             } else {
                 const validation = validateServerUrl(newUrl);
                 if (validation.valid) {
                     setLogServerUrl(newUrl);
-                    Modal.alert('Success', 'Log server URL updated. Restart app for changes to take effect.');
+                    Modal.alert('成功', '日志服务器 URL 已更新。请重启应用以使更改生效。');
                 } else {
-                    Modal.alert('Invalid URL', validation.error || 'Please enter a valid URL');
+                    Modal.alert('URL 无效', validation.error || '请输入有效的 URL');
                 }
             }
         }
@@ -77,13 +77,13 @@ export default function DevScreen() {
 
     const handleClearCache = async () => {
         const confirmed = await Modal.confirm(
-            'Clear Cache',
-            'Are you sure you want to clear all cached data?',
-            { confirmText: 'Clear', destructive: true }
+            '清除缓存',
+            '确定要清除所有缓存数据吗？',
+            { confirmText: '清除', destructive: true }
         );
         if (confirmed) {
-            console.log('Cache cleared');
-            Modal.alert('Success', 'Cache has been cleared');
+            console.log('缓存已清除');
+            Modal.alert('成功', '缓存已清除');
         }
     };
 
@@ -98,11 +98,11 @@ export default function DevScreen() {
         const hours = Math.floor(minutes / 60);
         const days = Math.floor(hours / 24);
 
-        if (seconds < 10) return 'Just now';
-        if (seconds < 60) return `${seconds}s ago`;
-        if (minutes < 60) return `${minutes}m ago`;
-        if (hours < 24) return `${hours}h ago`;
-        if (days < 7) return `${days}d ago`;
+        if (seconds < 10) return '刚刚';
+        if (seconds < 60) return `${seconds} 秒前`;
+        if (minutes < 60) return `${minutes} 分钟前`;
+        if (hours < 24) return `${hours} 小时前`;
+        if (days < 7) return `${days} 天前`;
 
         return new Date(timestamp).toLocaleDateString();
     };
@@ -112,14 +112,29 @@ export default function DevScreen() {
         const { status, lastConnectedAt, lastDisconnectedAt } = socketStatus;
 
         if (status === 'connected' && lastConnectedAt) {
-            return `Connected ${formatTimeAgo(lastConnectedAt)}`;
+            return `已连接，${formatTimeAgo(lastConnectedAt)}`;
         } else if ((status === 'disconnected' || status === 'error') && lastDisconnectedAt) {
-            return `Last connected ${formatTimeAgo(lastDisconnectedAt)}`;
+            return `上次连接于 ${formatTimeAgo(lastDisconnectedAt)}`;
         } else if (status === 'connecting') {
-            return 'Connecting to server...';
+            return '正在连接服务器...';
         }
 
-        return 'No connection info';
+        return '无连接信息';
+    };
+
+    const getSocketStatusDetail = (): string => {
+        switch (socketStatus.status) {
+            case 'connected':
+                return '已连接';
+            case 'connecting':
+                return '连接中';
+            case 'error':
+                return '错误';
+            case 'disconnected':
+                return '已断开';
+            default:
+                return '未知';
+        }
     };
 
     // Socket status indicator component
@@ -140,34 +155,34 @@ export default function DevScreen() {
 
     return (
         <ItemList>
-            {/* App Information */}
-            <ItemGroup title="App Information">
+            {/* 应用信息 */}
+            <ItemGroup title="应用信息">
                 <Item
-                    title="Version"
+                    title="版本"
                     detail={Constants.expoConfig?.version || '1.0.0'}
                 />
                 <Item
-                    title="Build Number"
-                    detail={Application.nativeBuildVersion || 'N/A'}
+                    title="构建号"
+                    detail={Application.nativeBuildVersion || '不可用'}
                 />
                 <Item
-                    title="SDK Version"
-                    detail={Constants.expoConfig?.sdkVersion || 'Unknown'}
+                    title="SDK 版本"
+                    detail={Constants.expoConfig?.sdkVersion || '未知'}
                 />
                 <Item
-                    title="Platform"
+                    title="平台"
                     detail={`${Constants.platform?.ios ? 'iOS' : 'Android'} ${Constants.systemVersion || ''}`}
                 />
                 <Item
-                    title="Anonymous ID"
+                    title="匿名 ID"
                     detail={anonymousId}
                 />
             </ItemGroup>
 
-            {/* Debug Options */}
-            <ItemGroup title="Debug Options">
+            {/* 调试选项 */}
+            <ItemGroup title="调试选项">
                 <Item
-                    title="Debug Mode"
+                    title="调试模式"
                     rightElement={
                         <Switch
                             value={debugMode}
@@ -177,8 +192,8 @@ export default function DevScreen() {
                     showChevron={false}
                 />
                 <Item
-                    title="Console Output"
-                    subtitle="Enable console output in production builds"
+                    title="控制台输出"
+                    subtitle="在生产构建中启用控制台输出"
                     rightElement={
                         <Switch
                             value={consoleLoggingEnabled}
@@ -188,8 +203,8 @@ export default function DevScreen() {
                     showChevron={false}
                 />
                 <Item
-                    title="Verbose Logging"
-                    subtitle="Log all network requests and responses"
+                    title="详细日志"
+                    subtitle="记录所有网络请求和响应"
                     rightElement={
                         <Switch
                             value={verboseLogging}
@@ -199,198 +214,198 @@ export default function DevScreen() {
                     showChevron={false}
                 />
                 <Item
-                    title="View Logs"
+                    title="查看日志"
                     icon={<Ionicons name="document-text-outline" size={28} color="#007AFF" />}
                     onPress={() => router.push('/dev/logs')}
                 />
             </ItemGroup>
 
-            {/* Component Demos */}
-            <ItemGroup title="Component Demos">
+            {/* 组件演示 */}
+            <ItemGroup title="组件演示">
                 <Item
-                    title="Device Info"
-                    subtitle="Safe area insets and device parameters"
+                    title="设备信息"
+                    subtitle="安全区域和设备参数"
                     icon={<Ionicons name="phone-portrait-outline" size={28} color="#007AFF" />}
                     onPress={() => router.push('/dev/device-info')}
                 />
                 <Item
-                    title="List Components"
-                    subtitle="Demo of Item, ItemGroup, and ItemList"
+                    title="列表组件"
+                    subtitle="Item、ItemGroup 和 ItemList 演示"
                     icon={<Ionicons name="list-outline" size={28} color="#007AFF" />}
                     onPress={() => router.push('/dev/list-demo')}
                 />
                 <Item
-                    title="Typography"
-                    subtitle="All typography styles"
+                    title="字体排版"
+                    subtitle="全部排版样式"
                     icon={<Ionicons name="text-outline" size={28} color="#007AFF" />}
                     onPress={() => router.push('/dev/typography')}
                 />
                 <Item
-                    title="Colors"
-                    subtitle="Color palette and themes"
+                    title="颜色"
+                    subtitle="调色板和主题"
                     icon={<Ionicons name="color-palette-outline" size={28} color="#007AFF" />}
                     onPress={() => router.push('/dev/colors')}
                 />
                 <Item
-                    title="Message Demos"
-                    subtitle="Various message types and components"
+                    title="消息演示"
+                    subtitle="各种消息类型和组件"
                     icon={<Ionicons name="chatbubbles-outline" size={28} color="#007AFF" />}
                     onPress={() => router.push('/dev/messages-demo')}
                 />
                 <Item
-                    title="Inverted List Test"
-                    subtitle="Test inverted FlatList with keyboard"
+                    title="反向列表测试"
+                    subtitle="测试键盘场景下的反向 FlatList"
                     icon={<Ionicons name="swap-vertical-outline" size={28} color="#007AFF" />}
                     onPress={() => router.push('/dev/inverted-list')}
                 />
                 <Item
-                    title="Tool Views"
-                    subtitle="Tool call visualization components"
+                    title="工具视图"
+                    subtitle="工具调用可视化组件"
                     icon={<Ionicons name="construct-outline" size={28} color="#007AFF" />}
                     onPress={() => router.push('/dev/tools2')}
                 />
                 <Item
-                    title="Shimmer View"
-                    subtitle="Shimmer loading effects with masks"
+                    title="闪光加载视图"
+                    subtitle="带遮罩的闪光加载效果"
                     icon={<Ionicons name="sparkles-outline" size={28} color="#007AFF" />}
                     onPress={() => router.push('/dev/shimmer-demo')}
                 />
                 <Item
-                    title="Multi Text Input"
-                    subtitle="Auto-growing multiline text input"
+                    title="多行文本输入"
+                    subtitle="自动增长的多行文本输入"
                     icon={<Ionicons name="create-outline" size={28} color="#007AFF" />}
                     onPress={() => router.push('/dev/multi-text-input')}
                 />
                 <Item
-                    title="Input Styles"
-                    subtitle="10+ different input field style variants"
+                    title="输入框样式"
+                    subtitle="10+ 种输入框样式变体"
                     icon={<Ionicons name="color-palette-outline" size={28} color="#007AFF" />}
                     onPress={() => router.push('/dev/input-styles')}
                 />
                 <Item
-                    title="Modal System"
-                    subtitle="Alert, confirm, and custom modals"
+                    title="弹窗系统"
+                    subtitle="提示、确认和自定义弹窗"
                     icon={<Ionicons name="albums-outline" size={28} color="#007AFF" />}
                     onPress={() => router.push('/dev/modal-demo')}
                 />
                 <Item
-                    title="Unit Tests"
-                    subtitle="Run tests in the app environment"
+                    title="单元测试"
+                    subtitle="在应用环境中运行测试"
                     icon={<Ionicons name="flask-outline" size={28} color="#34C759" />}
                     onPress={() => router.push('/dev/tests')}
                 />
                 <Item
-                    title="Unistyles Demo"
-                    subtitle="React Native Unistyles features and capabilities"
+                    title="Unistyles 演示"
+                    subtitle="React Native Unistyles 功能演示"
                     icon={<Ionicons name="brush-outline" size={28} color="#FF6B6B" />}
                     onPress={() => router.push('/dev/unistyles-demo')}
                 />
                 <Item
-                    title="QR Code Test"
-                    subtitle="Test QR code generation with different parameters"
+                    title="二维码测试"
+                    subtitle="测试不同参数下的二维码生成"
                     icon={<Ionicons name="qr-code-outline" size={28} color="#007AFF" />}
                     onPress={() => router.push('/dev/qr-test')}
                 />
                 <Item
-                    title="Session Composer"
-                    subtitle="New session creation screen layout"
+                    title="会话编辑器"
+                    subtitle="新建会话页面布局"
                     icon={<Ionicons name="add-circle-outline" size={28} color="#007AFF" />}
                     onPress={() => router.push('/dev/session-composer' as any)}
                 />
             </ItemGroup>
 
-            {/* Test Features */}
-            <ItemGroup title="Test Features" footer="These actions may affect app stability">
+            {/* 测试功能 */}
+            <ItemGroup title="测试功能" footer="这些操作可能影响应用稳定性">
                 <Item
-                    title="Claude OAuth Test"
-                    subtitle="Test Claude authentication flow"
+                    title="Claude OAuth 测试"
+                    subtitle="测试 Claude 认证流程"
                     icon={<Ionicons name="key-outline" size={28} color="#007AFF" />}
                     onPress={() => router.push('/settings/connect/claude')}
                 />
                 <Item
-                    title="Test Crash"
-                    subtitle="Trigger a test crash"
+                    title="崩溃测试"
+                    subtitle="触发一次测试崩溃"
                     destructive={true}
                     icon={<Ionicons name="warning-outline" size={28} color="#FF3B30" />}
                     onPress={async () => {
                         const confirmed = await Modal.confirm(
-                            'Test Crash',
-                            'This will crash the app. Continue?',
-                            { confirmText: 'Crash', destructive: true }
+                            '崩溃测试',
+                            '这会导致应用崩溃。是否继续？',
+                            { confirmText: '崩溃', destructive: true }
                         );
                         if (confirmed) {
-                            throw new Error('Test crash triggered from dev menu');
+                            throw new Error('从开发者菜单触发的测试崩溃');
                         }
                     }}
                 />
                 <Item
-                    title="Clear Cache"
-                    subtitle="Remove all cached data"
+                    title="清除缓存"
+                    subtitle="移除所有缓存数据"
                     icon={<Ionicons name="trash-outline" size={28} color="#FF9500" />}
                     onPress={handleClearCache}
                 />
                 <Item
-                    title="Reset Changelog"
-                    subtitle="Show 'What's New' banner again"
+                    title="重置更新日志"
+                    subtitle="再次显示“新功能”横幅"
                     icon={<Ionicons name="sparkles-outline" size={28} color="#007AFF" />}
                     onPress={() => {
                         setLastViewedTitle('');
-                        Modal.alert('Done', 'Changelog reset. Restart app to see the banner.');
+                        Modal.alert('完成', '更新日志已重置。重启应用后会显示横幅。');
                     }}
                 />
                 <Item
-                    title="Reset App State"
-                    subtitle="Clear all user data and preferences"
+                    title="重置应用状态"
+                    subtitle="清除所有用户数据和偏好设置"
                     destructive={true}
                     icon={<Ionicons name="refresh-outline" size={28} color="#FF3B30" />}
                     onPress={async () => {
                         const confirmed = await Modal.confirm(
-                            'Reset App',
-                            'This will delete all data. Are you sure?',
-                            { confirmText: 'Reset', destructive: true }
+                            '重置应用',
+                            '这会删除所有数据。确定要继续吗？',
+                            { confirmText: '重置', destructive: true }
                         );
                         if (confirmed) {
-                            console.log('App state reset');
+                            console.log('应用状态已重置');
                         }
                     }}
                 />
             </ItemGroup>
 
-            {/* System */}
-            <ItemGroup title="System">
+            {/* 系统 */}
+            <ItemGroup title="系统">
                 <Item
-                    title="Purchases"
-                    subtitle="View subscriptions and entitlements"
+                    title="购买"
+                    subtitle="查看订阅和权益"
                     icon={<Ionicons name="card-outline" size={28} color="#007AFF" />}
                     onPress={() => router.push('/dev/purchases')}
                 />
                 <Item
-                    title="Expo Constants"
-                    subtitle="View expoConfig, manifests, and system constants"
+                    title="Expo 常量"
+                    subtitle="查看 expoConfig、manifest 和系统常量"
                     icon={<Ionicons name="information-circle-outline" size={28} color="#007AFF" />}
                     onPress={() => router.push('/dev/expo-constants')}
                 />
             </ItemGroup>
 
-            {/* Network */}
-            <ItemGroup title="Network">
+            {/* 网络 */}
+            <ItemGroup title="网络">
                 <Item
-                    title="API Endpoint"
+                    title="API 端点"
                     detail={getServerUrl()}
                     onPress={handleEditServerUrl}
                     detailStyle={{ flex: 1, textAlign: 'right', minWidth: '70%' }}
                 />
                 <Item
-                    title="Log Server"
-                    subtitle="Sends unencrypted console logs over HTTP"
-                    detail={getLogServerUrl() || 'Off'}
+                    title="日志服务器"
+                    subtitle="通过 HTTP 发送未加密控制台日志"
+                    detail={getLogServerUrl() || '关闭'}
                     onPress={handleEditLogServerUrl}
                     detailStyle={{ flex: 1, textAlign: 'right', minWidth: '50%' }}
                 />
                 <Item
-                    title="Socket.IO Status"
+                    title="Socket.IO 状态"
                     subtitle={getSocketStatusSubtitle()}
-                    detail={socketStatus.status}
+                    detail={getSocketStatusDetail()}
                     rightElement={<SocketStatusIndicator />}
                     showChevron={false}
                 />

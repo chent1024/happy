@@ -234,56 +234,62 @@ export default function RootLayout() {
             <Stack.Screen
                 name="dev/index"
                 options={{
-                    headerTitle: 'Developer Tools',
+                    headerTitle: '开发者工具',
+                }}
+            />
+            <Stack.Screen
+                name="dev/logs"
+                options={{
+                    headerTitle: '日志',
                 }}
             />
 
             <Stack.Screen
                 name="dev/list-demo"
                 options={{
-                    headerTitle: 'List Components Demo',
+                    headerTitle: '列表组件演示',
                 }}
             />
             <Stack.Screen
                 name="dev/typography"
                 options={{
-                    headerTitle: 'Typography',
+                    headerTitle: '字体排版',
                 }}
             />
             <Stack.Screen
                 name="dev/colors"
                 options={{
-                    headerTitle: 'Colors',
+                    headerTitle: '颜色',
                 }}
             />
             <Stack.Screen
                 name="dev/tools2"
                 options={{
-                    headerTitle: 'Tool Views Demo',
+                    headerTitle: '工具视图演示',
                 }}
             />
             <Stack.Screen
                 name="dev/masked-progress"
                 options={{
-                    headerTitle: 'Masked Progress',
+                    headerTitle: '遮罩进度',
                 }}
             />
             <Stack.Screen
                 name="dev/shimmer-demo"
                 options={{
-                    headerTitle: 'Shimmer View Demo',
+                    headerTitle: '闪光加载演示',
                 }}
             />
             <Stack.Screen
                 name="dev/multi-text-input"
                 options={{
-                    headerTitle: 'Multi Text Input',
+                    headerTitle: '多行文本输入',
                 }}
             />
             <Stack.Screen
                 name="dev/session-composer"
                 options={{
-                    headerTitle: 'Session Composer',
+                    headerTitle: '会话编辑器',
                 }}
             />
             <Stack.Screen
@@ -298,7 +304,7 @@ export default function RootLayout() {
                 name="settings/connect/claude"
                 options={{
                     headerShown: true,
-                    headerTitle: 'Connect to Claude',
+                    headerTitle: '连接 Claude',
                     headerBackTitle: t('common.back'),
                     // headerStyle: {
                     //     backgroundColor: Platform.OS === 'web' ? theme.colors.header.background : '#1F1E1C',

@@ -16,9 +16,9 @@ export default function LogsScreen() {
     React.useEffect(() => {
         // Add some sample logs if empty (for demo purposes)
         if (log.getCount() === 0) {
-            log.log('Logger initialized');
-            log.log('Sample debug message');
-            log.log('Application started successfully');
+            log.log('日志系统已初始化');
+            log.log('示例调试消息');
+            log.log('应用已成功启动');
         }
 
         // Initial load
@@ -43,9 +43,9 @@ export default function LogsScreen() {
 
     const handleClear = async () => {
         const confirmed = await Modal.confirm(
-            'Clear Logs',
-            'Are you sure you want to clear all logs?',
-            { confirmText: 'Clear', destructive: true }
+            '清除日志',
+            '确定要清除所有日志吗？',
+            { confirmText: '清除', destructive: true }
         );
         if (confirmed) {
             log.clear();
@@ -54,18 +54,18 @@ export default function LogsScreen() {
 
     const handleCopyAll = async () => {
         if (logs.length === 0) {
-            Modal.alert('No Logs', 'There are no logs to copy');
+            Modal.alert('没有日志', '没有可复制的日志');
             return;
         }
 
         const allLogs = logs.join('\n');
         await Clipboard.setStringAsync(allLogs);
-        Modal.alert('Copied', `${logs.length} log entries copied to clipboard`);
+        Modal.alert('已复制', `${logs.length} 条日志已复制到剪贴板`);
     };
 
     const handleAddTestLog = () => {
         const timestamp = new Date().toLocaleTimeString();
-        log.log(`Test log entry at ${timestamp}`);
+        log.log(`测试日志条目：${timestamp}`);
     };
 
     const renderLogItem = ({ item, index }: { item: string; index: number }) => (
@@ -91,23 +91,23 @@ export default function LogsScreen() {
             {/* Header with actions */}
             <ItemList>
                 <ItemGroup
-                    title={`Logs (${logs.length})`}
-                    footer={`Stored locally and capped at ${MAX_APP_LOG_ENTRIES.toLocaleString()} entries. Oldest logs are dropped first.`}
+                    title={`日志 (${logs.length})`}
+                    footer={`日志仅保存在本地，最多保留 ${MAX_APP_LOG_ENTRIES.toLocaleString()} 条。最旧的日志会优先删除。`}
                 >
                     <Item 
-                        title="Add Test Log"
-                        subtitle="Add a test log entry with timestamp"
+                        title="添加测试日志"
+                        subtitle="添加一条带时间戳的测试日志"
                         icon={<Ionicons name="add-circle-outline" size={24} color="#34C759" />}
                         onPress={handleAddTestLog}
                     />
                     <Item 
-                        title="Copy All Logs"
+                        title="复制所有日志"
                         icon={<Ionicons name="copy-outline" size={24} color="#007AFF" />}
                         onPress={handleCopyAll}
                         disabled={logs.length === 0}
                     />
                     <Item 
-                        title="Clear All Logs"
+                        title="清除所有日志"
                         icon={<Ionicons name="trash-outline" size={24} color="#FF3B30" />}
                         onPress={handleClear}
                         disabled={logs.length === 0}
@@ -132,7 +132,7 @@ export default function LogsScreen() {
                             marginTop: 16,
                             textAlign: 'center'
                         }}>
-                            No logs yet
+                            暂无日志
                         </Text>
                         <Text style={{
                             fontSize: 14,
@@ -140,7 +140,7 @@ export default function LogsScreen() {
                             marginTop: 8,
                             textAlign: 'center'
                         }}>
-                            Logs will appear here as they are generated
+                            生成日志后会显示在这里
                         </Text>
                     </View>
                 ) : (
