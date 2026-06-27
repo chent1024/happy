@@ -374,12 +374,6 @@ export default function DevScreen() {
             {/* 系统 */}
             <ItemGroup title="系统">
                 <Item
-                    title="购买"
-                    subtitle="查看订阅和权益"
-                    icon={<Ionicons name="card-outline" size={28} color="#007AFF" />}
-                    onPress={() => router.push('/dev/purchases')}
-                />
-                <Item
                     title="Expo 常量"
                     subtitle="查看 expoConfig、manifest 和系统常量"
                     icon={<Ionicons name="information-circle-outline" size={28} color="#007AFF" />}

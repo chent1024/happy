@@ -49,6 +49,7 @@ interface MultiTextInputProps {
     paddingLeft?: number;
     paddingRight?: number;
     onKeyPress?: OnKeyPressCallback;
+    submitOnReturn?: boolean;
     onSelectionChange?: (selection: { start: number; end: number }) => void;
     onStateChange?: (state: TextInputState) => void;
 }
@@ -63,6 +64,7 @@ export const MultiTextInput = React.memo(React.forwardRef<MultiTextInputHandle, 
         maxHeight = 120,
         lineHeight = MULTI_TEXT_INPUT_LINE_HEIGHT,
         onKeyPress,
+        submitOnReturn = false,
         onSelectionChange,
         onStateChange
     } = props;
@@ -205,6 +207,15 @@ export const MultiTextInput = React.memo(React.forwardRef<MultiTextInputHandle, 
         }
     }, [onSelectionChange, onStateChange]);
 
+    const handleSubmitEditing = React.useCallback(() => {
+        if (!editable || !onKeyPress) return;
+
+        onKeyPress({
+            key: 'Enter',
+            shiftKey: false,
+        });
+    }, [editable, onKeyPress]);
+
     // Imperative handle for direct control
     React.useImperativeHandle(ref, () => ({
         getText: () => latestTextRef.current,
@@ -259,10 +270,12 @@ export const MultiTextInput = React.memo(React.forwardRef<MultiTextInputHandle, 
                     autoCapitalize="sentences"
                     autoCorrect={true}
                     keyboardType="default"
-                    returnKeyType="default"
+                    returnKeyType={submitOnReturn ? 'send' : 'default'}
                     autoComplete="off"
                     textContentType="none"
-                    submitBehavior="newline"
+                    submitBehavior={submitOnReturn ? 'submit' : 'newline'}
+                    blurOnSubmit={false}
+                    onSubmitEditing={submitOnReturn ? handleSubmitEditing : undefined}
                 />
             ) : (
                 <View pointerEvents="none">

@@ -98,7 +98,7 @@ const MAX_CONTEXT_SIZE = 190000;
 const stylesheet = StyleSheet.create((theme, runtime) => ({
     container: {
         alignItems: 'center',
-        paddingBottom: Platform.select({ web: 8, default: 10 }),
+        paddingBottom: Platform.select({ web: 8, default: 5 }),
         paddingTop: Platform.select({ web: 8, default: 6 }),
     },
     innerContainer: {
@@ -864,6 +864,18 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             return true;
         }
 
+        if (Platform.OS !== 'web' && event.key === 'Enter') {
+            const liveText = inputRef.current?.getText() ?? '';
+            if (liveText.trim() || hasImages) {
+                if (isSendBlocked) {
+                    handleBlockedSendAttempt();
+                } else if (!props.isSendDisabled) {
+                    props.onSend();
+                }
+                return true;
+            }
+        }
+
         // Original key handling
         if (Platform.OS === 'web') {
             // On mobile web (touch devices), Enter should insert a newline since
@@ -895,7 +907,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
 
         }
         return false; // Key was not handled
-    }, [suggestions, moveUp, moveDown, selected, handleSuggestionSelect, props.showAbortButton, props.onAbort, isAborting, handleAbortPress, agentInputEnterToSend, props.onSend, props.onPermissionModeChange, availableModes, permissionModeKey, isSendBlocked, handleBlockedSendAttempt, props.isSendDisabled]);
+    }, [suggestions, moveUp, moveDown, selected, handleSuggestionSelect, props.showAbortButton, props.onAbort, isAborting, handleAbortPress, hasImages, isSendBlocked, handleBlockedSendAttempt, props.isSendDisabled, props.onSend, agentInputEnterToSend, props.onPermissionModeChange, availableModes, permissionModeKey]);
 
 
 
@@ -903,7 +915,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     return (
         <View style={[
             styles.container,
-            { paddingHorizontal: screenWidth > 700 ? 12 : 8 }
+            { paddingHorizontal: screenWidth > 700 ? 12 : 4 }
         ]}>
             <View style={[
                 styles.innerContainer,
@@ -1221,6 +1233,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                             onChangeText={handleTextChange}
                             placeholder={props.placeholder}
                             onKeyPress={handleKeyPress}
+                            submitOnReturn={Platform.OS !== 'web'}
                             onStateChange={handleInputStateChange}
                             maxHeight={Platform.OS === 'web' ? 480 : 120}
                         />

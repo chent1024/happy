@@ -30,31 +30,18 @@ import {
     trackGitHubConnected,
     trackMessageSent,
     tracking,
-    trackPaywallCancelled,
-    trackPaywallError,
-    trackPaywallPresented,
-    trackPaywallPurchased,
-    trackPaywallRestored,
 } from '@/track';
 import type { MessageSentSource } from '@/track';
 import { parseToken } from '@/utils/parseToken';
-import { RevenueCat, LogLevel, PaywallResult } from './revenueCat';
 import { getServerUrl } from './serverConfig';
-import { config } from '@/config';
 import { log } from '@/log';
 import { gitStatusSync } from './gitStatusSync';
 import { AsyncLock } from '@/utils/lock';
-import { voiceHooks } from '@/realtime/hooks/voiceHooks';
-import { Message } from './typesMessage';
 import { EncryptionCache } from './encryption/encryptionCache';
 import { systemPrompt } from './prompt/systemPrompt';
 import { fetchArtifact, fetchArtifacts, createArtifact, updateArtifact } from './apiArtifacts';
 import { DecryptedArtifact, Artifact, ArtifactCreateRequest, ArtifactUpdateRequest } from './artifactTypes';
 import { ArtifactEncryption } from './encryption/artifactEncryption';
-import { getFriendsList, getUserProfile } from './apiFriends';
-import { fetchFeed } from './apiFeed';
-import { FeedItem } from './feedTypes';
-import { UserProfile } from './friendTypes';
 import { resolveMessageModeMeta } from './messageMeta';
 import type { AttachmentPreview, UploadedAttachment } from './attachmentTypes';
 import { requestAttachmentUpload, uploadEncryptedBlob } from './apiAttachments';
@@ -123,21 +110,16 @@ class Sync {
     private artifactDataKeys = new Map<string, Uint8Array>(); // Store artifact data encryption keys internally
     private settingsSync: InvalidateSync;
     private profileSync: InvalidateSync;
-    private purchasesSync: InvalidateSync;
     private machinesSync: InvalidateSync;
     private pushTokenSync: InvalidateSync;
     private nativeUpdateSync: InvalidateSync;
     private artifactsSync: InvalidateSync;
-    private friendsSync: InvalidateSync;
-    private friendRequestsSync: InvalidateSync;
-    private feedSync: InvalidateSync;
     private activityAccumulator: ActivityUpdateAccumulator;
     private pendingSettings: Partial<Settings> = loadPendingSettings();
     private appState: AppStateStatus = AppState.currentState;
     private backgroundSendTimeout: ReturnType<typeof setTimeout> | null = null;
     private backgroundSendNotificationId: string | null = null;
     private backgroundSendStartedAt: number | null = null;
-    revenueCatInitialized = false;
 
     // Generic locking mechanism
     private recalculationLockCount = 0;
@@ -147,13 +129,9 @@ class Sync {
         this.sessionsSync = new InvalidateSync(this.fetchSessions);
         this.settingsSync = new InvalidateSync(this.syncSettings);
         this.profileSync = new InvalidateSync(this.fetchProfile);
-        this.purchasesSync = new InvalidateSync(this.syncPurchases);
         this.machinesSync = new InvalidateSync(this.fetchMachines);
         this.nativeUpdateSync = new InvalidateSync(this.fetchNativeUpdate);
         this.artifactsSync = new InvalidateSync(this.fetchArtifactsList);
-        this.friendsSync = new InvalidateSync(this.fetchFriends);
-        this.friendRequestsSync = new InvalidateSync(this.fetchFriendRequests);
-        this.feedSync = new InvalidateSync(this.fetchFeed);
 
         const registerPushToken = async () => {
             await this.registerPushToken();
@@ -161,7 +139,6 @@ class Sync {
         this.pushTokenSync = new InvalidateSync(registerPushToken);
         this.activityAccumulator = new ActivityUpdateAccumulator(this.flushActivityUpdates.bind(this), 2000);
 
-        // Listen for app state changes to refresh purchases
         AppState.addEventListener('change', (nextAppState) => {
             this.appState = nextAppState;
 
@@ -183,7 +160,6 @@ class Sync {
                     this.failPendingOutboxMessages('Message failed to send in background after 30s. Please retry.');
                 }
                 log.log('📱 App became active');
-                this.purchasesSync.invalidate();
                 this.profileSync.invalidate();
                 this.machinesSync.invalidate();
                 this.pushTokenSync.invalidate();
@@ -191,9 +167,6 @@ class Sync {
                 this.nativeUpdateSync.invalidate();
                 log.log('📱 App became active: Invalidating artifacts sync');
                 this.artifactsSync.invalidate();
-                this.friendsSync.invalidate();
-                this.friendRequestsSync.invalidate();
-                this.feedSync.invalidate();
             } else {
                 log.log(`📱 App state changed to: ${nextAppState}`);
                 this.maybeStartBackgroundSendWatchdog();
@@ -227,8 +200,6 @@ class Sync {
         // Await profile sync to have fresh profile
         await this.profileSync.awaitQueue();
 
-        // Await purchases sync to have fresh purchases
-        await this.purchasesSync.awaitQueue();
     }
 
     async restore(credentials: AuthCredentials, encryption: Encryption) {
@@ -261,14 +232,10 @@ class Sync {
         this.sessionsSync.invalidate();
         this.settingsSync.invalidate();
         this.profileSync.invalidate();
-        this.purchasesSync.invalidate();
         this.machinesSync.invalidate();
         this.pushTokenSync.invalidate();
         this.nativeUpdateSync.invalidate();
-        this.friendsSync.invalidate();
-        this.friendRequestsSync.invalidate();
         this.artifactsSync.invalidate();
-        this.feedSync.invalidate();
         log.log('🔄 #init: All syncs invalidated, including artifacts');
 
         // Mark UI ready as soon as sessions load. Machines sync may hang
@@ -290,11 +257,6 @@ class Sync {
         // Also invalidate git status sync for this session
         gitStatusSync.getSync(sessionId).invalidate();
 
-        // Notify voice assistant about session visibility
-        const session = storage.getState().sessions[sessionId];
-        if (session) {
-            voiceHooks.onSessionFocus(sessionId, session.metadata || undefined);
-        }
     }
 
     private getMessagesSync(sessionId: string): InvalidateSync {
@@ -764,149 +726,8 @@ class Sync {
         this.settingsSync.invalidate();
     }
 
-    refreshPurchases = () => {
-        this.purchasesSync.invalidate();
-    }
-
     refreshProfile = async () => {
         await this.profileSync.invalidateAndAwait();
-    }
-
-    purchaseProduct = async (productId: string): Promise<{ success: boolean; error?: string }> => {
-        try {
-            // Check if RevenueCat is initialized
-            if (!this.revenueCatInitialized) {
-                return { success: false, error: 'RevenueCat not initialized' };
-            }
-
-            // Fetch the product
-            const products = await RevenueCat.getProducts([productId]);
-            if (products.length === 0) {
-                return { success: false, error: `Product '${productId}' not found` };
-            }
-
-            // Purchase the product
-            const product = products[0];
-            const { customerInfo } = await RevenueCat.purchaseStoreProduct(product);
-
-            // Update local purchases data
-            storage.getState().applyPurchases(customerInfo);
-
-            return { success: true };
-        } catch (error: any) {
-            // Check if user cancelled
-            if (error.userCancelled) {
-                return { success: false, error: 'Purchase cancelled' };
-            }
-
-            // Return the error message
-            return { success: false, error: error.message || 'Purchase failed' };
-        }
-    }
-
-    getOfferings = async (): Promise<{ success: boolean; offerings?: any; error?: string }> => {
-        try {
-            // Check if RevenueCat is initialized
-            if (!this.revenueCatInitialized) {
-                return { success: false, error: 'RevenueCat not initialized' };
-            }
-
-            // Fetch offerings
-            const offerings = await RevenueCat.getOfferings();
-
-            // Return the offerings data
-            return {
-                success: true,
-                offerings: {
-                    current: offerings.current,
-                    all: offerings.all
-                }
-            };
-        } catch (error: any) {
-            return { success: false, error: error.message || 'Failed to fetch offerings' };
-        }
-    }
-
-    presentPaywall = async (flow?: string): Promise<{ success: boolean; purchased?: boolean; error?: string }> => {
-        try {
-            // Check if RevenueCat is initialized
-            if (!this.revenueCatInitialized) {
-                const error = 'RevenueCat not initialized';
-                trackPaywallError(error, flow);
-                return { success: false, error };
-            }
-
-            // Track paywall presentation
-            trackPaywallPresented(flow);
-
-            // Present the paywall (with flow custom variable if specified)
-            const result = await RevenueCat.presentPaywall(
-                flow ? { customVariables: { flow } } : undefined
-            );
-
-            // Handle the result
-            switch (result) {
-                case PaywallResult.PURCHASED:
-                    trackPaywallPurchased(flow);
-                    // Refresh customer info after purchase
-                    await this.syncPurchases();
-                    return { success: true, purchased: true };
-                case PaywallResult.RESTORED:
-                    trackPaywallRestored(flow);
-                    // Refresh customer info after restore
-                    await this.syncPurchases();
-                    return { success: true, purchased: true };
-                case PaywallResult.CANCELLED:
-                    trackPaywallCancelled(flow);
-                    return { success: true, purchased: false };
-                case PaywallResult.NOT_PRESENTED:
-                    trackPaywallError('Paywall not presented', flow);
-                    return { success: false, error: 'Paywall not available on this platform' };
-                case PaywallResult.ERROR:
-                default:
-                    const errorMsg = 'Failed to present paywall';
-                    trackPaywallError(errorMsg, flow);
-                    return { success: false, error: errorMsg };
-            }
-        } catch (error: any) {
-            const errorMessage = error.message || 'Failed to present paywall';
-            trackPaywallError(errorMessage, flow);
-            return { success: false, error: errorMessage };
-        }
-    }
-
-    async assumeUsers(userIds: string[]): Promise<void> {
-        if (!this.credentials || userIds.length === 0) return;
-        
-        const state = storage.getState();
-        // Filter out users we already have in cache (including null for 404s)
-        const missingIds = userIds.filter(id => !(id in state.users));
-        
-        if (missingIds.length === 0) return;
-        
-        log.log(`👤 Fetching ${missingIds.length} missing users...`);
-        
-        // Fetch missing users in parallel
-        const results = await Promise.all(
-            missingIds.map(async (id) => {
-                try {
-                    const profile = await getUserProfile(this.credentials!, id);
-                    return { id, profile };  // profile is null if 404
-                } catch (error) {
-                    console.error(`Failed to fetch user ${id}:`, error);
-                    return { id, profile: null };  // Treat errors as 404
-                }
-            })
-        );
-        
-        // Convert to Record<string, UserProfile | null>
-        const usersMap: Record<string, UserProfile | null> = {};
-        results.forEach(({ id, profile }) => {
-            usersMap[id] = profile;
-        });
-        
-        storage.getState().applyUsers(usersMap);
-        log.log(`👤 Applied ${results.length} users to cache (${results.filter(r => r.profile).length} found, ${results.filter(r => !r.profile).length} not found)`);
     }
 
     //
@@ -1423,110 +1244,6 @@ class Sync {
         log.log(`🖥️ fetchMachines completed - processed ${decryptedMachines.length} machines`);
     }
 
-    private fetchFriends = async () => {
-        if (!this.credentials) return;
-        
-        try {
-            log.log('👥 Fetching friends list...');
-            const friendsList = await getFriendsList(this.credentials);
-            storage.getState().applyFriends(friendsList);
-            log.log(`👥 fetchFriends completed - processed ${friendsList.length} friends`);
-        } catch (error) {
-            console.error('Failed to fetch friends:', error);
-            // Silently handle error - UI will show appropriate state
-        }
-    }
-
-    private fetchFriendRequests = async () => {
-        // Friend requests are now included in the friends list with status='pending'
-        // This method is kept for backward compatibility but does nothing
-        log.log('👥 fetchFriendRequests called - now handled by fetchFriends');
-    }
-
-    private fetchFeed = async () => {
-        if (!this.credentials) return;
-
-        try {
-            log.log('📰 Fetching feed...');
-            const state = storage.getState();
-            const existingItems = state.feedItems;
-            const head = state.feedHead;
-            
-            // Load feed items - if we have a head, load newer items
-            let allItems: FeedItem[] = [];
-            let hasMore = true;
-            let cursor = head ? { after: head } : undefined;
-            let loadedCount = 0;
-            const maxItems = 500;
-            
-            // Keep loading until we reach known items or hit max limit
-            while (hasMore && loadedCount < maxItems) {
-                const response = await fetchFeed(this.credentials, {
-                    limit: 100,
-                    ...cursor
-                });
-                
-                // Check if we reached known items
-                const foundKnown = response.items.some(item => 
-                    existingItems.some(existing => existing.id === item.id)
-                );
-                
-                allItems.push(...response.items);
-                loadedCount += response.items.length;
-                hasMore = response.hasMore && !foundKnown;
-                
-                // Update cursor for next page
-                if (response.items.length > 0) {
-                    const lastItem = response.items[response.items.length - 1];
-                    cursor = { after: lastItem.cursor };
-                }
-            }
-            
-            // If this is initial load (no head), also load older items
-            if (!head && allItems.length < 100) {
-                const response = await fetchFeed(this.credentials, {
-                    limit: 100
-                });
-                allItems.push(...response.items);
-            }
-            
-            // Collect user IDs from friend-related feed items
-            const userIds = new Set<string>();
-            allItems.forEach(item => {
-                if (item.body && (item.body.kind === 'friend_request' || item.body.kind === 'friend_accepted')) {
-                    userIds.add(item.body.uid);
-                }
-            });
-            
-            // Fetch missing users
-            if (userIds.size > 0) {
-                await this.assumeUsers(Array.from(userIds));
-            }
-            
-            // Filter out items where user is not found (404)
-            const users = storage.getState().users;
-            const compatibleItems = allItems.filter(item => {
-                // Keep text items
-                if (item.body.kind === 'text') return true;
-                
-                // For friend-related items, check if user exists and is not null (404)
-                if (item.body.kind === 'friend_request' || item.body.kind === 'friend_accepted') {
-                    const userProfile = users[item.body.uid];
-                    // Keep item only if user exists and is not null
-                    return userProfile !== null && userProfile !== undefined;
-                }
-                
-                return true;
-            });
-            
-            // Apply only compatible items to storage
-            storage.getState().applyFeedItems(compatibleItems);
-            log.log(`📰 fetchFeed completed - loaded ${compatibleItems.length} compatible items (${allItems.length - compatibleItems.length} filtered)`);
-        } catch (error) {
-            console.error('Failed to fetch feed:', error);
-        }
-    }
-
     private syncSettings = async () => {
         if (!this.credentials) return;
 
@@ -1742,57 +1459,6 @@ class Sync {
         } catch (error) {
             console.log('[fetchNativeUpdate] Error:', error);
             storage.getState().applyNativeUpdateStatus(null);
-        }
-    }
-
-    private syncPurchases = async () => {
-        try {
-            // Initialize RevenueCat if not already done
-            if (!this.revenueCatInitialized) {
-                // Get the appropriate API key based on platform
-                let apiKey: string | undefined;
-
-                if (Platform.OS === 'ios') {
-                    apiKey = config.revenueCatAppleKey;
-                } else if (Platform.OS === 'android') {
-                    apiKey = config.revenueCatGoogleKey;
-                } else if (Platform.OS === 'web') {
-                    apiKey = config.revenueCatStripeKey;
-                }
-
-                if (!apiKey) {
-                    console.log(`RevenueCat: No API key found for platform ${Platform.OS}`);
-                    return;
-                }
-
-                // Configure RevenueCat
-                if (__DEV__) {
-                    RevenueCat.setLogLevel(LogLevel.DEBUG);
-                }
-
-                // Initialize with the public ID as user ID
-                RevenueCat.configure({
-                    apiKey,
-                    appUserID: this.serverID, // In server this is a CUID, which we can assume is globaly unique even between servers
-                    useAmazon: false,
-                });
-
-                this.revenueCatInitialized = true;
-                console.log('RevenueCat initialized successfully');
-            }
-
-            // Sync purchases
-            await RevenueCat.syncPurchases();
-
-            // Fetch customer info
-            const customerInfo = await RevenueCat.getCustomerInfo();
-
-            // Apply to storage (storage handles the transformation)
-            storage.getState().applyPurchases(customerInfo);
-
-        } catch (error) {
-            console.error('Failed to sync purchases:', error);
-            // Don't throw - purchases are optional
         }
     }
 
@@ -2118,12 +1784,8 @@ class Sync {
             this.machinesSync.invalidate();
             log.log('🔌 Socket reconnected: Invalidating artifacts sync');
             this.artifactsSync.invalidate();
-            this.friendsSync.invalidate();
-            this.friendRequestsSync.invalidate();
-            this.feedSync.invalidate();
-            // Messages are fetched lazily per-session via onSessionVisible (called by SessionView
-            // when realtimeStatus changes). Session metadata + agentState (including permission
-            // requests) are already refreshed by sessionsSync.invalidate() above.
+            // Messages are fetched lazily per-session via onSessionVisible. Session metadata +
+            // agentState are already refreshed by sessionsSync.invalidate() above.
             for (const sync of this.sendSync.values()) {
                 sync.invalidate();
             }
@@ -2302,14 +1964,6 @@ class Sync {
                 // Invalidate git status when agent state changes (files may have been modified)
                 if (updateData.body.agentState) {
                     gitStatusSync.invalidate(updateData.body.id);
-
-                    // Check for new permission requests and notify voice assistant
-                    if (agentState?.requests && Object.keys(agentState.requests).length > 0) {
-                        const requestIds = Object.keys(agentState.requests);
-                        const firstRequest = agentState.requests[requestIds[0]];
-                        const toolName = firstRequest?.tool;
-                        voiceHooks.onPermissionRequested(updateData.body.id, requestIds[0], toolName, firstRequest?.arguments);
-                    }
 
                     // Re-fetch messages when control returns to mobile (local -> remote mode switch)
                     // This catches up on any messages that were exchanged while desktop had control
@@ -2502,11 +2156,6 @@ class Sync {
                 toUser: relationshipUpdate.toUser,
                 timestamp: relationshipUpdate.timestamp
             });
-            
-            // Invalidate friends data to refresh with latest changes
-            this.friendsSync.invalidate();
-            this.friendRequestsSync.invalidate();
-            this.feedSync.invalidate();
         } else if (updateData.body.t === 'new-artifact') {
             log.log('📦 Received new-artifact update');
             const artifactUpdate = updateData.body;
@@ -2618,36 +2267,6 @@ class Sync {
             
             // Remove encryption key from memory
             this.artifactDataKeys.delete(artifactId);
-        } else if (updateData.body.t === 'new-feed-post') {
-            log.log('📰 Received new-feed-post update');
-            const feedUpdate = updateData.body;
-            
-            // Convert to FeedItem with counter from cursor
-            const feedItem: FeedItem = {
-                id: feedUpdate.id,
-                body: feedUpdate.body,
-                cursor: feedUpdate.cursor,
-                createdAt: feedUpdate.createdAt,
-                repeatKey: feedUpdate.repeatKey,
-                counter: parseInt(feedUpdate.cursor.substring(2), 10)
-            };
-            
-            // Check if we need to fetch user for friend-related items
-            if (feedItem.body && (feedItem.body.kind === 'friend_request' || feedItem.body.kind === 'friend_accepted')) {
-                await this.assumeUsers([feedItem.body.uid]);
-                
-                // Check if user fetch failed (404) - don't store item if user not found
-                const users = storage.getState().users;
-                const userProfile = users[feedItem.body.uid];
-                if (userProfile === null || userProfile === undefined) {
-                    // User was not found or 404, don't store this item
-                    log.log(`📰 Skipping feed item ${feedItem.id} - user ${feedItem.body.uid} not found`);
-                    return;
-                }
-            }
-            
-            // Apply to storage (will handle repeatKey replacement)
-            storage.getState().applyFeedItems([feedItem]);
         }
     }
 
@@ -2723,44 +2342,13 @@ class Sync {
     //
 
     private applyMessages = (sessionId: string, messages: NormalizedMessage[]) => {
-        const result = storage.getState().applyMessages(sessionId, messages);
-        let m: Message[] = [];
-        for (let messageId of result.changed) {
-            const message = storage.getState().sessionMessages[sessionId].messagesMap[messageId];
-            if (message) {
-                m.push(message);
-            }
-        }
-        if (m.length > 0) {
-            voiceHooks.onMessages(sessionId, m);
-        }
-        if (result.hasReadyEvent) {
-            voiceHooks.onReady(sessionId);
-        }
+        storage.getState().applyMessages(sessionId, messages);
     }
 
     private applySessions = (sessions: (Omit<Session, "presence"> & {
         presence?: "online" | number;
     })[]) => {
-        const active = storage.getState().getActiveSessions();
         storage.getState().applySessions(sessions);
-        const newActive = storage.getState().getActiveSessions();
-        this.applySessionDiff(active, newActive);
-    }
-
-    private applySessionDiff = (active: Session[], newActive: Session[]) => {
-        let wasActive = new Set(active.map(s => s.id));
-        let isActive = new Set(newActive.map(s => s.id));
-        for (let s of active) {
-            if (!isActive.has(s.id)) {
-                voiceHooks.onSessionOffline(s.id, s.metadata ?? undefined);
-            }
-        }
-        for (let s of newActive) {
-            if (!wasActive.has(s.id)) {
-                voiceHooks.onSessionOnline(s.id, s.metadata ?? undefined);
-            }
-        }
     }
 
 }

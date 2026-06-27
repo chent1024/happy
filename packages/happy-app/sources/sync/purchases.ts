@@ -1,5 +1,11 @@
 import * as z from 'zod';
-import type { CustomerInfo } from './revenueCat/types';
+
+export interface CustomerInfo {
+    activeSubscriptions?: Record<string, unknown>;
+    entitlements?: {
+        all?: Record<string, { isActive: boolean }>;
+    };
+}
 
 //
 // Schema

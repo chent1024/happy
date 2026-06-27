@@ -1,9 +1,8 @@
 import * as React from 'react';
 import { View, Text, StyleSheet, Platform, Pressable } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Svg, { Path } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Typography } from '@/constants/Typography';
-import { useHeaderHeight, useIsTablet } from '@/utils/responsive';
+import { useDeviceType, useHeaderHeight, useIsTablet } from '@/utils/responsive';
 import { layout } from '@/components/layout';
 import { useUnistyles } from 'react-native-unistyles';
 
@@ -24,31 +23,27 @@ interface ChatHeaderViewProps {
 
 export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
     title,
-    folderName,
-    extraPathSegment,
     rightSlot,
     onTitlePress,
     onBackPress,
-    isConnected = true,
 }) => {
     const { theme } = useUnistyles();
     const insets = useSafeAreaInsets();
-    const headerHeight = useHeaderHeight();
+    const deviceType = useDeviceType();
+    const baseHeaderHeight = useHeaderHeight();
+    const headerHeight = deviceType === 'phone' && Platform.OS !== 'web'
+        ? Math.min(baseHeaderHeight, 48)
+        : baseHeaderHeight;
     const isTablet = useIsTablet();
     const showBackButton = !isTablet && !!onBackPress;
-    const hasExtra = !!extraPathSegment;
 
     return (
         <View style={[styles.container, { paddingTop: insets.top, backgroundColor: theme.colors.header.background }]}>
             <View style={styles.contentWrapper}>
                 <View style={[styles.content, { height: headerHeight }]}>
                     {showBackButton && (
-                        <Pressable onPress={onBackPress} hitSlop={15} style={styles.backButton}>
-                            <Ionicons
-                                name={Platform.OS === 'ios' ? 'chevron-back' : 'arrow-back'}
-                                size={24}
-                                color={theme.colors.header.tint}
-                            />
+                        <Pressable onPress={onBackPress} hitSlop={8} style={styles.backButton}>
+                            <ThinBackIcon color={theme.colors.header.tint} />
                         </Pressable>
                     )}
                     <Pressable
@@ -56,52 +51,13 @@ export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
                         onPress={onTitlePress}
                         disabled={!onTitlePress}
                     >
-                        {folderName ? (
-                            <View style={styles.titleRow}>
-                                <Text
-                                    numberOfLines={1}
-                                    style={[styles.folderName, { color: theme.colors.textSecondary, ...Typography.default() }]}
-                                >
-                                    {folderName}
-                                </Text>
-                                {title && title !== folderName && (
-                                    <>
-                                        <Text style={[styles.separator, { color: theme.colors.textSecondary, ...Typography.default() }]}>/</Text>
-                                        <Text
-                                            numberOfLines={1}
-                                            ellipsizeMode="tail"
-                                            style={[
-                                                styles.title,
-                                                hasExtra && styles.titleWithExtra,
-                                                { color: theme.colors.header.tint, ...Typography.default() },
-                                            ]}
-                                        >
-                                            {title}
-                                        </Text>
-                                    </>
-                                )}
-                                {hasExtra && (
-                                    <>
-                                        <Text style={[styles.separator, { color: theme.colors.textSecondary, ...Typography.default() }]}>/</Text>
-                                        <Text
-                                            numberOfLines={1}
-                                            ellipsizeMode="middle"
-                                            style={[styles.extraPath, { color: theme.colors.header.tint, ...Typography.mono() }]}
-                                        >
-                                            {extraPathSegment}
-                                        </Text>
-                                    </>
-                                )}
-                            </View>
-                        ) : (
-                            <Text
-                                numberOfLines={1}
-                                ellipsizeMode="tail"
-                                style={[styles.title, { color: theme.colors.header.tint, ...Typography.default() }]}
-                            >
-                                {title}
-                            </Text>
-                        )}
+                        <Text
+                            numberOfLines={1}
+                            ellipsizeMode="tail"
+                            style={[styles.title, { color: theme.colors.header.tint }]}
+                        >
+                            {title}
+                        </Text>
                     </Pressable>
                     {rightSlot ? (
                         <View style={styles.rightSlot}>
@@ -113,6 +69,21 @@ export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
         </View>
     );
 };
+
+function ThinBackIcon(props: { color: string }) {
+    return (
+        <Svg width={28} height={28} viewBox="0 0 28 28">
+            <Path
+                d="M17 6.5L9.5 14L17 21.5"
+                fill="none"
+                stroke={props.color}
+                strokeWidth={1.6}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+        </Svg>
+    );
+}
 
 const styles = StyleSheet.create({
     container: {
@@ -126,7 +97,7 @@ const styles = StyleSheet.create({
     content: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: Platform.OS === 'ios' ? 8 : 16,
+        paddingHorizontal: 16,
         width: '100%',
         maxWidth: layout.headerMaxWidth,
     },
@@ -135,36 +106,12 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'flex-start',
         minWidth: 0,
-    },
-    titleRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        width: '100%',
-    },
-    folderName: {
-        fontSize: 14,
-        flexShrink: 0,
-    },
-    separator: {
-        fontSize: 14,
-        flexShrink: 0,
+        marginLeft: 8,
     },
     title: {
-        fontSize: 14,
+        fontSize: 16,
+        lineHeight: 22,
         fontWeight: '600',
-        flexShrink: 1,
-    },
-    titleWithExtra: {
-        // When an extra path segment follows, let the chat name keep its
-        // intrinsic width and squeeze the path first.
-        flexShrink: 0.5,
-    },
-    extraPath: {
-        flex: 1,
-        minWidth: 0,
-        fontSize: 13,
-        flexShrink: 1,
     },
     rightSlot: {
         flexDirection: 'row',
@@ -174,7 +121,11 @@ const styles = StyleSheet.create({
         flexShrink: 0,
     },
     backButton: {
-        paddingHorizontal: 8,
-        paddingVertical: 4,
+        width: 40,
+        height: 40,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginLeft: -8,
+        flexShrink: 0,
     },
 });

@@ -489,7 +489,7 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.textSecondary,
     },
     headerTextSlot: {
-        flex: 1,
+        flexShrink: 1,
         minWidth: 0,
         height: 18,
         justifyContent: 'center',
@@ -519,7 +519,7 @@ const styles = StyleSheet.create((theme) => ({
         flexShrink: 0,
     },
     toolSummaryTextSlot: {
-        flex: 1,
+        flexShrink: 1,
         minWidth: 0,
         height: 18,
         justifyContent: 'center',
