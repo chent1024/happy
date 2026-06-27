@@ -80,6 +80,7 @@ type OutboxMessage = {
 type SendMessageOptions = {
     displayText?: string;
     source?: MessageSentSource;
+    deliveryIntent?: 'queue' | 'steer' | 'interrupt';
     /** Optional image attachments to send before the text message. */
     attachments?: AttachmentPreview[];
 };
@@ -554,6 +555,7 @@ class Sync {
 
         const modeMeta = resolveMessageModeMeta(session, storage.getState().settings);
         const { displayText, source = 'chat', attachments } = options ?? {};
+        const deliveryIntent = options?.deliveryIntent ?? (session.thinking ? 'steer' : undefined);
 
         const flavor = session.metadata?.flavor;
         const attachmentPlan = getImageAttachmentSendPlan({
@@ -670,6 +672,7 @@ class Sync {
                 ...(modeMeta.permissionMode !== undefined ? { permissionMode: modeMeta.permissionMode } : {}),
                 ...(modeMeta.model !== undefined ? { model: modeMeta.model } : {}),
                 ...(modeMeta.effort !== undefined ? { effort: modeMeta.effort } : {}),
+                ...(deliveryIntent !== undefined ? { deliveryIntent } : {}),
                 ...(displayText && { displayText }) // Add displayText if provided
             }
         };

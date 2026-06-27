@@ -37,6 +37,8 @@ import type {
     ThreadGoalClearResponse,
     Thread,
     InterruptConversationParams,
+    TurnSteerParams,
+    TurnSteerResponse,
     ReviewDecision,
     EventMsg,
     JsonRpcRequest,
@@ -72,6 +74,14 @@ export type ApprovalHandler = (params: {
     serverName?: string;
     message?: string;
 }) => Promise<ReviewDecision>;
+
+type SteerFailureReason = 'no-active-turn' | 'turn-mismatch' | 'non-steerable' | 'empty-input' | 'error';
+
+type SteerResult = {
+    steered: boolean;
+    reason?: SteerFailureReason;
+    error?: unknown;
+};
 
 /**
  * Check that `codex app-server` is available.
@@ -115,6 +125,27 @@ function isGoalActionsAvailable(): boolean {
     const { major, minor } = version;
     // thread/goal/set and thread/goal/clear are present in Codex 0.140+.
     return major > 0 || minor >= 140;
+}
+
+function classifySteerError(error: unknown): { reason: SteerFailureReason; actualTurnId?: string } {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('no active turn to steer')) {
+        return { reason: 'no-active-turn' };
+    }
+    if (
+        message.includes('cannot steer a review turn')
+        || message.includes('cannot steer a compact turn')
+        || message.includes('activeTurnNotSteerable')
+    ) {
+        return { reason: 'non-steerable' };
+    }
+
+    const mismatch = message.match(/expected active turn id `[^`]+` but found `([^`]+)`/);
+    if (mismatch?.[1]) {
+        return { reason: 'turn-mismatch', actualTurnId: mismatch[1] };
+    }
+
+    return { reason: 'error' };
 }
 
 function normalizeRawFileChangeList(changes: unknown): LegacyPatchChanges | undefined {
@@ -1029,6 +1060,62 @@ export class CodexAppServerClient {
                 this.pendingTurnCompletion.turnId = turnId;
             }
         }
+    }
+
+    async steerTurn(prompt: string, opts?: {
+        clientUserMessageId?: string | null;
+        extraInputItems?: InputItem[];
+    }): Promise<SteerResult> {
+        if (!this._threadId || !this._turnId) {
+            return { steered: false, reason: 'no-active-turn' };
+        }
+
+        const extraInputItems = opts?.extraInputItems ?? [];
+        const input: InputItem[] = [];
+        if (prompt.length > 0 || extraInputItems.length === 0) {
+            input.push({ type: 'text', text: prompt });
+        }
+        input.push(...extraInputItems);
+
+        if (input.length === 0) {
+            return { steered: false, reason: 'empty-input' };
+        }
+
+        let expectedTurnId = this._turnId;
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const params: TurnSteerParams = {
+                threadId: this._threadId,
+                input,
+                expectedTurnId,
+                ...(opts?.clientUserMessageId !== undefined
+                    ? { clientUserMessageId: opts.clientUserMessageId }
+                    : {}),
+            };
+
+            try {
+                const result = await this.request('turn/steer', params) as TurnSteerResponse;
+                if (typeof result?.turnId === 'string' && result.turnId.length > 0) {
+                    this._turnId = result.turnId;
+                    if (this.pendingTurnCompletion) {
+                        this.pendingTurnCompletion.turnId = result.turnId;
+                    }
+                }
+                return { steered: true };
+            } catch (error) {
+                const classified = classifySteerError(error);
+                if (classified.reason === 'turn-mismatch' && classified.actualTurnId && attempt === 0) {
+                    expectedTurnId = classified.actualTurnId;
+                    this._turnId = classified.actualTurnId;
+                    if (this.pendingTurnCompletion) {
+                        this.pendingTurnCompletion.turnId = classified.actualTurnId;
+                    }
+                    continue;
+                }
+                return { steered: false, reason: classified.reason, error };
+            }
+        }
+
+        return { steered: false, reason: 'error' };
     }
 
     /** Default timeout for waiting on turn completion (ms). 10 minutes. */

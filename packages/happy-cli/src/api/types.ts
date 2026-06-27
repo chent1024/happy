@@ -194,7 +194,9 @@ export const MessageMetaSchema = z.object({
   customSystemPrompt: z.string().nullable().optional(), // Custom system prompt for this message (null = reset)
   appendSystemPrompt: z.string().nullable().optional(), // Append to system prompt for this message (null = reset)
   allowedTools: z.array(z.string()).nullable().optional(), // Allowed tools for this message (null = reset)
-  disallowedTools: z.array(z.string()).nullable().optional() // Disallowed tools for this message (null = reset)
+  disallowedTools: z.array(z.string()).nullable().optional(), // Disallowed tools for this message (null = reset)
+  effort: z.string().nullable().optional(), // Reasoning / thinking effort for this message (null = reset)
+  deliveryIntent: z.enum(['queue', 'steer', 'interrupt']).optional() // How to handle the message when a turn is active
 })
 
 export type MessageMeta = z.infer<typeof MessageMetaSchema>

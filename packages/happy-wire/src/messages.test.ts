@@ -130,10 +130,16 @@ describe('shared wire message schemas', () => {
       },
       meta: {
         sentFrom: 'mobile',
+        effort: 'medium',
+        deliveryIntent: 'steer',
       },
     });
 
     expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.meta?.deliveryIntent).toBe('steer');
+      expect(parsed.data.meta?.effort).toBe('medium');
+    }
   });
 
   it('parses legacy decrypted agent message payload', () => {

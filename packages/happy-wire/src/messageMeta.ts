@@ -9,6 +9,8 @@ export const MessageMetaSchema = z.object({
   appendSystemPrompt: z.string().nullable().optional(),
   allowedTools: z.array(z.string()).nullable().optional(),
   disallowedTools: z.array(z.string()).nullable().optional(),
+  effort: z.string().nullable().optional(),
+  deliveryIntent: z.enum(['queue', 'steer', 'interrupt']).optional(),
   displayText: z.string().optional(),
 });
 export type MessageMeta = z.infer<typeof MessageMetaSchema>;

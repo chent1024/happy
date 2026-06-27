@@ -195,6 +195,17 @@ export type SendUserTurnParams = {
     outputSchema: unknown | null;
 };
 
+export type TurnSteerParams = {
+    threadId: ThreadId;
+    clientUserMessageId?: string | null;
+    input: InputItem[];
+    expectedTurnId: string;
+};
+
+export type TurnSteerResponse = {
+    turnId: string;
+};
+
 export type InterruptConversationParams = {
     threadId: ThreadId;
     turnId: string;

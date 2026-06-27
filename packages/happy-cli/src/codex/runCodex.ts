@@ -348,6 +348,42 @@ export async function runCodex(opts: {
             appendSystemPrompt: messageAppendSystemPrompt,
             effort: messageEffort,
         };
+
+        const deliveryIntent = message.meta?.deliveryIntent;
+        const shouldAttemptSteer = deliveryIntent === 'steer'
+            && client.hasActiveThread()
+            && client.turnId !== null
+            && !isCodexClearText(message.content.text)
+            && !parseCodexGoalCommand(message.content.text);
+        if (shouldAttemptSteer) {
+            const imageInputs = await prepareCodexImageInputItems(attachmentsForThisMessage, {
+                sessionId: session.sessionId,
+            });
+            const hasUserText = message.content.text.trim().length > 0;
+            if ((attachmentsForThisMessage?.length ?? 0) > 0) {
+                logger.debug('[Codex] Prepared image inputs for steer', {
+                    inputCount: imageInputs.inputItems.length,
+                    skippedCount: imageInputs.skipped,
+                });
+            }
+            if ((attachmentsForThisMessage?.length ?? 0) > 0 && imageInputs.inputItems.length === 0 && !hasUserText) {
+                session.sendSessionEvent({
+                    type: 'message',
+                    message: 'No supported images were available to steer to Codex.',
+                });
+                return;
+            }
+
+            const steerResult = await client.steerTurn(message.content.text, {
+                extraInputItems: imageInputs.inputItems,
+            });
+            if (steerResult.steered) {
+                logger.debug('[Codex] Steered active turn from user message');
+                return;
+            }
+            logger.debug(`[Codex] Steer unavailable (${steerResult.reason ?? 'unknown'}); queueing user message`);
+        }
+
         const enqueueResult = enqueueCodexUserText({
             text: message.content.text,
             mode: enhancedMode,
