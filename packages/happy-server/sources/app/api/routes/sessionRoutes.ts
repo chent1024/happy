@@ -30,10 +30,6 @@ export function sessionRoutes(app: Fastify) {
         const sessions = await db.session.findMany({
             where: {
                 accountId: userId,
-                OR: [
-                    { active: true },
-                    { active: false, tag: { startsWith: 'codex:' } },
-                ],
             },
             orderBy: { updatedAt: 'desc' },
             take: 50,
@@ -256,13 +252,17 @@ export function sessionRoutes(app: Fastify) {
             }
         });
         if (session) {
-            const importedUpdatedAt = tag.startsWith('codex:') ? normalizeClientTimestamp(updatedAt) : undefined;
-            const resolvedSession = importedUpdatedAt && session.updatedAt.getTime() !== importedUpdatedAt.getTime()
+            const isCodexImport = tag.startsWith('codex:');
+            const importedUpdatedAt = isCodexImport ? normalizeClientTimestamp(updatedAt) : undefined;
+            const resolvedSession = isCodexImport
                 ? await db.session.update({
                     where: { id: session.id },
                     data: {
+                        metadata,
+                        active: active ?? session.active,
                         lastActiveAt: importedUpdatedAt,
                         updatedAt: importedUpdatedAt,
+                        dataEncryptionKey: dataEncryptionKey ? new Uint8Array(Buffer.from(dataEncryptionKey, 'base64')) : undefined,
                     },
                 })
                 : session;

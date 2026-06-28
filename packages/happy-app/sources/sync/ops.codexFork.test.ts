@@ -157,6 +157,7 @@ describe('codex fork ops', () => {
             id: 'thread-1234567890',
             cwd: '/tmp/project',
             preview: 'latest work',
+            name: 'Codex display title',
             updatedAt: 1700000000,
             cliVersion: '0.142.2',
         }, 'machine-1', {
@@ -168,7 +169,7 @@ describe('codex fork ops', () => {
         })).toEqual(expect.objectContaining({
             path: '/tmp/project',
             host: 'macbook',
-            name: 'latest work',
+            name: 'Codex display title',
             machineId: 'machine-1',
             homeDir: '/Users/tester',
             happyHomeDir: '/Users/tester/.happy',
@@ -178,13 +179,13 @@ describe('codex fork ops', () => {
             lifecycleState: 'imported',
             archivedBy: 'codex-session-sync',
             summary: {
-                text: 'latest work',
+                text: 'Codex display title',
                 updatedAt: 1700000000000,
             },
         }));
     });
 
-    it('manually syncs missing Codex threads and skips already imported threads', async () => {
+    it('manually syncs Codex threads and refreshes already imported threads', async () => {
         storageState.sessions = {
             existing: {
                 metadata: {
@@ -197,29 +198,32 @@ describe('codex fork ops', () => {
         machineRPC.mockResolvedValue({
             type: 'success',
             threads: [
-                { id: 'thread-existing', cwd: '/tmp/project', preview: 'old' },
+                { id: 'thread-existing', cwd: '/tmp/project', preview: 'old', updatedAt: 1700000010 },
                 { id: 'thread-new', cwd: '/tmp/project', preview: 'new', updatedAt: 1700000005 },
             ],
             nextCursor: null,
             backwardsCursor: null,
         });
-        request.mockResolvedValue({ ok: true, status: 200 });
-        request.mockResolvedValue({
-            ok: true,
-            status: 200,
-            json: async () => ({
-                session: {
-                    id: 'happy-imported',
-                    seq: 42,
-                    metadataVersion: 0,
-                    agentState: null,
-                    agentStateVersion: 0,
-                    active: false,
-                    activeAt: 1700000000000,
-                    createdAt: 1700000000000,
-                    updatedAt: 1700000000000,
-                },
-            }),
+        request.mockImplementation(async (_url: string, init: RequestInit) => {
+            const body = JSON.parse(String(init.body));
+            const isExisting = body.tag === 'codex:machine-1:thread-existing';
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    session: {
+                        id: isExisting ? 'happy-existing' : 'happy-imported',
+                        seq: 42,
+                        metadataVersion: 0,
+                        agentState: null,
+                        agentStateVersion: 0,
+                        active: false,
+                        activeAt: isExisting ? 1700000010000 : 1700000005000,
+                        createdAt: isExisting ? 1700000010000 : 1700000005000,
+                        updatedAt: isExisting ? 1700000010000 : 1700000005000,
+                    },
+                }),
+            };
         });
 
         const { syncCodexSessions } = await import('./ops');
@@ -229,15 +233,20 @@ describe('codex fork ops', () => {
             type: 'success',
             fetched: 2,
             imported: 1,
-            skipped: 1,
+            refreshed: 1,
+            skipped: 0,
         });
         expect(machineRPC).toHaveBeenCalledWith('machine-1', 'codex-list-threads', {});
-        expect(request).toHaveBeenCalledTimes(1);
+        expect(request).toHaveBeenCalledTimes(2);
         expect(request).toHaveBeenCalledWith('/v1/sessions', expect.objectContaining({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
         }));
-        expect(JSON.parse(request.mock.calls[0][1].body)).toEqual(expect.objectContaining({
+        expect(request.mock.calls.map((call) => JSON.parse(call[1].body).tag)).toEqual([
+            'codex:machine-1:thread-existing',
+            'codex:machine-1:thread-new',
+        ]);
+        expect(JSON.parse(request.mock.calls[1][1].body)).toEqual(expect.objectContaining({
             tag: 'codex:machine-1:thread-new',
             metadata: expect.any(String),
             agentState: null,
@@ -245,7 +254,7 @@ describe('codex fork ops', () => {
             active: false,
             updatedAt: 1700000005000,
         }));
-        expect(applySessions).toHaveBeenCalledWith([
+        expect(applySessions).toHaveBeenLastCalledWith([
             expect.objectContaining({
                 id: 'happy-imported',
                 active: false,
@@ -282,6 +291,7 @@ describe('codex fork ops', () => {
             type: 'success',
             fetched: 2,
             imported: 1,
+            refreshed: 0,
             skipped: 1,
         });
         expect(request).toHaveBeenCalledTimes(1);
@@ -341,7 +351,8 @@ describe('codex fork ops', () => {
             type: 'success',
             fetched: 1,
             imported: 0,
-            skipped: 1,
+            refreshed: 1,
+            skipped: 0,
         });
         expect(request).toHaveBeenCalledTimes(1);
         expect(JSON.parse(request.mock.calls[0][1].body)).toEqual(expect.objectContaining({
@@ -356,7 +367,7 @@ describe('codex fork ops', () => {
                 presence: 1700000005000,
             }),
         ]);
-        expect(refreshSessions).not.toHaveBeenCalled();
+        expect(refreshSessions).toHaveBeenCalledTimes(1);
     });
 
     it('refreshes Codex account rate limits into local session agent state', async () => {
@@ -448,6 +459,7 @@ describe('codex fork ops', () => {
             type: 'success',
             fetched: 19,
             imported: 17,
+            refreshed: 0,
             skipped: 2,
         });
         const importedTags = request.mock.calls.map((call) => JSON.parse(call[1].body).tag);

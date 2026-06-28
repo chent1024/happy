@@ -1,5 +1,8 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SandboxConfig } from '@/persistence';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const {
     mockExecSync,
@@ -213,6 +216,138 @@ describe('CodexAppServerClient sandbox integration', () => {
         );
 
         await client.disconnect();
+    });
+
+    it('removes stale OpenAI API key env when local Codex auth uses ChatGPT OAuth', async () => {
+        const previousCodexHome = process.env.CODEX_HOME;
+        const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
+        const previousOpenAiOrgId = process.env.OPENAI_ORG_ID;
+        const previousOpenAiProjectId = process.env.OPENAI_PROJECT_ID;
+        const codexHome = mkdtempSync(join(tmpdir(), 'happy-codex-home-'));
+        writeFileSync(join(codexHome, 'auth.json'), JSON.stringify({
+            auth_mode: 'chatgpt',
+            OPENAI_API_KEY: null,
+            tokens: {
+                id_token: 'id',
+                access_token: 'access',
+                refresh_token: 'refresh',
+                account_id: 'account',
+            },
+            last_refresh: '2026-01-01T00:00:00.000Z',
+        }));
+        process.env.CODEX_HOME = codexHome;
+        process.env.OPENAI_API_KEY = 'old-key';
+        process.env.OPENAI_ORG_ID = 'old-org';
+        process.env.OPENAI_PROJECT_ID = 'old-project';
+
+        try {
+            const { CodexAppServerClient } = await import('./codexAppServerClient');
+            const client = new CodexAppServerClient();
+
+            await client.connect();
+
+            const env = mockSpawn.mock.calls.at(-1)?.[2]?.env;
+            expect(env).toMatchObject({ CODEX_HOME: codexHome });
+            expect(env).not.toHaveProperty('OPENAI_API_KEY');
+            expect(env).not.toHaveProperty('OPENAI_ORG_ID');
+            expect(env).not.toHaveProperty('OPENAI_PROJECT_ID');
+
+            await client.disconnect();
+        } finally {
+            if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+            else process.env.CODEX_HOME = previousCodexHome;
+            if (previousOpenAiApiKey === undefined) delete process.env.OPENAI_API_KEY;
+            else process.env.OPENAI_API_KEY = previousOpenAiApiKey;
+            if (previousOpenAiOrgId === undefined) delete process.env.OPENAI_ORG_ID;
+            else process.env.OPENAI_ORG_ID = previousOpenAiOrgId;
+            if (previousOpenAiProjectId === undefined) delete process.env.OPENAI_PROJECT_ID;
+            else process.env.OPENAI_PROJECT_ID = previousOpenAiProjectId;
+            rmSync(codexHome, { recursive: true, force: true });
+        }
+    });
+
+    it('keeps OpenAI API key env when Codex is not using local ChatGPT OAuth', async () => {
+        const previousCodexHome = process.env.CODEX_HOME;
+        const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
+        const codexHome = mkdtempSync(join(tmpdir(), 'happy-codex-home-'));
+        writeFileSync(join(codexHome, 'auth.json'), JSON.stringify({
+            auth_mode: 'api_key',
+            OPENAI_API_KEY: 'local-key',
+        }));
+        process.env.CODEX_HOME = codexHome;
+        process.env.OPENAI_API_KEY = 'env-key';
+
+        try {
+            const { CodexAppServerClient } = await import('./codexAppServerClient');
+            const client = new CodexAppServerClient();
+
+            await client.connect();
+
+            const env = mockSpawn.mock.calls.at(-1)?.[2]?.env;
+            expect(env).toMatchObject({
+                CODEX_HOME: codexHome,
+                OPENAI_API_KEY: 'env-key',
+            });
+
+            await client.disconnect();
+        } finally {
+            if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+            else process.env.CODEX_HOME = previousCodexHome;
+            if (previousOpenAiApiKey === undefined) delete process.env.OPENAI_API_KEY;
+            else process.env.OPENAI_API_KEY = previousOpenAiApiKey;
+            rmSync(codexHome, { recursive: true, force: true });
+        }
+    });
+
+    it('removes stale OpenAI API key env when the active Codex auth profile uses ChatGPT OAuth', async () => {
+        const previousCodexHome = process.env.CODEX_HOME;
+        const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
+        const codexHome = mkdtempSync(join(tmpdir(), 'happy-codex-home-'));
+        const profileAuthPath = join(codexHome, 'profile-auth.json');
+        writeFileSync(join(codexHome, 'auth.json'), JSON.stringify({
+            auth_mode: 'api_key',
+            OPENAI_API_KEY: 'local-key',
+        }));
+        writeFileSync(join(codexHome, 'profile-auth.json'), JSON.stringify({
+            auth_mode: 'chatgpt',
+            OPENAI_API_KEY: null,
+            tokens: {
+                id_token: 'id',
+                access_token: 'access',
+                refresh_token: 'refresh',
+                account_id: 'account',
+            },
+        }));
+        writeFileSync(join(codexHome, 'auth-profiles.json'), JSON.stringify({
+            activeProfileId: 'profile-1',
+            profiles: {
+                'profile-1': {
+                    id: 'profile-1',
+                    authFilePath: profileAuthPath,
+                },
+            },
+        }));
+        process.env.CODEX_HOME = codexHome;
+        process.env.OPENAI_API_KEY = 'old-key';
+
+        try {
+            const { CodexAppServerClient } = await import('./codexAppServerClient');
+            const client = new CodexAppServerClient();
+
+            await client.connect();
+
+            const env = mockSpawn.mock.calls.at(-1)?.[2]?.env;
+            expect(env).toMatchObject({ CODEX_HOME: codexHome });
+            expect(env).not.toHaveProperty('OPENAI_API_KEY');
+
+            await client.disconnect();
+        } finally {
+            if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+            else process.env.CODEX_HOME = previousCodexHome;
+            if (previousOpenAiApiKey === undefined) delete process.env.OPENAI_API_KEY;
+            else process.env.OPENAI_API_KEY = previousOpenAiApiKey;
+            rmSync(codexHome, { recursive: true, force: true });
+        }
     });
 
     it('ignores stale process exit during reconnect initialize', async () => {

@@ -93,6 +93,76 @@ describe('ApiMachineClient Codex fork RPCs', () => {
         }));
     });
 
+    it('registers ensure-live RPC and forwards resume options', async () => {
+        const ensureSessionLive = vi.fn().mockResolvedValue({
+            type: 'running',
+            sessionId: 'happy-source',
+            workerState: 'running',
+            pid: 4242,
+        });
+
+        const { ApiMachineClient } = await import('./apiMachine');
+        const client = new ApiMachineClient('token', machineClient());
+        client.setRPCHandlers({
+            spawnSession: vi.fn(),
+            ensureSessionLive,
+            stopSession: vi.fn(),
+            requestShutdown: vi.fn(),
+        });
+
+        const result = await handlersFrom(client).get('machine-1:ensure-happy-session-live')?.({
+            sessionId: 'happy-source',
+            model: 'gpt-5.5',
+            permissionMode: 'yolo',
+            reason: 'send-message',
+        });
+
+        expect(result).toEqual({
+            type: 'running',
+            sessionId: 'happy-source',
+            workerState: 'running',
+            pid: 4242,
+        });
+        expect(ensureSessionLive).toHaveBeenCalledWith('happy-source', {
+            model: 'gpt-5.5',
+            permissionMode: 'yolo',
+            reason: 'send-message',
+        });
+    });
+
+    it('registers restart session RPC and forwards resume options', async () => {
+        const restartSession = vi.fn().mockResolvedValue({
+            type: 'resumed',
+            sessionId: 'happy-source',
+        });
+
+        const { ApiMachineClient } = await import('./apiMachine');
+        const client = new ApiMachineClient('token', machineClient());
+        client.setRPCHandlers({
+            spawnSession: vi.fn(),
+            restartSession,
+            stopSession: vi.fn(),
+            requestShutdown: vi.fn(),
+        });
+
+        const result = await handlersFrom(client).get('machine-1:restart-happy-session')?.({
+            sessionId: 'happy-source',
+            model: 'gpt-5.5',
+            permissionMode: 'yolo',
+            reason: 'manual-restart',
+        });
+
+        expect(result).toEqual({
+            type: 'resumed',
+            sessionId: 'happy-source',
+        });
+        expect(restartSession).toHaveBeenCalledWith('happy-source', {
+            model: 'gpt-5.5',
+            permissionMode: 'yolo',
+            reason: 'manual-restart',
+        });
+    });
+
     it('lists Codex rewind points from thread/read', async () => {
         codexClientMethods.readThread.mockResolvedValue({
             thread: {
@@ -167,10 +237,74 @@ describe('ApiMachineClient Codex fork RPCs', () => {
         expect(codexClientMethods.listThreads).toHaveBeenCalledWith({
             limit: 200,
             archived: false,
+            useStateDbOnly: true,
             sortKey: 'updated_at',
             sortDirection: 'desc',
         });
         expect(codexClientMethods.disconnect).toHaveBeenCalledOnce();
+    });
+
+    it('enriches missing Codex thread names from the first user message', async () => {
+        const injectedUserMessage = [
+            '# Options',
+            'You have a way to give a user a easy way to answer your questions if you know possible answers.',
+            '<options>\n    <option>Option 1</option>\n</options>',
+            '# Plan mode with options',
+            'When you are in the plan mode, you must use the options mode.',
+            'Actual user task title',
+            'Based on this message, call functions.happy__change_title to change chat session title that would represent the current task.',
+        ].join('\n\n');
+        codexClientMethods.listThreads.mockResolvedValue({
+            data: [{
+                id: 'thread-options',
+                cwd: '/tmp/project',
+                name: null,
+                preview: '# Options\n\ninternal prompt text',
+                updatedAt: 1700000000000,
+            }],
+            nextCursor: null,
+            backwardsCursor: null,
+        });
+        codexClientMethods.readThread.mockResolvedValue({
+            thread: {
+                id: 'thread-options',
+                turns: [{
+                    id: 'turn-1',
+                    items: [{
+                        id: 'user-1',
+                        type: 'userMessage',
+                        content: [{ type: 'text', text: injectedUserMessage }],
+                    }],
+                }],
+            },
+        });
+
+        const { ApiMachineClient } = await import('./apiMachine');
+        const client = new ApiMachineClient('token', machineClient());
+        client.setRPCHandlers({
+            spawnSession: vi.fn(),
+            stopSession: vi.fn(),
+            requestShutdown: vi.fn(),
+        });
+
+        const result = await handlersFrom(client).get('machine-1:codex-list-threads')?.({});
+
+        expect(result).toEqual({
+            type: 'success',
+            threads: [{
+                id: 'thread-options',
+                cwd: '/tmp/project',
+                name: 'Actual user task title',
+                preview: '# Options\n\ninternal prompt text',
+                updatedAt: 1700000000000,
+            }],
+            nextCursor: null,
+            backwardsCursor: null,
+        });
+        expect(codexClientMethods.readThread).toHaveBeenCalledWith({
+            threadId: 'thread-options',
+            includeTurns: true,
+        });
     });
 
     it('reads Codex account rate limits through app-server RPC', async () => {

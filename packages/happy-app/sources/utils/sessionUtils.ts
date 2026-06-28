@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Session } from '@/sync/storageTypes';
 import { getCurrentLanguage, t } from '@/text';
 import { buildResumeCommand, buildResumeCommandBlock, ResumeCommandBlock } from './resumeCommand';
+import { sanitizeCodexTitle } from './codexTitle';
 
 export type SessionState = 'disconnected' | 'thinking' | 'waiting' | 'permission_required';
 
@@ -79,7 +80,7 @@ export function useSessionStatus(session: Session): SessionStatus {
  */
 export function getSessionName(session: Session): string {
     if (session.metadata?.summary) {
-        return session.metadata.summary.text;
+        return sanitizeCodexTitle(session.metadata.summary.text) ?? session.metadata.summary.text;
     }
     return t('session.newChat');
 }

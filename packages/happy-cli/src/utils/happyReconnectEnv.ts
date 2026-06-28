@@ -1,3 +1,5 @@
+import { stripStaleOpenAiEnvForCodexAuth } from '@/codex/codexAuthEnv';
+
 const HAPPY_RECONNECT_ENV_PREFIX = 'HAPPY_RECONNECT_';
 
 export const HAPPY_RECONNECT_ENV_KEYS = [
@@ -19,7 +21,7 @@ export function createHappyChildEnv(baseEnv: NodeJS.ProcessEnv = process.env): R
     childEnv[key] = value;
   }
 
-  return childEnv;
+  return stripStaleOpenAiEnvForCodexAuth(childEnv);
 }
 
 export function createHappyTmuxChildEnv(baseEnv: NodeJS.ProcessEnv = process.env): Record<string, string> {

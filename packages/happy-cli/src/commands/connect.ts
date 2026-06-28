@@ -1,7 +1,7 @@
 import chalk from 'chalk';
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
-import { join } from 'path';
+import { dirname, isAbsolute, join } from 'path';
 import { readCredentials } from '@/persistence';
 import { ApiClient } from '@/api/api';
 import { authenticateCodex } from './connect/authenticateCodex';
@@ -95,6 +95,7 @@ async function handleConnectVendor(vendor: 'codex' | 'claude' | 'gemini', displa
         const codexAuthTokens = await authenticateCodex();
         await api.registerVendorToken('openai', { oauth: codexAuthTokens });
         console.log('✅ Codex token registered with server');
+        updateLocalCodexCredentials(codexAuthTokens);
         process.exit(0);
     } else if (vendor === 'claude') {
         console.log('🚀 Registering Anthropic token with server');
@@ -177,6 +178,99 @@ async function handleConnectStatus(): Promise<void> {
     console.log(chalk.gray('To connect a vendor, run: happy connect <vendor>'));
     console.log(chalk.gray('Example: happy connect gemini'));
     console.log('');
+}
+
+/**
+ * Update local Codex credentials so restarted local Codex app-server processes
+ * use the same account that was just connected to Happy.
+ */
+export function updateLocalCodexCredentials(tokens: {
+    access_token: string;
+    refresh_token?: string;
+    id_token?: string;
+    account_id?: string;
+}): void {
+    try {
+        const codexDir = process.env.CODEX_HOME || join(homedir(), '.codex');
+
+        if (!existsSync(codexDir)) {
+            mkdirSync(codexDir, { recursive: true });
+        }
+
+        const credentialPaths = getLocalCodexCredentialPaths(codexDir);
+        for (const credentialsPath of credentialPaths) {
+            writeLocalCodexCredentialFile(credentialsPath, tokens);
+            console.log(chalk.gray(`  Updated local Codex credentials: ${credentialsPath}`));
+        }
+    } catch (error) {
+        console.log(chalk.yellow(`  ⚠️ Could not update local Codex credentials: ${error}`));
+    }
+}
+
+function getLocalCodexCredentialPaths(codexDir: string): string[] {
+    const paths = new Set<string>([join(codexDir, 'auth.json')]);
+    const profilesPath = join(codexDir, 'auth-profiles.json');
+
+    if (!existsSync(profilesPath)) {
+        return Array.from(paths);
+    }
+
+    try {
+        const profiles = JSON.parse(readFileSync(profilesPath, 'utf-8')) as {
+            activeProfileId?: unknown;
+            profiles?: Record<string, { authFilePath?: unknown }>;
+        };
+        if (typeof profiles.activeProfileId !== 'string') {
+            return Array.from(paths);
+        }
+        const activeProfile = profiles.profiles?.[profiles.activeProfileId];
+        if (typeof activeProfile?.authFilePath !== 'string') {
+            return Array.from(paths);
+        }
+        paths.add(isAbsolute(activeProfile.authFilePath)
+            ? activeProfile.authFilePath
+            : join(codexDir, activeProfile.authFilePath));
+    } catch {
+        return Array.from(paths);
+    }
+
+    return Array.from(paths);
+}
+
+function writeLocalCodexCredentialFile(credentialsPath: string, tokens: {
+    access_token: string;
+    refresh_token?: string;
+    id_token?: string;
+    account_id?: string;
+}): void {
+    const credentialsDir = dirname(credentialsPath);
+    if (!existsSync(credentialsDir)) {
+        mkdirSync(credentialsDir, { recursive: true });
+    }
+
+    let existing: Record<string, unknown> = {};
+    if (existsSync(credentialsPath)) {
+        try {
+            existing = JSON.parse(readFileSync(credentialsPath, 'utf-8')) as Record<string, unknown>;
+        } catch {
+            existing = {};
+        }
+    }
+
+    const credentials = {
+        ...existing,
+        auth_mode: 'chatgpt',
+        OPENAI_API_KEY: null,
+        tokens: {
+            id_token: tokens.id_token,
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token,
+            account_id: tokens.account_id,
+        },
+        last_refresh: new Date().toISOString(),
+    };
+
+    writeFileSync(credentialsPath, JSON.stringify(credentials, null, 2), 'utf-8');
 }
 
 /**

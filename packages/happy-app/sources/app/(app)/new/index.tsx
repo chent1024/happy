@@ -15,6 +15,7 @@ import {
     TextInputSelectionChangeEventData,
     NativeSyntheticEvent,
     Image as RNImage,
+    KeyboardAvoidingView,
     useWindowDimensions,
 } from 'react-native';
 import { GlassView } from 'expo-glass-effect';
@@ -29,7 +30,6 @@ import {
 } from '@/components/MultiTextInput';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import Constants from 'expo-constants';
 import { useHeaderHeight } from '@/utils/responsive';
 import { t } from '@/text';
@@ -61,6 +61,7 @@ import { getNewSessionSidebarLayout } from '@/utils/newSessionSidebarLayout';
 import { getAgentPickerItems, getModePickerItems } from '@/utils/newSessionPickerItems';
 import { resolveAgentDefaultConfig } from '@/sync/agentDefaults';
 import { filterPickerItems } from '@/utils/filterPickerItems';
+import { compactStyleList } from '@/utils/compactStyleList';
 
 // Agent icon assets
 const agentIcons = {
@@ -244,12 +245,12 @@ function PickerContent({
         return (
             <Pressable
                 key={item.key}
-                style={(p) => [
+                style={(p) => compactStyleList([
                     pickerStyles.option,
                     embedded && pickerStyles.embeddedOption,
                     p.pressed && pickerStyles.optionPressed,
                     item.dimmed && { opacity: 0.45 },
-                ]}
+                ])}
                 onPress={() => onSelect(item.key)}
             >
                 <Octicons
@@ -272,7 +273,7 @@ function PickerContent({
     };
 
     return (
-        <View style={[pickerStyles.container, embedded && pickerStyles.embeddedContainer]}>
+        <View style={compactStyleList([pickerStyles.container, embedded && pickerStyles.embeddedContainer])}>
             {!embedded && (
                 <Text style={[pickerStyles.title, { color: theme.colors.text }]}>{title}</Text>
             )}
@@ -281,7 +282,7 @@ function PickerContent({
                 <View style={[
                     pickerStyles.searchRow,
                     { backgroundColor: embedded ? 'transparent' : theme.colors.input.background },
-                    embedded && pickerStyles.embeddedSearchRow,
+                    ...(embedded ? [pickerStyles.embeddedSearchRow] : []),
                 ]}>
                     <Ionicons name="search" size={16} color={theme.colors.textSecondary} />
                     <TextInput
@@ -297,8 +298,8 @@ function PickerContent({
             )}
 
             <ScrollView
-                style={[pickerStyles.optionList, embedded && pickerStyles.embeddedOptionList]}
-                contentContainerStyle={embedded && pickerStyles.embeddedOptionListContent}
+                style={compactStyleList([pickerStyles.optionList, embedded && pickerStyles.embeddedOptionList])}
+                contentContainerStyle={embedded ? pickerStyles.embeddedOptionListContent : undefined}
                 keyboardShouldPersistTaps="handled"
             >
                 {fixedItems?.map(renderOption)}
@@ -401,7 +402,7 @@ function PathPickerContent({
     const doneIconColor = theme.colors.header.tint;
 
     return (
-        <View style={[pickerStyles.container, embedded && pickerStyles.embeddedContainer, fillHeight && pickerStyles.containerFill]}>
+        <View style={compactStyleList([pickerStyles.container, embedded && pickerStyles.embeddedContainer, fillHeight && pickerStyles.containerFill])}>
             {!embedded && (
                 <View style={pickerStyles.titleRow}>
                     <Text style={[pickerStyles.title, { color: theme.colors.text }]}>{title}</Text>
@@ -443,7 +444,7 @@ function PathPickerContent({
                         backgroundColor: embedded ? 'transparent' : theme.colors.input.background,
                         borderColor: embedded ? 'transparent' : theme.colors.divider,
                     },
-                    embedded && pickerStyles.embeddedPathInputRow,
+                    ...(embedded ? [pickerStyles.embeddedPathInputRow] : []),
                 ]}
             >
                 <Ionicons name="folder-outline" size={16} color={theme.colors.textSecondary} />
@@ -458,7 +459,7 @@ function PathPickerContent({
                         placeholderTextColor={theme.colors.textSecondary}
                         style={[
                             pickerStyles.pathTextInput,
-                            embedded && pickerStyles.embeddedPathTextInput,
+                            ...(embedded ? [pickerStyles.embeddedPathTextInput] : []),
                             { color: theme.colors.text },
                         ]}
                         autoCapitalize="none"
@@ -482,8 +483,8 @@ function PathPickerContent({
             </Text>
 
             <ScrollView
-                style={[pickerStyles.optionList, embedded && pickerStyles.embeddedOptionList, fillHeight && pickerStyles.optionListFill]}
-                contentContainerStyle={[embedded && pickerStyles.embeddedOptionListContent, { paddingBottom: keyboardHeight }]}
+                style={compactStyleList([pickerStyles.optionList, embedded && pickerStyles.embeddedOptionList, fillHeight && pickerStyles.optionListFill])}
+                contentContainerStyle={compactStyleList([embedded && pickerStyles.embeddedOptionListContent, { paddingBottom: keyboardHeight }])}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="none"
             >
@@ -493,11 +494,11 @@ function PathPickerContent({
                     return (
                         <Pressable
                             key={item.key}
-                            style={(p) => [
+                            style={(p) => compactStyleList([
                                 pickerStyles.option,
                                 embedded && pickerStyles.embeddedOption,
                                 p.pressed && pickerStyles.optionPressed,
-                            ]}
+                            ])}
                             onPress={() => handleSuggestionPress(item)}
                         >
                             <Ionicons
@@ -1108,20 +1109,20 @@ function NewSessionScreen() {
 
     const configContent = (
         <>
-            <View style={[
+            <View style={compactStyleList([
                 styles.configBox,
                 activePicker && styles.configBoxWithPopover,
                 sidebarLayout.showSidebar && styles.sidebarConfigBox,
-            ]}>
+            ])}>
                 {sidebarLayout.showSidebar || isConfigExpanded ? (
                     <>
                         <View style={styles.configRowWithToggle}>
                             <Pressable
-                                style={(p) => [
+                                style={(p) => compactStyleList([
                                     styles.configRow,
                                     { flex: 1 },
                                     p.pressed && styles.configRowPressed,
-                                ]}
+                                ])}
                                 onPress={() => togglePicker('machine')}
                             >
                                 <Ionicons name="desktop-outline" size={15} color={theme.colors.textSecondary} />
@@ -1134,7 +1135,7 @@ function NewSessionScreen() {
                                 <Pressable
                                     onPress={toggleConfig}
                                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                    style={(p) => [styles.collapseToggle, p.pressed && styles.configRowPressed]}
+                                    style={(p) => compactStyleList([styles.collapseToggle, p.pressed && styles.configRowPressed])}
                                 >
                                     <Ionicons name="chevron-up" size={16} color={theme.colors.textSecondary} />
                                 </Pressable>
@@ -1159,7 +1160,7 @@ function NewSessionScreen() {
 
                         <View style={{ opacity: isOffline ? 0.4 : 1 }} pointerEvents={isOffline ? 'none' : 'auto'}>
                             <Pressable
-                                style={(p) => [styles.configRow, p.pressed && styles.configRowPressed]}
+                                style={(p) => compactStyleList([styles.configRow, p.pressed && styles.configRowPressed])}
                                 onPress={() => togglePicker('path')}
                             >
                                 <Ionicons name="folder-outline" size={15} color={theme.colors.textSecondary} />
@@ -1173,7 +1174,7 @@ function NewSessionScreen() {
                             <View style={styles.configRow}>
                                 <Pressable
                                     onPress={() => togglePicker('agent')}
-                                    style={(p) => [styles.configInlineField, p.pressed && styles.configRowPressed]}
+                                    style={(p) => compactStyleList([styles.configInlineField, p.pressed && styles.configRowPressed])}
                                 >
                                     <RNImage
                                         source={agentIcons[agent.key]}
@@ -1189,7 +1190,7 @@ function NewSessionScreen() {
                                 {showModel && (
                                     <>
                                         <Text style={[styles.configLabel, { color: theme.colors.textSecondary }]}>·</Text>
-                                        <Pressable onPress={() => togglePicker('model')} style={(p) => [styles.configInlineField, p.pressed && styles.configRowPressed]}>
+                                        <Pressable onPress={() => togglePicker('model')} style={(p) => compactStyleList([styles.configInlineField, p.pressed && styles.configRowPressed])}>
                                             <Text style={[styles.configLabel, styles.configInlineText, { color: theme.colors.textSecondary }]} numberOfLines={1}>
                                                 {currentModel.name}
                                             </Text>
@@ -1201,7 +1202,7 @@ function NewSessionScreen() {
                                 {showEffort && (
                                     <>
                                         <Text style={[styles.configLabel, { color: theme.colors.textSecondary }]}>·</Text>
-                                        <Pressable onPress={() => togglePicker('effort')} style={(p) => [styles.configInlineField, p.pressed && styles.configRowPressed]}>
+                                        <Pressable onPress={() => togglePicker('effort')} style={(p) => compactStyleList([styles.configInlineField, p.pressed && styles.configRowPressed])}>
                                             <Text style={[styles.configLabel, styles.configInlineText, { color: theme.colors.textSecondary }]} numberOfLines={1}>
                                                 {currentEffort?.name}
                                             </Text>
@@ -1216,7 +1217,7 @@ function NewSessionScreen() {
 
                             {showPermission && (
                                 <Pressable
-                                    style={(p) => [styles.configRow, p.pressed && styles.configRowPressed]}
+                                    style={(p) => compactStyleList([styles.configRow, p.pressed && styles.configRowPressed])}
                                     onPress={() => togglePicker('permission')}
                                 >
                                     <Ionicons
@@ -1235,7 +1236,7 @@ function NewSessionScreen() {
                             {supportsWorktree && (
                                 <>
                                     <Pressable
-                                        style={(p) => [styles.configRow, p.pressed && styles.configRowPressed]}
+                                        style={(p) => compactStyleList([styles.configRow, p.pressed && styles.configRowPressed])}
                                         onPress={() => togglePicker('worktree')}
                                     >
                                         <MaterialCommunityIcons name="tree" size={15} color={theme.colors.textSecondary} />
@@ -1253,7 +1254,7 @@ function NewSessionScreen() {
                     <>
                         <View style={styles.configRowWithToggle}>
                             <Pressable
-                                style={(p) => [styles.collapsedRow, { flex: 1 }, p.pressed && styles.configRowPressed]}
+                                style={(p) => compactStyleList([styles.collapsedRow, { flex: 1 }, p.pressed && styles.configRowPressed])}
                                 onPress={() => togglePicker('path')}
                             >
                                 <Ionicons name="folder-outline" size={15} color={theme.colors.textSecondary} />
@@ -1264,7 +1265,7 @@ function NewSessionScreen() {
                             <Pressable
                                 onPress={toggleConfig}
                                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                style={(p) => [styles.collapseToggle, p.pressed && styles.configRowPressed]}
+                                style={(p) => compactStyleList([styles.collapseToggle, p.pressed && styles.configRowPressed])}
                             >
                                 <Ionicons name="chevron-down" size={16} color={theme.colors.textSecondary} />
                             </Pressable>
@@ -1275,7 +1276,7 @@ function NewSessionScreen() {
                             <Pressable
                                 onPress={() => togglePicker('machine')}
                                 hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-                                style={(p) => [styles.collapsedIconButton, p.pressed && styles.configRowPressed]}
+                                style={(p) => compactStyleList([styles.collapsedIconButton, p.pressed && styles.configRowPressed])}
                             >
                                 <Ionicons name="desktop-outline" size={14} color={isOffline ? theme.colors.status.disconnected : theme.colors.textSecondary} />
                             </Pressable>
@@ -1283,7 +1284,7 @@ function NewSessionScreen() {
                             <Pressable
                                 onPress={() => togglePicker('agent')}
                                 hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-                                style={(p) => [styles.collapsedIconButton, p.pressed && styles.configRowPressed]}
+                                style={(p) => compactStyleList([styles.collapsedIconButton, p.pressed && styles.configRowPressed])}
                             >
                                 <RNImage
                                     source={agentIcons[agent.key]}
@@ -1296,7 +1297,7 @@ function NewSessionScreen() {
                                 <Pressable
                                     onPress={() => togglePicker('permission')}
                                     hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-                                    style={(p) => [styles.collapsedIconButton, p.pressed && styles.configRowPressed]}
+                                    style={(p) => compactStyleList([styles.collapsedIconButton, p.pressed && styles.configRowPressed])}
                                 >
                                     <Ionicons
                                         name={permissionStyle?.icon ?? 'shield-outline'}
@@ -1310,7 +1311,7 @@ function NewSessionScreen() {
                                 <Pressable
                                     onPress={() => togglePicker('worktree')}
                                     hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-                                    style={(p) => [styles.collapsedIconButton, p.pressed && styles.configRowPressed]}
+                                    style={(p) => compactStyleList([styles.collapsedIconButton, p.pressed && styles.configRowPressed])}
                                 >
                                     <MaterialCommunityIcons name="tree" size={14} color={theme.colors.textSecondary} />
                                 </Pressable>
@@ -1358,10 +1359,10 @@ function NewSessionScreen() {
                     canSend ? styles.sendButtonActive : styles.sendButtonInactive,
                 ]}>
                     <Pressable
-                        style={(p) => [
+                        style={(p) => compactStyleList([
                             styles.sendButtonInner,
                             p.pressed && styles.sendButtonInnerPressed,
-                        ]}
+                        ])}
                         hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
                         disabled={!canSend}
                         onPress={() => handleSend()}

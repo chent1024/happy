@@ -27,6 +27,13 @@ export const PermissionFooter: React.FC<PermissionFooterProps> = ({ permission, 
     const [loadingAllEdits, setLoadingAllEdits] = useState(false);
     const [loadingBypass, setLoadingBypass] = useState(false);
     const [loadingForSession, setLoadingForSession] = useState(false);
+
+    React.useEffect(() => {
+        setLoadingButton(null);
+        setLoadingAllEdits(false);
+        setLoadingBypass(false);
+        setLoadingForSession(false);
+    }, [permission.id, permission.status, sessionId]);
     
     // Check if this is a Codex session - check both metadata.flavor and tool name prefix
     const isCodex = metadata?.flavor === 'codex' || toolName.startsWith('Codex');

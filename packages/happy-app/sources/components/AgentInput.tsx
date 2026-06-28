@@ -51,6 +51,8 @@ interface AgentInputProps {
     availableEffortLevels?: EffortLevel[];
     onEffortLevelChange?: (level: EffortLevel) => void;
     metadata?: Metadata | null;
+    onRestartSession?: () => void;
+    isRestartingSession?: boolean;
     onAbort?: () => void | Promise<void>;
     showAbortButton?: boolean;
     connectionStatus?: {
@@ -1358,95 +1360,133 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                 {/* Git Status Badge */}
                                 <GitStatusButton sessionId={props.sessionId} onPress={props.onFileViewerPress} />
 
-                                {/* Settings button */}
-                                {props.onPermissionModeChange && (
-                                    <Pressable
-                                        onPress={handleSettingsPress}
-                                        hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
-                                        style={(p) => ({
-                                            flexDirection: 'row',
-                                            alignItems: 'center',
-                                            borderRadius: Platform.select({ default: 16, android: 20 }),
-                                            paddingHorizontal: 8,
-                                            paddingVertical: 6,
-                                            justifyContent: 'center',
-                                            height: 32,
-                                            opacity: p.pressed ? 0.7 : 1,
-                                        })}
-                                    >
-                                        <Octicons
-                                            name={'gear'}
-                                            size={16}
-                                            color={theme.colors.button.secondary.tint}
-                                        />
-                                    </Pressable>
-                                )}
                                 </View>}
 
-                                {/* Send/Voice button - aligned with first row */}
-                                <View
-                                    style={[
-                                        styles.sendButton,
-                                        isSendBlocked ? styles.sendButtonLocked :
-                                        (hasText || props.isSending || (props.onMicPress && !props.isMicActive))
-                                            ? styles.sendButtonActive
-                                            : styles.sendButtonInactive
-                                    ]}
-                                >
-                                    <Pressable
-                                        style={(p) => ({
-                                            width: '100%',
-                                            height: '100%',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            opacity: p.pressed ? 0.7 : 1,
-                                        })}
-                                        hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
-                                        onPress={handleSendPress}
-                                        disabled={!canPressSendButton}
+                                <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 0, gap: 2 }}>
+                                    {/* Restart session button */}
+                                    {props.onRestartSession && (
+                                        <Pressable
+                                            onPress={() => {
+                                                hapticsLight();
+                                                props.onRestartSession?.();
+                                            }}
+                                            hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
+                                            style={(p) => ({
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                borderRadius: Platform.select({ default: 16, android: 20 }),
+                                                paddingHorizontal: 8,
+                                                paddingVertical: 6,
+                                                justifyContent: 'center',
+                                                height: 32,
+                                                opacity: p.pressed ? 0.7 : 1,
+                                            })}
+                                            disabled={props.isRestartingSession}
+                                        >
+                                            {props.isRestartingSession ? (
+                                                <ActivityIndicator
+                                                    size="small"
+                                                    color={theme.colors.button.secondary.tint}
+                                                />
+                                            ) : (
+                                                <Ionicons
+                                                    name="reload-outline"
+                                                    size={17}
+                                                    color={theme.colors.button.secondary.tint}
+                                                />
+                                            )}
+                                        </Pressable>
+                                    )}
+
+                                    {/* Settings button */}
+                                    {props.onPermissionModeChange && (
+                                        <Pressable
+                                            onPress={handleSettingsPress}
+                                            hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
+                                            style={(p) => ({
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                borderRadius: Platform.select({ default: 16, android: 20 }),
+                                                paddingHorizontal: 8,
+                                                paddingVertical: 6,
+                                                justifyContent: 'center',
+                                                height: 32,
+                                                opacity: p.pressed ? 0.7 : 1,
+                                            })}
+                                        >
+                                            <Octicons
+                                                name={'gear'}
+                                                size={16}
+                                                color={theme.colors.button.secondary.tint}
+                                            />
+                                        </Pressable>
+                                    )}
+
+                                    {/* Send/Voice button - aligned with first row */}
+                                    <View
+                                        style={[
+                                            styles.sendButton,
+                                            isSendBlocked ? styles.sendButtonLocked :
+                                            (hasText || props.isSending || (props.onMicPress && !props.isMicActive))
+                                                ? styles.sendButtonActive
+                                                : styles.sendButtonInactive
+                                        ]}
                                     >
-                                        {props.isSending ? (
-                                            <ActivityIndicator
-                                                size="small"
-                                                color={theme.colors.button.primary.tint}
-                                            />
-                                        ) : isSendBlocked ? (
-                                            <Ionicons
-                                                name="lock-closed"
-                                                size={15}
-                                                color={theme.colors.textSecondary}
-                                            />
-                                        ) : hasText ? (
-                                            <Octicons
-                                                name="arrow-up"
-                                                size={16}
-                                                color={theme.colors.button.primary.tint}
-                                                style={[
-                                                    styles.sendButtonIcon,
-                                                    { marginTop: Platform.OS === 'web' ? 2 : 0 }
-                                                ]}
-                                            />
-                                        ) : props.onMicPress && !props.isMicActive ? (
-                                            <Image
-                                                source={require('@/assets/images/icon-voice-white.png')}
-                                                style={{
-                                                    width: 24,
-                                                    height: 24,
-                                                }}
-                                                tintColor={theme.colors.button.primary.tint}
-                                            />
-                                        ) : (
-                                            <Octicons
-                                                name="arrow-up"
-                                                size={16}
-                                                color={theme.colors.button.primary.tint}
-                                                style={[
-                                                    styles.sendButtonIcon,
-                                                    { marginTop: Platform.OS === 'web' ? 2 : 0 }
-                                                ]}
-                                            />
-                                        )}
-                                    </Pressable>
+                                        <Pressable
+                                            style={(p) => ({
+                                                width: '100%',
+                                                height: '100%',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                opacity: p.pressed ? 0.7 : 1,
+                                            })}
+                                            hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
+                                            onPress={handleSendPress}
+                                            disabled={!canPressSendButton}
+                                        >
+                                            {props.isSending ? (
+                                                <ActivityIndicator
+                                                    size="small"
+                                                    color={theme.colors.button.primary.tint}
+                                                />
+                                            ) : isSendBlocked ? (
+                                                <Ionicons
+                                                    name="lock-closed"
+                                                    size={15}
+                                                    color={theme.colors.textSecondary}
+                                                />
+                                            ) : hasText ? (
+                                                <Octicons
+                                                    name="arrow-up"
+                                                    size={16}
+                                                    color={theme.colors.button.primary.tint}
+                                                    style={[
+                                                        styles.sendButtonIcon,
+                                                        { marginTop: Platform.OS === 'web' ? 2 : 0 }
+                                                    ]}
+                                                />
+                                            ) : props.onMicPress && !props.isMicActive ? (
+                                                <Image
+                                                    source={require('@/assets/images/icon-voice-white.png')}
+                                                    style={{
+                                                        width: 24,
+                                                        height: 24,
+                                                    }}
+                                                    tintColor={theme.colors.button.primary.tint}
+                                                />
+                                            ) : (
+                                                <Octicons
+                                                    name="arrow-up"
+                                                    size={16}
+                                                    color={theme.colors.button.primary.tint}
+                                                    style={[
+                                                        styles.sendButtonIcon,
+                                                        { marginTop: Platform.OS === 'web' ? 2 : 0 }
+                                                    ]}
+                                                />
+                                            )}
+                                        </Pressable>
+                                    </View>
                                 </View>
                             </View>
                         </View>

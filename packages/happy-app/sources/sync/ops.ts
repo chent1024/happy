@@ -9,6 +9,8 @@ import { storage } from './storage';
 import type { AgentState, MachineMetadata, Metadata, Session } from './storageTypes';
 import { encodeBase64 } from '@/encryption/base64';
 import { getRandomBytes } from 'expo-crypto';
+import { sanitizeCodexTitle } from '@/utils/codexTitle';
+export { machineEnsureSessionLive } from './sessionWorkerLive';
 
 // Strict type definitions for all operations
 
@@ -141,6 +143,32 @@ export type SpawnSessionResult =
     | { type: 'requestToApproveDirectoryCreation'; directory: string }
     | { type: 'error'; errorMessage: string };
 
+export type RestartSessionResult =
+    | {
+        type: 'running';
+        sessionId: string;
+        workerState: 'running' | 'stale-version';
+        pid?: number;
+        startedVersion?: string;
+        currentVersion?: string;
+    }
+    | {
+        type: 'resumed';
+        sessionId: string;
+    }
+    | {
+        type: 'not-resumable';
+        sessionId: string;
+        workerState: string;
+        reason: string;
+        detail?: string;
+    }
+    | {
+        type: 'error';
+        sessionId: string;
+        errorMessage: string;
+    };
+
 // Options for spawning a session
 export interface SpawnSessionOptions {
     machineId: string;
@@ -247,7 +275,7 @@ export type CodexListThreadsResult =
     | { type: 'error'; errorMessage: string };
 
 export type CodexSessionSyncResult =
-    | { type: 'success'; fetched: number; imported: number; skipped: number }
+    | { type: 'success'; fetched: number; imported: number; refreshed: number; skipped: number }
     | { type: 'error'; errorMessage: string };
 
 export type CodexAccountRateLimitsRefreshResult =
@@ -337,7 +365,7 @@ export function buildCodexImportedSessionMetadata(
     machineMetadata?: MachineMetadata | null,
 ): Metadata {
     const path = firstNonEmpty(thread.cwd, thread.path) ?? '~';
-    const title = firstNonEmpty(thread.name, thread.preview) ?? `Codex ${thread.id.slice(0, 8)}`;
+    const title = sanitizeCodexTitle(firstNonEmpty(thread.name, thread.preview)) ?? `Codex ${thread.id.slice(0, 8)}`;
     const updatedAt = codexThreadUpdatedAt(thread) || Date.now();
 
     return {
@@ -640,6 +668,7 @@ export async function syncCodexSessions(machineId: string): Promise<CodexSession
         }
 
         let imported = 0;
+        let refreshed = 0;
         let skipped = 0;
         const { selected, skippedByProjectLimit, skippedByAge } = selectCodexThreadsForSync(listResult.threads);
         skipped += skippedByProjectLimit + skippedByAge;
@@ -653,13 +682,13 @@ export async function syncCodexSessions(machineId: string): Promise<CodexSession
             const existingImportedSession = findImportedCodexThread(machineId, thread.id);
             await createImportedCodexSession(machineId, thread);
             if (existingImportedSession) {
-                skipped++;
+                refreshed++;
             } else {
                 imported++;
             }
         }
 
-        if (imported > 0) {
+        if (imported > 0 || refreshed > 0) {
             await sync.refreshSessions();
         }
 
@@ -667,6 +696,7 @@ export async function syncCodexSessions(machineId: string): Promise<CodexSession
             type: 'success',
             fetched: listResult.threads.length,
             imported,
+            refreshed,
             skipped,
         };
     } catch (error) {
@@ -741,6 +771,24 @@ export async function machineResumeSession(options: ResumeSessionOptions & { mod
     }
 }
 
+export async function machineRestartSession(options: ResumeSessionOptions & { model?: string; permissionMode?: string }): Promise<RestartSessionResult> {
+    const { machineId, sessionId, model, permissionMode } = options;
+
+    try {
+        return await apiSocket.machineRPC<RestartSessionResult, { sessionId: string; model?: string; permissionMode?: string; reason: string }>(
+            machineId,
+            'restart-happy-session',
+            { sessionId, model, permissionMode, reason: 'manual-restart' },
+        );
+    } catch (error) {
+        return {
+            type: 'error',
+            sessionId,
+            errorMessage: error instanceof Error ? error.message : 'Failed to restart session',
+        };
+    }
+}
+
 /**
  * Permanently remove a machine from the server. Sessions spawned by the
  * machine are preserved; only the Machine row and its AccessKeys are deleted.
@@ -773,6 +821,14 @@ export async function machineStopDaemon(machineId: string): Promise<{ message: s
         {}
     );
     return result;
+}
+
+export async function machineStopSession(machineId: string, sessionId: string): Promise<{ message: string }> {
+    return await apiSocket.machineRPC<{ message: string }, { sessionId: string }>(
+        machineId,
+        'stop-session',
+        { sessionId },
+    );
 }
 
 /**
@@ -887,12 +943,34 @@ export async function sessionAbort(sessionId: string): Promise<void> {
     });
 }
 
+const PERMISSION_RESPONSE_TIMEOUT_MS = 10_000;
+
+function withPermissionResponseTimeout<T>(promise: Promise<T>): Promise<T> {
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+
+    return new Promise<T>((resolve, reject) => {
+        timeout = setTimeout(() => {
+            reject(new Error('Permission response timed out. The session may still be restarting; please retry.'));
+        }, PERMISSION_RESPONSE_TIMEOUT_MS);
+
+        promise.then(
+            (value) => resolve(value),
+            (error) => reject(error),
+        ).finally(() => {
+            if (timeout) {
+                clearTimeout(timeout);
+                timeout = null;
+            }
+        });
+    });
+}
+
 /**
  * Allow a permission request
  */
 export async function sessionAllow(sessionId: string, id: string, mode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan', allowedTools?: string[], decision?: 'approved' | 'approved_for_session', updatedInput?: Record<string, unknown>): Promise<void> {
     const request: SessionPermissionRequest = { id, approved: true, mode, allowTools: allowedTools, decision, updatedInput };
-    await apiSocket.sessionRPC(sessionId, 'permission', request);
+    await withPermissionResponseTimeout(apiSocket.sessionRPC(sessionId, 'permission', request));
 }
 
 /**
@@ -900,7 +978,7 @@ export async function sessionAllow(sessionId: string, id: string, mode?: 'defaul
  */
 export async function sessionDeny(sessionId: string, id: string, mode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan', allowedTools?: string[], decision?: 'denied' | 'abort'): Promise<void> {
     const request: SessionPermissionRequest = { id, approved: false, mode, allowTools: allowedTools, decision };
-    await apiSocket.sessionRPC(sessionId, 'permission', request);
+    await withPermissionResponseTimeout(apiSocket.sessionRPC(sessionId, 'permission', request));
 }
 
 /**
@@ -1100,6 +1178,41 @@ export async function sessionArchive(sessionId: string): Promise<{ success: bool
     } catch (error) {
         return { success: false, message: error instanceof Error ? error.message : 'Unknown error' };
     }
+}
+
+export async function sessionArchiveWithStop(options: {
+    sessionId: string;
+    machineId?: string | null;
+    requireStop?: boolean;
+}): Promise<{ success: boolean; message?: string }> {
+    const stopFailures: string[] = [];
+    let stopped = false;
+    const killResult = await sessionKill(options.sessionId);
+    if (!killResult.success) {
+        stopFailures.push(killResult.message);
+    } else {
+        stopped = true;
+    }
+
+    if (options.machineId) {
+        try {
+            await machineStopSession(options.machineId, options.sessionId);
+            stopped = true;
+        } catch (error) {
+            stopFailures.push(error instanceof Error ? error.message : 'Failed to stop session through daemon');
+        }
+    }
+
+    if (options.requireStop && !stopped) {
+        return {
+            success: false,
+            message: `Failed to stop session before archive: ${stopFailures.join('; ')}`,
+        };
+    }
+
+    const result = await sessionArchive(options.sessionId);
+    await sync.refreshSessions();
+    return result;
 }
 
 /**

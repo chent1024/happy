@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useHappyAction } from '@/hooks/useHappyAction';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { Modal } from '@/modal';
-import { machineResumeSession, sessionArchive, sessionKill, forkAndSpawn, type ForkSource } from '@/sync/ops';
+import { machineResumeSession, machineRestartSession, sessionArchiveWithStop, forkAndSpawn, type ForkSource } from '@/sync/ops';
 import { maybeCleanupWorktree } from '@/hooks/useWorktreeCleanup';
 import { storage, useLocalSetting, useMachine, useSetting } from '@/sync/storage';
 import { Machine, Session } from '@/sync/storageTypes';
@@ -104,6 +104,30 @@ function getResumeAvailability(session: Session, machine: Machine | null | undef
     };
 }
 
+function getRestartAvailability(session: Session, machine: Machine | null | undefined, isConnected: boolean): ResumeAvailability {
+    const machineId = session.metadata?.machineId;
+    if (!machineId) {
+        const message = t('sessionInfo.resumeSessionMissingMachine');
+        return {
+            canResume: false,
+            canShowResume: true,
+            subtitle: message,
+            message,
+        };
+    }
+
+    if (isConnected) {
+        return {
+            canResume: true,
+            canShowResume: true,
+            subtitle: t('sessionInfo.restartSession'),
+            message: t('sessionInfo.restartSession'),
+        };
+    }
+
+    return getResumeAvailability(session, machine, false);
+}
+
 export function useSessionQuickActions(
     session: Session,
     options: UseSessionQuickActionsOptions = {},
@@ -122,6 +146,10 @@ export function useSessionQuickActions(
     const expResumeSession = useSetting('expResumeSession');
     const resumeAvailability = React.useMemo(
         () => expResumeSession ? getResumeAvailability(session, machine, sessionStatus.isConnected) : { canResume: false, canShowResume: false, subtitle: '', message: '' },
+        [machine, session, sessionStatus.isConnected, expResumeSession],
+    );
+    const restartAvailability = React.useMemo(
+        () => expResumeSession ? getRestartAvailability(session, machine, sessionStatus.isConnected) : { canResume: false, canShowResume: false, subtitle: '', message: '' },
         [machine, session, sessionStatus.isConnected, expResumeSession],
     );
 
@@ -232,13 +260,80 @@ export function useSessionQuickActions(
         }
     });
 
+    const [restartingSession, performRestart] = useHappyAction(async () => {
+        if (!restartAvailability.canResume) {
+            throw new HappyError(restartAvailability.message, false);
+        }
+
+        if (!machineId) {
+            throw new HappyError(t('sessionInfo.resumeSessionMissingMachine'), false);
+        }
+
+        const modeMeta = resolveMessageModeMeta(session, storage.getState().settings);
+        const result = await machineRestartSession({
+            machineId,
+            sessionId: session.id,
+            model: modeMeta.model ?? undefined,
+            permissionMode: modeMeta.permissionMode,
+        });
+
+        switch (result.type) {
+            case 'resumed':
+            case 'running': {
+                const restartStartedAt = Date.now();
+                const currentSession = storage.getState().sessions[result.sessionId] ?? session;
+                storage.getState().applySessions([
+                    buildOptimisticResumedSession(currentSession, restartStartedAt),
+                ]);
+
+                if (session.permissionMode) {
+                    storage.getState().updateSessionPermissionMode(result.sessionId, session.permissionMode);
+                }
+                if (session.modelMode) {
+                    storage.getState().updateSessionModelMode(result.sessionId, session.modelMode);
+                }
+
+                const navigationAction = getResumeNavigationAction({
+                    pathname,
+                    currentSessionId: session.id,
+                    resumedSessionId: result.sessionId,
+                });
+                if (navigationAction === 'replace') {
+                    router.replace(getResumedSessionPath(result.sessionId) as any);
+                } else if (navigationAction === 'push') {
+                    navigateToSession(result.sessionId);
+                }
+
+                try {
+                    await sync.refreshSessions();
+                    const refreshedSession = storage.getState().sessions[result.sessionId];
+                    if (shouldReapplyOptimisticResume(refreshedSession, restartStartedAt)) {
+                        storage.getState().applySessions([
+                            buildOptimisticResumedSession(refreshedSession, restartStartedAt),
+                        ]);
+                    }
+                } catch {
+                    // Realtime activity updates will still reconcile the row.
+                }
+                return;
+            }
+            case 'not-resumable':
+                throw new HappyError(result.detail ?? result.reason, false);
+            case 'error':
+                throw new HappyError(result.errorMessage, false);
+        }
+    });
+
     const [archivingSession, performArchive] = useHappyAction(async () => {
         await maybeCleanupWorktree(session.id, session.metadata?.path, session.metadata?.machineId);
 
-        // Try to kill the CLI process; if it's already dead, force-archive via server
-        const killResult = await sessionKill(session.id);
-        if (!killResult.success) {
-            await sessionArchive(session.id);
+        const archiveResult = await sessionArchiveWithStop({
+            sessionId: session.id,
+            machineId: session.metadata?.machineId,
+            requireStop: sessionStatus.isConnected,
+        });
+        if (!archiveResult.success) {
+            throw new HappyError(archiveResult.message ?? 'Failed to archive session', false);
         }
         onAfterArchive?.();
     });
@@ -250,6 +345,13 @@ export function useSessionQuickActions(
     const resumeSession = React.useCallback(() => {
         performResume();
     }, [performResume]);
+
+    const restartSession = React.useCallback(() => {
+        Modal.alert(t('sessionInfo.restartSessionConfirmTitle'), t('sessionInfo.restartSessionConfirmMessage'), [
+            { text: t('common.cancel'), style: 'cancel' },
+            { text: t('sessionInfo.restartSessionConfirmAction'), onPress: performRestart },
+        ]);
+    }, [performRestart]);
 
     // Fork the session (no truncation) — copies the on-disk Claude JSONL
     // and spawns a fresh Happy session on the same machine. Works for
@@ -296,6 +398,10 @@ export function useSessionQuickActions(
             items.push({ id: 'duplicate', icon: 'time-outline', label: t('session.duplicateAction'), onPress: openDuplicateSheet });
         }
 
+        if (restartAvailability.canShowResume) {
+            items.push({ id: 'restart', icon: 'refresh-outline', label: t('sessionInfo.restartSession'), onPress: restartSession });
+        }
+
         if (canCopySessionMetadata) {
             items.push({ id: 'copy-metadata', icon: 'bug-outline', label: t('sessionInfo.copyMetadata'), onPress: copySessionMetadata });
             items.push({ id: 'copy-metadata-and-logs', icon: 'document-text-outline', label: t('sessionInfo.copyMetadata') + ' & Client Logs', onPress: copySessionMetadataAndLogs });
@@ -314,6 +420,8 @@ export function useSessionQuickActions(
         forkSession,
         openDetails,
         openDuplicateSheet,
+        restartAvailability.canShowResume,
+        restartSession,
         resumeAvailability.canShowResume,
         resumeSession,
     ]);
@@ -337,6 +445,8 @@ export function useSessionQuickActions(
         canCopySessionMetadata,
         canResume: resumeAvailability.canResume,
         canShowResume: resumeAvailability.canShowResume,
+        canRestart: restartAvailability.canResume,
+        canShowRestart: restartAvailability.canShowResume,
         canFork,
         copySessionMetadata,
         copySessionMetadataAndLogs,
@@ -347,6 +457,8 @@ export function useSessionQuickActions(
         resumeSession,
         resumeSessionSubtitle: resumeAvailability.subtitle,
         resumingSession,
+        restartSession,
+        restartingSession,
     };
 }
 

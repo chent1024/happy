@@ -28,7 +28,7 @@ import { sync } from "./sync";
 import { isMutableTool } from "@/components/tools/knownTools";
 import { DecryptedArtifact } from "./artifactTypes";
 import { FeedItem } from "./feedTypes";
-import { isImportedCodexSession } from "./sessionListVisibility";
+import { getSessionListSortTime, isProjectGroupSession } from "./sessionListVisibility";
 
 // Debounce timer for realtimeMode changes
 let realtimeModeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -243,7 +243,7 @@ function buildSessionListViewData(
     const inactiveSessions: Session[] = [];
 
     Object.values(sessions).forEach(session => {
-        if (isSessionActive(session) || isImportedCodexSession(session)) {
+        if (isProjectGroupSession(session)) {
             projectGroupSessions.push(session);
         } else {
             inactiveSessions.push(session);
@@ -251,9 +251,8 @@ function buildSessionListViewData(
     });
 
     // Sort by last activity or creation date (newest first), per user setting — matches applySessions behavior
-    const sortKey = storage.getState().settings.sortSessionsByActivity
-        ? (s: Session) => s.updatedAt
-        : (s: Session) => s.createdAt;
+    const sortByActivity = storage.getState().settings.sortSessionsByActivity;
+    const sortKey = (s: Session) => getSessionListSortTime(s, sortByActivity);
     projectGroupSessions.sort((a, b) => sortKey(b) - sortKey(a));
     inactiveSessions.sort((a, b) => sortKey(b) - sortKey(a));
 
@@ -447,7 +446,7 @@ export const storage = create<StorageState>()((set, get) => {
             // Build active set from all sessions (including existing ones)
             const activeSet = new Set<string>();
             Object.values(mergedSessions).forEach(session => {
-                if (isSessionActive(session)) {
+                if (isProjectGroupSession(session)) {
                     activeSet.add(session.id);
                 }
             });
@@ -466,9 +465,8 @@ export const storage = create<StorageState>()((set, get) => {
             });
 
             // Sort both arrays by last activity or creation date (newest first), per user setting
-            const sortKey = get().settings.sortSessionsByActivity
-                ? (s: Session) => s.updatedAt
-                : (s: Session) => s.createdAt;
+            const sortByActivity = get().settings.sortSessionsByActivity;
+            const sortKey = (s: Session) => getSessionListSortTime(s, sortByActivity);
             activeSessions.sort((a, b) => sortKey(b) - sortKey(a));
             inactiveSessions.sort((a, b) => sortKey(b) - sortKey(a));
 

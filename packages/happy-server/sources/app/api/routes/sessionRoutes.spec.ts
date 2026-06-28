@@ -205,9 +205,12 @@ describe("sessionRoutes - historical Codex imports", () => {
         });
 
         expect(response.statusCode).toBe(200);
+        expect(state.sessions[0].metadata).toBe("encrypted-metadata");
+        expect(Buffer.from(state.sessions[0].dataEncryptionKey).toString("base64")).toBe(Buffer.from("key").toString("base64"));
         expect(state.sessions[0].updatedAt.getTime()).toBe(1700000005000);
         expect(state.sessions[0].lastActiveAt.getTime()).toBe(1700000005000);
         expect(response.json().session.id).toBe("codex-import");
+        expect(response.json().session.metadata).toBe("encrypted-metadata");
         expect(response.json().session.updatedAt).toBe(1700000005000);
     });
 
@@ -231,7 +234,7 @@ describe("sessionRoutes - historical Codex imports", () => {
         expect(response.json().session.updatedAt).toBe(new Date("2026-01-01T00:00:00.000Z").getTime());
     });
 
-    it("lists active sessions and inactive Codex imports, but not ordinary inactive sessions", async () => {
+    it("lists active sessions, inactive Codex imports, and ordinary inactive sessions", async () => {
         app = await createApp();
 
         state.sessions = [
@@ -290,9 +293,11 @@ describe("sessionRoutes - historical Codex imports", () => {
 
         expect(response.statusCode).toBe(200);
         expect(response.json().sessions.map((session: any) => session.id)).toEqual([
+            "archived-session",
             "codex-import",
             "active-session",
         ]);
         expect(response.json().sessions.find((session: any) => session.id === "codex-import").active).toBe(false);
+        expect(response.json().sessions.find((session: any) => session.id === "archived-session").active).toBe(false);
     });
 });

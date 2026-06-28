@@ -17,6 +17,7 @@ import { execSync, type ChildProcess } from 'node:child_process';
 import { spawn as crossSpawn } from 'cross-spawn';
 import { createInterface, type Interface as ReadlineInterface } from 'node:readline';
 import { logger } from '@/ui/logger';
+import { stripStaleOpenAiEnvForCodexAuth } from './codexAuthEnv';
 import type {
     InitializeParams,
     NewConversationParams,
@@ -64,6 +65,15 @@ type PendingRequest = {
 };
 
 type LegacyPatchChanges = Record<string, Record<string, unknown>>;
+
+function createCodexAppServerEnv(baseEnv: NodeJS.ProcessEnv = process.env): Record<string, string> {
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(baseEnv)) {
+        if (typeof value === 'string') env[key] = value;
+    }
+
+    return stripStaleOpenAiEnvForCodexAuth(env);
+}
 
 export type ApprovalHandler = (params: {
     type: 'exec' | 'patch' | 'mcp';
@@ -569,11 +579,7 @@ export class CodexAppServerClient {
             }
         }
 
-        // Build env — same filtering as the old MCP client
-        const env: Record<string, string> = {};
-        for (const [key, value] of Object.entries(process.env)) {
-            if (typeof value === 'string') env[key] = value;
-        }
+        const env = createCodexAppServerEnv();
         // Mute noisy rollout list logging
         const filter = 'codex_core::rollout::list=off';
         if (!env.RUST_LOG) {

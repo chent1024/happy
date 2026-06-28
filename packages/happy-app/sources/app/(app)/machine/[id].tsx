@@ -19,6 +19,7 @@ import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { machineSpawnNewSession } from '@/sync/ops';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { MultiTextInput, type MultiTextInputHandle } from '@/components/MultiTextInput';
+import { CodexSyncActionCard, CodexSyncResultModal } from '@/components/machine/CodexSessionSyncViews';
 
 const styles = StyleSheet.create((theme) => ({
     pathInputContainer: {
@@ -281,12 +282,12 @@ export default function MachineDetailScreen() {
         try {
             const result = await syncCodexSessions(machineId);
             if (result.type === 'success') {
-                Modal.alert(
-                    'Codex Sessions Synced',
-                    `Fetched ${result.fetched}. Imported ${result.imported}. Skipped ${result.skipped}.`,
-                );
+                Modal.show({
+                    component: CodexSyncResultModal,
+                    props: { result },
+                });
             } else {
-                Modal.alert(t('common.error'), result.errorMessage || 'Failed to sync Codex sessions.');
+                Modal.alert(t('common.error'), result.errorMessage || t('codex.sync.failed'));
             }
         } finally {
             setIsSyncingCodexSessions(false);
@@ -471,20 +472,11 @@ export default function MachineDetailScreen() {
 
                 {/* Codex */}
                 <ItemGroup title="Codex">
-                    <Item
-                        title="Sync latest Codex sessions"
-                        subtitle="Import recent local Codex.app thread metadata for this machine."
-                        subtitleLines={0}
-                        onPress={isMachineOnline(machine) ? handleSyncCodexSessions : undefined}
+                    <CodexSyncActionCard
                         disabled={!isMachineOnline(machine) || isSyncingCodexSessions}
-                        showChevron={false}
-                        rightElement={
-                            isSyncingCodexSessions ? (
-                                <ActivityIndicator size="small" color={theme.colors.textSecondary} />
-                            ) : (
-                                <Ionicons name="sync-outline" size={20} color={theme.colors.textSecondary} />
-                            )
-                        }
+                        isOnline={isMachineOnline(machine)}
+                        isSyncing={isSyncingCodexSessions}
+                        onPress={handleSyncCodexSessions}
                     />
                 </ItemGroup>
 

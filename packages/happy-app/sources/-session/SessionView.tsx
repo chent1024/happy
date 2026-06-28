@@ -477,7 +477,7 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
     const alwaysShowContextSize = useSetting('alwaysShowContextSize');
     const experiments = useSetting('experiments');
     const expResumeSession = useSetting('expResumeSession');
-    const { canResume, resumeSession, resumingSession } = useSessionQuickActions(session);
+    const { canResume, canShowRestart, resumeSession, restartSession, resumingSession, restartingSession } = useSessionQuickActions(session);
     const isDisconnected = !sessionStatus.isConnected;
     const resumeCommandBlock = getResumeCommandBlock(session);
 
@@ -660,6 +660,8 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
             connectionStatus={connectionStatus}
             blockSend={false}
             onSend={handleSend}
+            onRestartSession={canShowRestart ? restartSession : undefined}
+            isRestartingSession={restartingSession}
             onAbort={isDisconnected ? undefined : handleAbort}
             showAbortButton={sessionStatus.state === 'thinking' || sessionStatus.state === 'waiting'}
             onFileViewerPress={experiments && !isTablet ? handleFileViewerPress : undefined}

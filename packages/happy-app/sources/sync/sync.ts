@@ -42,6 +42,7 @@ import { encryptBlob } from '@/encryption/blob';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { Modal } from '@/modal';
 import { t } from '@/text';
+import { triggerSessionWorkerEnsureLiveForSend } from './sessionWorkerLive';
 
 type V3GetSessionMessagesResponse = {
     messages: ApiMessage[];
@@ -696,6 +697,7 @@ class Sync {
             content: encryptedRawRecord
         });
         this.getSendSync(sessionId).invalidate();
+        triggerSessionWorkerEnsureLiveForSend(session);
         this.maybeStartBackgroundSendWatchdog();
     }
 

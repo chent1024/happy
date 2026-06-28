@@ -39,6 +39,7 @@ vi.mock('@/api/rpc/RpcHandlerManager', () => ({
         handleRequest = vi.fn(async () => '');
         registerHandler = vi.fn();
         unregisterHandler = vi.fn();
+        hasHandler = vi.fn(() => false);
     }
 }));
 

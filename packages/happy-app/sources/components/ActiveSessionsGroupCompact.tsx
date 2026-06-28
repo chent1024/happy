@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Pressable, Platform, type GestureResponderEvent } from 'react-native';
+import { View, Pressable, Platform, ScrollView, type GestureResponderEvent } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Text } from '@/components/StyledText';
 import { Machine } from '@/sync/storageTypes';
@@ -16,10 +16,12 @@ import { useHappyAction } from '@/hooks/useHappyAction';
 import { HappyError } from '@/utils/errors';
 import { SessionActionsAnchor, SessionActionsPopover } from './SessionActionsPopover';
 import { useSessionActionAlert } from '@/hooks/useSessionQuickActions';
-import { sessionKill } from '@/sync/ops';
+import { sessionArchiveWithStop } from '@/sync/ops';
 import { isWorktreePath, getRepoPath, getWorktreeName } from '@/utils/worktree';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useRouter } from 'expo-router';
+import { compareSessionsByRecency, getSessionRecencyTime } from '@/utils/sessionRecency';
+import { formatShortRelativeTime } from '@/utils/shortRelativeTime';
 
 const STATUS_CONFIG: Record<SessionState, { color: string; dotColor: string; isPulsing: boolean; isConnected: boolean }> = {
     disconnected: { color: '#999', dotColor: '#999', isPulsing: false, isConnected: false },
@@ -27,6 +29,9 @@ const STATUS_CONFIG: Record<SessionState, { color: string; dotColor: string; isP
     waiting: { color: '#34C759', dotColor: '#34C759', isPulsing: false, isConnected: true },
     permission_required: { color: '#FF9500', dotColor: '#FF9500', isPulsing: true, isConnected: true },
 };
+
+const PROJECT_VISIBLE_SESSION_COUNT = 3;
+const PROJECT_SESSION_ROW_HEIGHT = 56;
 
 interface ActiveSessionsGroupProps {
     sessions: SessionRowData[];
@@ -241,6 +246,12 @@ export function ActiveSessionsGroupCompact({ sessions, selectedSessionId, collap
             projectGroup.sessions.push(session);
         });
 
+        byMachine.forEach(machineGroup => {
+            machineGroup.projects.forEach(projectGroup => {
+                projectGroup.sessions.sort(compareSessionsByRecency);
+            });
+        });
+
         const sorted = Array.from(byMachine.values()).sort((a, b) =>
             a.machineName.localeCompare(b.machineName)
         );
@@ -259,6 +270,15 @@ export function ActiveSessionsGroupCompact({ sessions, selectedSessionId, collap
     }, [machineGroups]);
 
     const [collapsedProjectKeys, setCollapsedProjectKeys] = React.useState<Set<string>>(() => new Set());
+    const projectKeysRef = React.useRef(projectKeys);
+
+    React.useEffect(() => {
+        projectKeysRef.current = projectKeys;
+    }, [projectKeys]);
+
+    React.useEffect(() => {
+        setCollapsedProjectKeys(collapsed ? new Set(projectKeysRef.current) : new Set());
+    }, [collapsed]);
 
     React.useEffect(() => {
         setCollapsedProjectKeys(prev => {
@@ -309,7 +329,8 @@ export function ActiveSessionsGroupCompact({ sessions, selectedSessionId, collap
                             const firstSession = projectGroup.sessions[0];
                             if (!firstSession) return null;
                             const projectKey = `${machineGroup.machineId}:${projectPath}`;
-                            const projectCollapsed = collapsed || collapsedProjectKeys.has(projectKey);
+                            const projectCollapsed = collapsedProjectKeys.has(projectKey);
+                            const hasScrollableSessions = projectGroup.sessions.length > PROJECT_VISIBLE_SESSION_COUNT;
 
                             return (
                                 <View key={projectPath}>
@@ -320,14 +341,20 @@ export function ActiveSessionsGroupCompact({ sessions, selectedSessionId, collap
                                     />
                                     {!projectCollapsed && (
                                         <View style={styles.projectCard}>
-                                            {projectGroup.sessions.map((session, index) => (
-                                                <CompactSessionRow
-                                                    key={session.id}
-                                                    session={session}
-                                                    selected={selectedSessionId === session.id}
-                                                    showBorder={index < projectGroup.sessions.length - 1}
-                                                />
-                                            ))}
+                                            <ScrollView
+                                                nestedScrollEnabled
+                                                showsVerticalScrollIndicator={hasScrollableSessions}
+                                                style={hasScrollableSessions ? styles.projectSessionsScroll : undefined}
+                                            >
+                                                {projectGroup.sessions.map((session, index) => (
+                                                    <CompactSessionRow
+                                                        key={session.id}
+                                                        session={session}
+                                                        selected={selectedSessionId === session.id}
+                                                        showBorder={index < projectGroup.sessions.length - 1}
+                                                    />
+                                                ))}
+                                            </ScrollView>
                                         </View>
                                     )}
                                 </View>
@@ -355,7 +382,11 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
     const [actionsAnchor, setActionsAnchor] = React.useState<SessionActionsAnchor | null>(null);
 
     const [archivingSession, performArchive] = useHappyAction(async () => {
-        const result = await sessionKill(session.id);
+        const result = await sessionArchiveWithStop({
+            sessionId: session.id,
+            machineId: session.machineId,
+            requireStop: status.isConnected,
+        });
         if (!result.success) {
             throw new HappyError(result.message || t('sessionInfo.failedToArchiveSession'), false);
         }
@@ -386,6 +417,9 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
     } as any : {
         onLongPress: showActionAlert,
     };
+    const updatedTimeText = t('status.recentlyActive', {
+        time: formatShortRelativeTime(getSessionRecencyTime(session)),
+    });
 
     const renderLeadingIndicator = () => {
         let indicator: React.ReactNode = null;
@@ -432,11 +466,14 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
                             styles.sessionTitle,
                             status.isConnected ? styles.sessionTitleConnected : styles.sessionTitleDisconnected
                         ]}
-                        numberOfLines={2}
+                        numberOfLines={1}
                     >
                         {session.name}
                     </Text>
                 </View>
+                <Text style={styles.sessionUpdatedTime} numberOfLines={1}>
+                    {updatedTimeText}
+                </Text>
             </View>
         </Pressable>
     );
@@ -591,9 +628,12 @@ const stylesheet = StyleSheet.create((theme) => ({
         shadowRadius: 0,
         elevation: 1,
     },
+    projectSessionsScroll: {
+        height: PROJECT_SESSION_ROW_HEIGHT * PROJECT_VISIBLE_SESSION_COUNT,
+    },
     // Session row styles
     sessionRow: {
-        height: 56,
+        height: PROJECT_SESSION_ROW_HEIGHT,
         flexDirection: 'row',
         alignItems: 'center',
         paddingHorizontal: 16,
@@ -617,6 +657,14 @@ const stylesheet = StyleSheet.create((theme) => ({
     sessionTitle: {
         fontSize: 15,
         flex: 1,
+        ...Typography.default('regular'),
+    },
+    sessionUpdatedTime: {
+        marginTop: 2,
+        marginLeft: 24,
+        color: theme.colors.textSecondary,
+        fontSize: 13,
+        lineHeight: 17,
         ...Typography.default('regular'),
     },
     sessionTitleConnected: {

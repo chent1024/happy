@@ -28,8 +28,12 @@ import {
     forkCodexThread,
     listCodexRewindPoints,
 } from '@/codex/codexThreadFork';
+import type { InputItem, Thread, ThreadItem } from '@/codex/codexAppServerTypes';
+import type { EnsureSessionLiveResult } from '@/daemon/types';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CODEX_TITLE_ENRICHMENT_LIMIT = 50;
+const CODEX_DERIVED_TITLE_MAX_LENGTH = 80;
 
 interface ServerToDaemonEvents {
     update: (data: Update) => void;
@@ -91,6 +95,8 @@ interface DaemonToServerEvents {
 type MachineRpcHandlers = {
     spawnSession: (options: SpawnSessionOptions) => Promise<SpawnSessionResult>;
     resumeSession?: (sessionId: string, options?: { model?: string; permissionMode?: string }) => Promise<SpawnSessionResult>;
+    ensureSessionLive?: (sessionId: string, options?: { model?: string; permissionMode?: string; reason?: string }) => Promise<EnsureSessionLiveResult>;
+    restartSession?: (sessionId: string, options?: { model?: string; permissionMode?: string; reason?: string }) => Promise<EnsureSessionLiveResult>;
     stopSession: (sessionId: string) => boolean;
     requestShutdown: () => void;
 }
@@ -100,6 +106,125 @@ function requireNonEmptyString(value: unknown, name: string): string {
         throw new Error(`${name} is required`);
     }
     return value;
+}
+
+function nonEmptyText(value: unknown): string | null {
+    const text = typeof value === 'string' ? value.trim() : '';
+    return text.length > 0 ? text : null;
+}
+
+function stripCodexInjectedTitleText(value: string): string {
+    let text = value.replace(/\r\n/g, '\n').trim();
+    const titleInstructionIndex = text.indexOf('\n\nBased on this message, call functions.happy__change_title');
+    if (titleInstructionIndex >= 0) {
+        text = text.slice(0, titleInstructionIndex).trim();
+    }
+
+    if (!text.startsWith('# Options')) {
+        return text;
+    }
+
+    const paragraphs = text
+        .split(/\n{2,}/)
+        .map((paragraph) => paragraph.trim())
+        .filter((paragraph) => paragraph.length > 0);
+
+    for (let i = paragraphs.length - 1; i >= 0; i--) {
+        const paragraph = paragraphs[i];
+        if (
+            paragraph.startsWith('#')
+            || paragraph.includes('<options>')
+            || paragraph.includes('</options>')
+            || paragraph.startsWith('You have a way to give a user')
+            || paragraph.startsWith('You must output this')
+            || paragraph.startsWith('Always prefer to use the options mode')
+            || paragraph.startsWith('When you are in the plan mode')
+        ) {
+            continue;
+        }
+
+        return paragraph;
+    }
+
+    return text;
+}
+
+function normalizeCodexDerivedTitle(value: unknown): string | null {
+    const text = nonEmptyText(value);
+    if (!text) {
+        return null;
+    }
+
+    const normalized = stripCodexInjectedTitleText(text).replace(/\s+/g, ' ').trim();
+    if (!normalized) {
+        return null;
+    }
+
+    return normalized.length > CODEX_DERIVED_TITLE_MAX_LENGTH
+        ? normalized.slice(0, CODEX_DERIVED_TITLE_MAX_LENGTH).trimEnd()
+        : normalized;
+}
+
+function textFromCodexInputItems(items: unknown): string | null {
+    if (!Array.isArray(items)) {
+        return null;
+    }
+
+    const text = items
+        .filter((item): item is Extract<InputItem, { type: 'text' }> => (
+            Boolean(item)
+            && typeof item === 'object'
+            && (item as { type?: unknown }).type === 'text'
+            && typeof (item as { text?: unknown }).text === 'string'
+        ))
+        .map((item) => item.text)
+        .join('\n');
+
+    return normalizeCodexDerivedTitle(text);
+}
+
+function firstUserTextFromCodexThread(thread: Pick<Thread, 'turns'>): string | null {
+    for (const turn of thread.turns ?? []) {
+        for (const item of turn.items ?? []) {
+            if ((item as ThreadItem).type !== 'userMessage') {
+                continue;
+            }
+
+            const text = textFromCodexInputItems((item as Extract<ThreadItem, { type: 'userMessage' }>).content);
+            if (text) {
+                return text;
+            }
+        }
+    }
+
+    return null;
+}
+
+async function enrichMissingCodexThreadNames(
+    client: CodexAppServerClient,
+    threads: Thread[],
+): Promise<Thread[]> {
+    const enriched: Thread[] = [];
+    let remainingEnrichments = CODEX_TITLE_ENRICHMENT_LIMIT;
+
+    for (const thread of threads) {
+        if (nonEmptyText(thread.name) || remainingEnrichments <= 0) {
+            enriched.push(thread);
+            continue;
+        }
+
+        remainingEnrichments--;
+        try {
+            const response = await client.readThread({ threadId: thread.id, includeTurns: true });
+            const derivedName = firstUserTextFromCodexThread(response.thread);
+            enriched.push(derivedName ? { ...thread, name: derivedName } : thread);
+        } catch (error) {
+            logger.debug('[API MACHINE] Failed to enrich Codex thread title', { threadId: thread.id, error });
+            enriched.push(thread);
+        }
+    }
+
+    return enriched;
 }
 
 async function withCodexAppServerClient<T>(handler: (client: CodexAppServerClient) => Promise<T>): Promise<T> {
@@ -119,6 +244,8 @@ export class ApiMachineClient {
     private lastKnownResumeSupport: ResumeSupport | null = null;
     private rpcHandlerManager: RpcHandlerManager;
     private resumeSessionHandler: ((sessionId: string, options?: { model?: string; permissionMode?: string }) => Promise<SpawnSessionResult>) | null = null;
+    private ensureSessionLiveHandler: ((sessionId: string, options?: { model?: string; permissionMode?: string; reason?: string }) => Promise<EnsureSessionLiveResult>) | null = null;
+    private restartSessionHandler: ((sessionId: string, options?: { model?: string; permissionMode?: string; reason?: string }) => Promise<EnsureSessionLiveResult>) | null = null;
     private reconnectInterval: NodeJS.Timeout | null = null;
 
     constructor(
@@ -139,10 +266,14 @@ export class ApiMachineClient {
     setRPCHandlers({
         spawnSession,
         resumeSession,
+        ensureSessionLive,
+        restartSession,
         stopSession,
         requestShutdown
     }: MachineRpcHandlers) {
         this.resumeSessionHandler = resumeSession ?? null;
+        this.ensureSessionLiveHandler = ensureSessionLive ?? null;
+        this.restartSessionHandler = restartSession ?? null;
 
         // Register spawn session handler
         this.rpcHandlerManager.registerHandler('spawn-happy-session', async (params: any) => {
@@ -170,6 +301,8 @@ export class ApiMachineClient {
         });
 
         this.syncResumeSessionRpcRegistration();
+        this.syncEnsureSessionLiveRpcRegistration();
+        this.syncRestartSessionRpcRegistration();
 
         // Register stop session handler
         this.rpcHandlerManager.registerHandler('stop-session', (params: any) => {
@@ -295,12 +428,20 @@ export class ApiMachineClient {
         });
 
         this.rpcHandlerManager.registerHandler('codex-list-threads', async () => {
-            const response = await withCodexAppServerClient((client) => client.listThreads({
-                limit: 200,
-                archived: false,
-                sortKey: 'updated_at',
-                sortDirection: 'desc',
-            }));
+            const response = await withCodexAppServerClient(async (client) => {
+                const listed = await client.listThreads({
+                    limit: 200,
+                    archived: false,
+                    useStateDbOnly: true,
+                    sortKey: 'updated_at',
+                    sortDirection: 'desc',
+                });
+
+                return {
+                    ...listed,
+                    data: await enrichMissingCodexThreadNames(client, listed.data),
+                };
+            });
             return {
                 type: 'success',
                 threads: response.data,
@@ -384,6 +525,64 @@ export class ApiMachineClient {
         }
 
         if (this.rpcHandlerManager.hasHandler(method)) {
+            this.rpcHandlerManager.unregisterHandler(method);
+        }
+    }
+
+    private syncEnsureSessionLiveRpcRegistration(): void {
+        const method = 'ensure-happy-session-live';
+
+        if (this.ensureSessionLiveHandler) {
+            if (!this.rpcHandlerManager.hasHandler(method)) {
+                this.rpcHandlerManager.registerHandler(method, async (params: any) => {
+                    const { sessionId, model, permissionMode, reason } = params || {};
+
+                    if (!sessionId || typeof sessionId !== 'string') {
+                        throw new Error('Session ID is required');
+                    }
+
+                    const handler = this.ensureSessionLiveHandler;
+                    if (!handler) {
+                        throw new Error('Ensure session live handler not available');
+                    }
+
+                    return await handler(sessionId, {
+                        ...(typeof model === 'string' ? { model } : {}),
+                        ...(typeof permissionMode === 'string' ? { permissionMode } : {}),
+                        ...(typeof reason === 'string' ? { reason } : {}),
+                    });
+                });
+            }
+        } else if (this.rpcHandlerManager.hasHandler(method)) {
+            this.rpcHandlerManager.unregisterHandler(method);
+        }
+    }
+
+    private syncRestartSessionRpcRegistration(): void {
+        const method = 'restart-happy-session';
+
+        if (this.restartSessionHandler) {
+            if (!this.rpcHandlerManager.hasHandler(method)) {
+                this.rpcHandlerManager.registerHandler(method, async (params: any) => {
+                    const { sessionId, model, permissionMode, reason } = params || {};
+
+                    if (!sessionId || typeof sessionId !== 'string') {
+                        throw new Error('Session ID is required');
+                    }
+
+                    const handler = this.restartSessionHandler;
+                    if (!handler) {
+                        throw new Error('Restart session handler not available');
+                    }
+
+                    return await handler(sessionId, {
+                        ...(typeof model === 'string' ? { model } : {}),
+                        ...(typeof permissionMode === 'string' ? { permissionMode } : {}),
+                        ...(typeof reason === 'string' ? { reason } : {}),
+                    });
+                });
+            }
+        } else if (this.rpcHandlerManager.hasHandler(method)) {
             this.rpcHandlerManager.unregisterHandler(method);
         }
     }
