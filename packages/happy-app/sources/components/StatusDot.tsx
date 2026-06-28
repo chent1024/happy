@@ -1,6 +1,5 @@
 import * as React from 'react';
-import { ViewStyle } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming } from 'react-native-reanimated';
+import { Animated, ViewStyle } from 'react-native';
 
 export interface StatusDotProps {
     color: string;
@@ -10,25 +9,35 @@ export interface StatusDotProps {
 }
 
 export const StatusDot = React.memo(({ color, isPulsing, size = 6, style }: StatusDotProps) => {
-    const opacity = useSharedValue(1);
+    const opacity = React.useRef(new Animated.Value(1)).current;
 
     React.useEffect(() => {
         if (isPulsing) {
-            opacity.value = withRepeat(
-                withTiming(0.3, { duration: 1000 }),
-                -1, // infinite
-                true // reverse
+            const animation = Animated.loop(
+                Animated.sequence([
+                    Animated.timing(opacity, {
+                        toValue: 0.3,
+                        duration: 1000,
+                        useNativeDriver: true,
+                    }),
+                    Animated.timing(opacity, {
+                        toValue: 1,
+                        duration: 1000,
+                        useNativeDriver: true,
+                    }),
+                ])
             );
+            animation.start();
+            return () => animation.stop();
         } else {
-            opacity.value = withTiming(1, { duration: 200 });
+            opacity.stopAnimation();
+            Animated.timing(opacity, {
+                toValue: 1,
+                duration: 200,
+                useNativeDriver: true,
+            }).start();
         }
-    }, [isPulsing]);
-
-    const animatedStyle = useAnimatedStyle(() => {
-        return {
-            opacity: opacity.value,
-        };
-    });
+    }, [isPulsing, opacity]);
 
     const baseStyle: ViewStyle = {
         width: size,
@@ -41,7 +50,7 @@ export const StatusDot = React.memo(({ color, isPulsing, size = 6, style }: Stat
         <Animated.View
             style={[
                 baseStyle,
-                animatedStyle,
+                { opacity },
                 style
             ]}
         />
