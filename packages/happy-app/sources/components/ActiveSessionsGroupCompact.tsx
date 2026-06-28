@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Pressable, Platform } from 'react-native';
+import { View, Pressable, Platform, type GestureResponderEvent } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Text } from '@/components/StyledText';
 import { Machine } from '@/sync/storageTypes';
@@ -31,6 +31,7 @@ const STATUS_CONFIG: Record<SessionState, { color: string; dotColor: string; isP
 interface ActiveSessionsGroupProps {
     sessions: SessionRowData[];
     selectedSessionId?: string;
+    collapsed?: boolean;
 }
 
 /**
@@ -72,7 +73,15 @@ const ProjectInitialAvatar = React.memo(({ name, size }: { name: string; size: n
 });
 
 // Section header: avatar | path + branch + tree icon + line changes | + button
-const SectionHeader = React.memo(({ session, displayPath }: { session: SessionRowData; displayPath: string }) => {
+const SectionHeader = React.memo(({
+    session,
+    displayPath,
+    onToggle,
+}: {
+    session: SessionRowData;
+    displayPath: string;
+    onToggle: () => void;
+}) => {
     const styles = stylesheet;
     const { theme } = useUnistyles();
     const router = useRouter();
@@ -91,7 +100,8 @@ const SectionHeader = React.memo(({ session, displayPath }: { session: SessionRo
     const branchName = worktreeName || gitInfo.branch;
     const hasBranch = !!branchName;
 
-    const handleAdd = React.useCallback(() => {
+    const handleAdd = React.useCallback((event: GestureResponderEvent) => {
+        event.stopPropagation();
         const machineId = session.machineId;
         if (machineId) {
             draft.setMachineId(machineId);
@@ -106,12 +116,15 @@ const SectionHeader = React.memo(({ session, displayPath }: { session: SessionRo
     const [isHovered, setIsHovered] = React.useState(false);
 
     return (
-        <View
+        <Pressable
             style={hasBranch ? styles.sectionHeader : styles.sectionHeaderSingleLine}
+            onPress={onToggle}
             // @ts-ignore - Web only events
             onMouseEnter={() => setIsHovered(true)}
             // @ts-ignore - Web only events
             onMouseLeave={() => setIsHovered(false)}
+            accessibilityRole="button"
+            accessibilityLabel="折叠或展开项目会话"
         >
             {/* Avatar — vertically centered */}
             <View style={styles.sectionHeaderAvatar}>
@@ -154,7 +167,7 @@ const SectionHeader = React.memo(({ session, displayPath }: { session: SessionRo
             >
                 <Ionicons name="add-outline" size={14} color={theme.colors.textSecondary} />
             </Pressable>
-        </View>
+        </Pressable>
     );
 });
 
@@ -180,7 +193,7 @@ const MachineSeparator = React.memo(({ machineName, machineId }: { machineName: 
     );
 });
 
-export function ActiveSessionsGroupCompact({ sessions, selectedSessionId }: ActiveSessionsGroupProps) {
+export function ActiveSessionsGroupCompact({ sessions, selectedSessionId, collapsed = false }: ActiveSessionsGroupProps) {
     const styles = stylesheet;
     const machines = useAllMachines();
 
@@ -228,13 +241,6 @@ export function ActiveSessionsGroupCompact({ sessions, selectedSessionId }: Acti
             projectGroup.sessions.push(session);
         });
 
-        // Sort sessions within each project group
-        byMachine.forEach(mg => {
-            mg.projects.forEach(pg => {
-                pg.sessions.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
-            });
-        });
-
         const sorted = Array.from(byMachine.values()).sort((a, b) =>
             a.machineName.localeCompare(b.machineName)
         );
@@ -242,12 +248,54 @@ export function ActiveSessionsGroupCompact({ sessions, selectedSessionId }: Acti
         return { machineGroups: sorted, hasMultipleMachines: byMachine.size > 1 };
     }, [sessions, machinesMap]);
 
+    const projectKeys = React.useMemo(() => {
+        const keys: string[] = [];
+        machineGroups.forEach(machineGroup => {
+            machineGroup.projects.forEach((_projectGroup, projectPath) => {
+                keys.push(`${machineGroup.machineId}:${projectPath}`);
+            });
+        });
+        return keys;
+    }, [machineGroups]);
+
+    const [collapsedProjectKeys, setCollapsedProjectKeys] = React.useState<Set<string>>(() => new Set());
+
+    React.useEffect(() => {
+        setCollapsedProjectKeys(prev => {
+            const validKeys = new Set(projectKeys);
+            let changed = false;
+            const next = new Set<string>();
+            prev.forEach(key => {
+                if (validKeys.has(key)) {
+                    next.add(key);
+                } else {
+                    changed = true;
+                }
+            });
+            return changed ? next : prev;
+        });
+    }, [projectKeys]);
+
+    const handleToggleProject = React.useCallback((projectKey: string) => {
+        setCollapsedProjectKeys(prev => {
+            const next = new Set(prev);
+            if (next.has(projectKey)) {
+                next.delete(projectKey);
+            } else {
+                next.add(projectKey);
+            }
+            return next;
+        });
+    }, []);
+
     return (
         <View style={styles.container}>
             {machineGroups.map(machineGroup => {
-                const sortedProjects = Array.from(machineGroup.projects.entries()).sort(
-                    ([, a], [, b]) => a.displayPath.localeCompare(b.displayPath)
-                );
+                const sortedProjects = Array.from(machineGroup.projects.entries()).sort(([, a], [, b]) => {
+                    const aUpdatedAt = a.sessions[0]?.updatedAt ?? 0;
+                    const bUpdatedAt = b.sessions[0]?.updatedAt ?? 0;
+                    return bUpdatedAt - aUpdatedAt || a.displayPath.localeCompare(b.displayPath);
+                });
 
                 return (
                     <React.Fragment key={machineGroup.machineId}>
@@ -260,23 +308,28 @@ export function ActiveSessionsGroupCompact({ sessions, selectedSessionId }: Acti
                         {sortedProjects.map(([projectPath, projectGroup]) => {
                             const firstSession = projectGroup.sessions[0];
                             if (!firstSession) return null;
+                            const projectKey = `${machineGroup.machineId}:${projectPath}`;
+                            const projectCollapsed = collapsed || collapsedProjectKeys.has(projectKey);
 
                             return (
                                 <View key={projectPath}>
                                     <SectionHeader
                                         session={firstSession}
                                         displayPath={projectGroup.displayPath}
+                                        onToggle={() => handleToggleProject(projectKey)}
                                     />
-                                    <View style={styles.projectCard}>
-                                        {projectGroup.sessions.map((session, index) => (
-                                            <CompactSessionRow
-                                                key={session.id}
-                                                session={session}
-                                                selected={selectedSessionId === session.id}
-                                                showBorder={index < projectGroup.sessions.length - 1}
-                                            />
-                                        ))}
-                                    </View>
+                                    {!projectCollapsed && (
+                                        <View style={styles.projectCard}>
+                                            {projectGroup.sessions.map((session, index) => (
+                                                <CompactSessionRow
+                                                    key={session.id}
+                                                    session={session}
+                                                    selected={selectedSessionId === session.id}
+                                                    showBorder={index < projectGroup.sessions.length - 1}
+                                                />
+                                            ))}
+                                        </View>
+                                    )}
                                 </View>
                             );
                         })}

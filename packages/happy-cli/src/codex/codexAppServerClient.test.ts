@@ -422,6 +422,24 @@ describe('CodexAppServerClient sandbox integration', () => {
                     }, 0);
                 }
 
+                if (msg.method === 'thread/list' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: {
+                                data: [{
+                                    id: 'thread-recent',
+                                    cwd: '/tmp/project',
+                                    preview: 'recent Codex work',
+                                    updatedAt: 1700000000000,
+                                }],
+                                nextCursor: null,
+                                backwardsCursor: null,
+                            },
+                        });
+                    }, 0);
+                }
+
                 if (msg.method === 'thread/rollback' && msg.id != null) {
                     setTimeout(() => {
                         pushJsonLine(stdout, {
@@ -461,6 +479,12 @@ describe('CodexAppServerClient sandbox integration', () => {
             sandbox: 'workspace-write',
         });
         const read = await client.readThread({ threadId: forked.threadId, includeTurns: true });
+        const listed = await client.listThreads({
+            limit: 50,
+            archived: false,
+            sortKey: 'updated_at',
+            sortDirection: 'desc',
+        });
         const rolledBack = await client.rollbackThread({ threadId: forked.threadId, numTurns: 2 });
         const injected = await client.injectItems({
             threadId: forked.threadId,
@@ -473,6 +497,10 @@ describe('CodexAppServerClient sandbox integration', () => {
 
         expect(forked.threadId).toBe('thread-forked');
         expect(read.thread.turns).toHaveLength(1);
+        expect(listed.data).toEqual([expect.objectContaining({
+            id: 'thread-recent',
+            cwd: '/tmp/project',
+        })]);
         expect(rolledBack.thread.turns).toHaveLength(1);
         expect(injected).toEqual({});
         expect(requests.find((msg) => msg.method === 'thread/fork')?.params).toEqual(expect.objectContaining({
@@ -484,6 +512,12 @@ describe('CodexAppServerClient sandbox integration', () => {
         expect(requests.find((msg) => msg.method === 'thread/read')?.params).toEqual({
             threadId: 'thread-forked',
             includeTurns: true,
+        });
+        expect(requests.find((msg) => msg.method === 'thread/list')?.params).toEqual({
+            limit: 50,
+            archived: false,
+            sortKey: 'updated_at',
+            sortDirection: 'desc',
         });
         expect(requests.find((msg) => msg.method === 'thread/rollback')?.params).toEqual({
             threadId: 'thread-forked',

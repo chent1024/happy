@@ -294,6 +294,29 @@ export class ApiMachineClient {
             });
         });
 
+        this.rpcHandlerManager.registerHandler('codex-list-threads', async () => {
+            const response = await withCodexAppServerClient((client) => client.listThreads({
+                limit: 200,
+                archived: false,
+                sortKey: 'updated_at',
+                sortDirection: 'desc',
+            }));
+            return {
+                type: 'success',
+                threads: response.data,
+                nextCursor: response.nextCursor,
+                backwardsCursor: response.backwardsCursor,
+            };
+        });
+
+        this.rpcHandlerManager.registerHandler('codex-read-account-rate-limits', async () => {
+            const response = await withCodexAppServerClient((client) => client.readAccountRateLimits());
+            return {
+                type: 'success',
+                rateLimits: response?.rateLimits ?? null,
+            };
+        });
+
         this.rpcHandlerManager.registerHandler('codex-duplicate-thread', async (params: any) => {
             const directory = requireNonEmptyString(params?.directory, 'directory');
             const codexThreadId = requireNonEmptyString(params?.codexThreadId, 'codexThreadId');

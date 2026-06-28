@@ -199,7 +199,11 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
 }));
 
-export function SessionsList() {
+interface SessionsListProps {
+    activeSessionsCollapsed?: boolean;
+}
+
+export function SessionsList({ activeSessionsCollapsed = false }: SessionsListProps) {
     const styles = stylesheet;
     const safeArea = useSafeAreaInsets();
     const data = useVisibleSessionListViewData();
@@ -263,6 +267,7 @@ export function SessionsList() {
                     <ActiveSessionsGroupCompact
                         sessions={item.sessions}
                         selectedSessionId={selectedSessionId}
+                        collapsed={activeSessionsCollapsed}
                     />
                 );
 
@@ -301,7 +306,7 @@ export function SessionsList() {
                     />
                 );
         }
-    }, [selectedSessionId, data, toggleArchived]);
+    }, [selectedSessionId, data, toggleArchived, activeSessionsCollapsed]);
 
 
     // Remove this section as we'll use FlatList for all items now
@@ -333,7 +338,7 @@ export function SessionsList() {
                     data={data}
                     renderItem={renderItem}
                     keyExtractor={keyExtractor}
-                    extraData={selectedSessionId}
+                    extraData={`${selectedSessionId ?? ''}:${activeSessionsCollapsed ? 'collapsed' : 'expanded'}`}
                     contentContainerStyle={{ paddingBottom: safeArea.bottom + 128, maxWidth: layout.maxWidth }}
                     ListHeaderComponent={HeaderComponent}
                     windowSize={5}

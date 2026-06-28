@@ -28,6 +28,7 @@ import { sync } from "./sync";
 import { isMutableTool } from "@/components/tools/knownTools";
 import { DecryptedArtifact } from "./artifactTypes";
 import { FeedItem } from "./feedTypes";
+import { isImportedCodexSession } from "./sessionListVisibility";
 
 // Debounce timer for realtimeMode changes
 let realtimeModeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -83,6 +84,7 @@ export interface SessionRowData {
     // and activeAt updates on every heartbeat, causing needless deep-equal diffs
     activeAt?: number;
     createdAt?: number;
+    updatedAt: number;
     hasDraft: boolean;
     active: boolean;
     machineId: string | null;
@@ -116,6 +118,7 @@ function buildSessionRowData(session: Session, unreadSessionIds?: Set<string>): 
         flavor: session.metadata?.flavor ?? null,
         state,
         ...(!session.active && { activeAt: session.activeAt, createdAt: session.createdAt }),
+        updatedAt: session.updatedAt,
         hasDraft: !!session.draft,
         active: session.active,
         machineId: session.metadata?.machineId ?? null,
@@ -232,13 +235,16 @@ function buildSessionListViewData(
     sessions: Record<string, Session>,
     unreadSessionIds?: Set<string>,
 ): SessionListViewItem[] {
-    // Separate active and inactive sessions
-    const activeSessions: Session[] = [];
+    // Separate project-group sessions and inactive history sessions.
+    // Imported Codex threads are not live daemon sessions, but they should stay
+    // findable in the project-group UI after manual sync instead of being
+    // hidden behind the archived-session setting.
+    const projectGroupSessions: Session[] = [];
     const inactiveSessions: Session[] = [];
 
     Object.values(sessions).forEach(session => {
-        if (isSessionActive(session)) {
-            activeSessions.push(session);
+        if (isSessionActive(session) || isImportedCodexSession(session)) {
+            projectGroupSessions.push(session);
         } else {
             inactiveSessions.push(session);
         }
@@ -248,15 +254,15 @@ function buildSessionListViewData(
     const sortKey = storage.getState().settings.sortSessionsByActivity
         ? (s: Session) => s.updatedAt
         : (s: Session) => s.createdAt;
-    activeSessions.sort((a, b) => sortKey(b) - sortKey(a));
+    projectGroupSessions.sort((a, b) => sortKey(b) - sortKey(a));
     inactiveSessions.sort((a, b) => sortKey(b) - sortKey(a));
 
     // Build unified list view data
     const listData: SessionListViewItem[] = [];
 
-    // Add active sessions as a single item at the top (if any)
-    if (activeSessions.length > 0) {
-        listData.push({ type: 'active-sessions', sessions: activeSessions.map(s => buildSessionRowData(s, unreadSessionIds)) });
+    // Add project-group sessions as a single item at the top (if any)
+    if (projectGroupSessions.length > 0) {
+        listData.push({ type: 'active-sessions', sessions: projectGroupSessions.map(s => buildSessionRowData(s, unreadSessionIds)) });
     }
 
     // Group inactive sessions by date

@@ -35,7 +35,11 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
 }));
 
-export const SessionsListWrapper = React.memo(() => {
+interface SessionsListWrapperProps {
+    activeSessionsCollapsed?: boolean;
+}
+
+export const SessionsListWrapper = React.memo(({ activeSessionsCollapsed = false }: SessionsListWrapperProps) => {
     const { theme } = useUnistyles();
     const sessionListViewData = useVisibleSessionListViewData();
     const styles = stylesheet;
@@ -66,7 +70,7 @@ export const SessionsListWrapper = React.memo(() => {
 
     return (
         <View style={styles.container}>
-            <SessionsList />
+            <SessionsList activeSessionsCollapsed={activeSessionsCollapsed} />
         </View>
     );
 });

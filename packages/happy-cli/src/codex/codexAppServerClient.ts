@@ -27,6 +27,8 @@ import type {
     ForkConversationResponse,
     ReadConversationParams,
     ReadConversationResponse,
+    ThreadListParams,
+    ThreadListResponse,
     RollbackConversationParams,
     RollbackConversationResponse,
     InjectItemsParams,
@@ -848,6 +850,10 @@ export class CodexAppServerClient {
             includeTurns: opts.includeTurns ?? true,
         };
         return await this.request('thread/read', params) as ReadConversationResponse;
+    }
+
+    async listThreads(params: ThreadListParams = {}): Promise<ThreadListResponse> {
+        return await this.request('thread/list', params) as ThreadListResponse;
     }
 
     async readAccountRateLimits(): Promise<GetAccountRateLimitsResponse | null> {

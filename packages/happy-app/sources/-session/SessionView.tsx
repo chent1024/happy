@@ -20,7 +20,7 @@ import { useDraft } from '@/hooks/useDraft';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { Modal } from '@/modal';
 import { gitStatusSync } from '@/sync/gitStatusSync';
-import { sessionAbort, sessionGoalAction } from '@/sync/ops';
+import { refreshCodexAccountRateLimits, sessionAbort, sessionGoalAction } from '@/sync/ops';
 import { storage, useIsDataReady, useLocalSetting, useSessionMessages, useSessionUsage, useSetting } from '@/sync/storage';
 import { useSession } from '@/sync/storage';
 import { Session } from '@/sync/storageTypes';
@@ -608,6 +608,12 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
         // Initialize git status sync for this session
         gitStatusSync.getSync(sessionId);
 
+        if (session.metadata?.flavor === 'codex') {
+            refreshCodexAccountRateLimits(sessionId).catch((error) => {
+                console.warn('Failed to refresh Codex account rate limits', error);
+            });
+        }
+
         return () => {
             // Clear viewing session on unmount
             const current = storage.getState().currentViewingSessionId;
@@ -615,7 +621,7 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
                 storage.getState().setCurrentViewingSession(null);
             }
         };
-    }, [sessionId]);
+    }, [session.metadata?.flavor, sessionId]);
 
     let content = (
         <>

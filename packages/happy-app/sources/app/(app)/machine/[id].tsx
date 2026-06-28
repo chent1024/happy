@@ -8,7 +8,7 @@ import { Typography } from '@/constants/Typography';
 import { useSessions, useAllMachines, useMachine } from '@/sync/storage';
 import { Ionicons, Octicons } from '@expo/vector-icons';
 import type { Session } from '@/sync/storageTypes';
-import { machineStopDaemon, machineUpdateMetadata, machineDelete } from '@/sync/ops';
+import { machineStopDaemon, machineUpdateMetadata, machineDelete, syncCodexSessions } from '@/sync/ops';
 import { Modal } from '@/modal';
 import { formatPathRelativeToHome, getSessionName, getSessionSubtitle } from '@/utils/sessionUtils';
 import { isMachineOnline } from '@/utils/machineUtils';
@@ -73,6 +73,7 @@ export default function MachineDetailScreen() {
     const [isStoppingDaemon, setIsStoppingDaemon] = useState(false);
     const [isRenamingMachine, setIsRenamingMachine] = useState(false);
     const [isDeletingMachine, setIsDeletingMachine] = useState(false);
+    const [isSyncingCodexSessions, setIsSyncingCodexSessions] = useState(false);
     const [customPath, setCustomPath] = useState('');
     const [isSpawning, setIsSpawning] = useState(false);
     const inputRef = useRef<MultiTextInputHandle>(null);
@@ -273,6 +274,25 @@ export default function MachineDetailScreen() {
         }
     };
 
+    const handleSyncCodexSessions = async () => {
+        if (!machineId || !machine || !isMachineOnline(machine) || isSyncingCodexSessions) return;
+
+        setIsSyncingCodexSessions(true);
+        try {
+            const result = await syncCodexSessions(machineId);
+            if (result.type === 'success') {
+                Modal.alert(
+                    'Codex Sessions Synced',
+                    `Fetched ${result.fetched}. Imported ${result.imported}. Skipped ${result.skipped}.`,
+                );
+            } else {
+                Modal.alert(t('common.error'), result.errorMessage || 'Failed to sync Codex sessions.');
+            }
+        } finally {
+            setIsSyncingCodexSessions(false);
+        }
+    };
+
     const pastUsedRelativePath = useCallback((session: Session) => {
         if (!session.metadata) return 'unknown path';
         return formatPathRelativeToHome(session.metadata.path, session.metadata.homeDir);
@@ -448,6 +468,25 @@ export default function MachineDetailScreen() {
                         </ItemGroup>
                     </>
                 )}
+
+                {/* Codex */}
+                <ItemGroup title="Codex">
+                    <Item
+                        title="Sync latest Codex sessions"
+                        subtitle="Import recent local Codex.app thread metadata for this machine."
+                        subtitleLines={0}
+                        onPress={isMachineOnline(machine) ? handleSyncCodexSessions : undefined}
+                        disabled={!isMachineOnline(machine) || isSyncingCodexSessions}
+                        showChevron={false}
+                        rightElement={
+                            isSyncingCodexSessions ? (
+                                <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+                            ) : (
+                                <Ionicons name="sync-outline" size={20} color={theme.colors.textSecondary} />
+                            )
+                        }
+                    />
+                </ItemGroup>
 
                 {/* Daemon */}
                 <ItemGroup title={t('machine.daemon')}>

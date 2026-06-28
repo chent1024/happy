@@ -8,6 +8,17 @@ import { randomKeyNaked } from "@/utils/randomKeyNaked";
 import { allocateUserSeq } from "@/storage/seq";
 import { sessionDelete } from "@/app/session/sessionDelete";
 
+const SECONDS_TIMESTAMP_THRESHOLD = 10_000_000_000;
+
+function normalizeClientTimestamp(value: number | undefined): Date | undefined {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+        return undefined;
+    }
+
+    const millis = value < SECONDS_TIMESTAMP_THRESHOLD ? value * 1000 : value;
+    return new Date(Math.trunc(millis));
+}
+
 export function sessionRoutes(app: Fastify) {
 
     // Sessions API
@@ -17,7 +28,13 @@ export function sessionRoutes(app: Fastify) {
         const userId = request.userId;
 
         const sessions = await db.session.findMany({
-            where: { accountId: userId, active: true },
+            where: {
+                accountId: userId,
+                OR: [
+                    { active: true },
+                    { active: false, tag: { startsWith: 'codex:' } },
+                ],
+            },
             orderBy: { updatedAt: 'desc' },
             take: 50,
             select: {
@@ -222,13 +239,15 @@ export function sessionRoutes(app: Fastify) {
                 tag: z.string(),
                 metadata: z.string(),
                 agentState: z.string().nullish(),
-                dataEncryptionKey: z.string().nullish()
+                dataEncryptionKey: z.string().nullish(),
+                active: z.boolean().optional(),
+                updatedAt: z.number().int().positive().optional(),
             })
         },
         preHandler: app.authenticate
     }, async (request, reply) => {
         const userId = request.userId;
-        const { tag, metadata, dataEncryptionKey } = request.body;
+        const { tag, metadata, dataEncryptionKey, active, updatedAt } = request.body;
 
         const session = await db.session.findFirst({
             where: {
@@ -237,20 +256,31 @@ export function sessionRoutes(app: Fastify) {
             }
         });
         if (session) {
-            log({ module: 'session-create', sessionId: session.id, userId, tag }, `Found existing session: ${session.id} for tag ${tag}`);
+            const importedUpdatedAt = tag.startsWith('codex:') ? normalizeClientTimestamp(updatedAt) : undefined;
+            const resolvedSession = importedUpdatedAt && session.updatedAt.getTime() !== importedUpdatedAt.getTime()
+                ? await db.session.update({
+                    where: { id: session.id },
+                    data: {
+                        lastActiveAt: importedUpdatedAt,
+                        updatedAt: importedUpdatedAt,
+                    },
+                })
+                : session;
+
+            log({ module: 'session-create', sessionId: resolvedSession.id, userId, tag }, `Found existing session: ${resolvedSession.id} for tag ${tag}`);
             return reply.send({
                 session: {
-                    id: session.id,
-                    seq: session.seq,
-                    metadata: session.metadata,
-                    metadataVersion: session.metadataVersion,
-                    agentState: session.agentState,
-                    agentStateVersion: session.agentStateVersion,
-                    dataEncryptionKey: session.dataEncryptionKey ? Buffer.from(session.dataEncryptionKey).toString('base64') : null,
-                    active: session.active,
-                    activeAt: session.lastActiveAt.getTime(),
-                    createdAt: session.createdAt.getTime(),
-                    updatedAt: session.updatedAt.getTime(),
+                    id: resolvedSession.id,
+                    seq: resolvedSession.seq,
+                    metadata: resolvedSession.metadata,
+                    metadataVersion: resolvedSession.metadataVersion,
+                    agentState: resolvedSession.agentState,
+                    agentStateVersion: resolvedSession.agentStateVersion,
+                    dataEncryptionKey: resolvedSession.dataEncryptionKey ? Buffer.from(resolvedSession.dataEncryptionKey).toString('base64') : null,
+                    active: resolvedSession.active,
+                    activeAt: resolvedSession.lastActiveAt.getTime(),
+                    createdAt: resolvedSession.createdAt.getTime(),
+                    updatedAt: resolvedSession.updatedAt.getTime(),
                     lastMessage: null
                 }
             });
@@ -261,11 +291,15 @@ export function sessionRoutes(app: Fastify) {
 
             // Create session
             log({ module: 'session-create', userId, tag }, `Creating new session for user ${userId} with tag ${tag}`);
+            const importedUpdatedAt = tag.startsWith('codex:') ? normalizeClientTimestamp(updatedAt) : undefined;
             const session = await db.session.create({
                 data: {
                     accountId: userId,
                     tag: tag,
                     metadata: metadata,
+                    active: active ?? true,
+                    lastActiveAt: importedUpdatedAt,
+                    updatedAt: importedUpdatedAt,
                     dataEncryptionKey: dataEncryptionKey ? new Uint8Array(Buffer.from(dataEncryptionKey, 'base64')) : undefined
                 }
             });

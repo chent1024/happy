@@ -5,7 +5,9 @@ const { codexClientMethods } = vi.hoisted(() => ({
         connect: vi.fn(),
         disconnect: vi.fn(),
         forkThread: vi.fn(),
+        listThreads: vi.fn(),
         readThread: vi.fn(),
+        readAccountRateLimits: vi.fn(),
         rollbackThread: vi.fn(),
         injectItems: vi.fn(),
     },
@@ -126,6 +128,95 @@ describe('ApiMachineClient Codex fork RPCs', () => {
             threadId: 'thread-source',
             includeTurns: true,
         });
+    });
+
+    it('lists recent Codex threads with manual sync defaults', async () => {
+        codexClientMethods.listThreads.mockResolvedValue({
+            data: [{
+                id: 'thread-recent',
+                cwd: '/tmp/project',
+                preview: 'recent Codex work',
+                updatedAt: 1700000000000,
+            }],
+            nextCursor: null,
+            backwardsCursor: null,
+        });
+
+        const { ApiMachineClient } = await import('./apiMachine');
+        const client = new ApiMachineClient('token', machineClient());
+        client.setRPCHandlers({
+            spawnSession: vi.fn(),
+            stopSession: vi.fn(),
+            requestShutdown: vi.fn(),
+        });
+
+        const result = await handlersFrom(client).get('machine-1:codex-list-threads')?.({});
+
+        expect(result).toEqual({
+            type: 'success',
+            threads: [{
+                id: 'thread-recent',
+                cwd: '/tmp/project',
+                preview: 'recent Codex work',
+                updatedAt: 1700000000000,
+            }],
+            nextCursor: null,
+            backwardsCursor: null,
+        });
+        expect(codexClientMethods.connect).toHaveBeenCalledOnce();
+        expect(codexClientMethods.listThreads).toHaveBeenCalledWith({
+            limit: 200,
+            archived: false,
+            sortKey: 'updated_at',
+            sortDirection: 'desc',
+        });
+        expect(codexClientMethods.disconnect).toHaveBeenCalledOnce();
+    });
+
+    it('reads Codex account rate limits through app-server RPC', async () => {
+        codexClientMethods.readAccountRateLimits.mockResolvedValue({
+            rateLimits: {
+                primary: {
+                    usedPercent: 98,
+                    remainingPercent: 2,
+                    windowDurationMins: 10080,
+                    resetsAt: 1700000000,
+                },
+                secondary: null,
+                credits: null,
+                rateLimitReachedType: null,
+            },
+            rateLimitsByLimitId: null,
+            rateLimitResetCredits: null,
+        });
+
+        const { ApiMachineClient } = await import('./apiMachine');
+        const client = new ApiMachineClient('token', machineClient());
+        client.setRPCHandlers({
+            spawnSession: vi.fn(),
+            stopSession: vi.fn(),
+            requestShutdown: vi.fn(),
+        });
+
+        const result = await handlersFrom(client).get('machine-1:codex-read-account-rate-limits')?.({});
+
+        expect(result).toEqual({
+            type: 'success',
+            rateLimits: {
+                primary: {
+                    usedPercent: 98,
+                    remainingPercent: 2,
+                    windowDurationMins: 10080,
+                    resetsAt: 1700000000,
+                },
+                secondary: null,
+                credits: null,
+                rateLimitReachedType: null,
+            },
+        });
+        expect(codexClientMethods.connect).toHaveBeenCalledOnce();
+        expect(codexClientMethods.readAccountRateLimits).toHaveBeenCalledOnce();
+        expect(codexClientMethods.disconnect).toHaveBeenCalledOnce();
     });
 
     it('duplicates a Codex thread by rolling back turns after the selected item', async () => {

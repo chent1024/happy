@@ -5,7 +5,10 @@
 
 import { apiSocket } from './apiSocket';
 import { sync } from './sync';
-import type { MachineMetadata } from './storageTypes';
+import { storage } from './storage';
+import type { AgentState, MachineMetadata, Metadata, Session } from './storageTypes';
+import { encodeBase64 } from '@/encryption/base64';
+import { getRandomBytes } from 'expo-crypto';
 
 // Strict type definitions for all operations
 
@@ -207,9 +210,222 @@ export type CodexListRewindPointsResult =
     | { type: 'success'; points: CodexRewindPoint[] }
     | { type: 'error'; errorMessage: string };
 
+export interface CodexThreadListItem {
+    id: string;
+    sessionId?: string | null;
+    preview?: string | null;
+    name?: string | null;
+    path?: string | null;
+    cwd?: string | null;
+    createdAt?: number | null;
+    updatedAt?: number | null;
+    recencyAt?: number | null;
+    cliVersion?: string | null;
+}
+
+interface ImportedSessionCreateResponse {
+    session?: {
+        id: string;
+        seq?: number;
+        metadataVersion?: number;
+        agentState?: string | null;
+        agentStateVersion?: number;
+        active?: boolean;
+        activeAt?: number;
+        createdAt?: number;
+        updatedAt?: number;
+    };
+}
+
+export type CodexListThreadsResult =
+    | {
+        type: 'success';
+        threads: CodexThreadListItem[];
+        nextCursor: string | null;
+        backwardsCursor: string | null;
+    }
+    | { type: 'error'; errorMessage: string };
+
+export type CodexSessionSyncResult =
+    | { type: 'success'; fetched: number; imported: number; skipped: number }
+    | { type: 'error'; errorMessage: string };
+
+export type CodexAccountRateLimitsRefreshResult =
+    | { type: 'success'; updated: boolean }
+    | { type: 'error'; errorMessage: string };
+
+const CODEX_SYNC_MAX_THREADS_PER_PROJECT = 15;
+const CODEX_SYNC_MAX_THREAD_AGE_MS = 3 * 24 * 60 * 60 * 1000;
+const CODEX_SECONDS_TIMESTAMP_THRESHOLD = 10_000_000_000;
+
 export interface ResumeSessionOptions {
     machineId: string;
     sessionId: string;
+}
+
+function firstNonEmpty(...values: Array<string | null | undefined>): string | null {
+    for (const value of values) {
+        const trimmed = typeof value === 'string' ? value.trim() : '';
+        if (trimmed.length > 0) {
+            return trimmed;
+        }
+    }
+    return null;
+}
+
+function errorMessageFromUnknown(error: unknown, fallback: string): string {
+    return firstNonEmpty(
+        error instanceof Error ? error.message : null,
+        typeof error === 'string' ? error : null,
+    ) ?? fallback;
+}
+
+function codexThreadProjectKey(thread: CodexThreadListItem): string {
+    return firstNonEmpty(thread.cwd, thread.path) ?? '~';
+}
+
+function normalizeCodexTimestamp(value: number | null | undefined): number | null {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+        return null;
+    }
+
+    return Math.trunc(value < CODEX_SECONDS_TIMESTAMP_THRESHOLD ? value * 1000 : value);
+}
+
+function codexThreadUpdatedAt(thread: CodexThreadListItem): number {
+    return normalizeCodexTimestamp(thread.updatedAt)
+        ?? normalizeCodexTimestamp(thread.recencyAt)
+        ?? normalizeCodexTimestamp(thread.createdAt)
+        ?? 0;
+}
+
+function selectCodexThreadsForSync(
+    threads: CodexThreadListItem[],
+    perProjectLimit = CODEX_SYNC_MAX_THREADS_PER_PROJECT,
+    now = Date.now(),
+): { selected: CodexThreadListItem[]; skippedByProjectLimit: number; skippedByAge: number } {
+    const selected: CodexThreadListItem[] = [];
+    const perProjectCounts = new Map<string, number>();
+    let skippedByProjectLimit = 0;
+    let skippedByAge = 0;
+
+    const sortedThreads = [...threads].sort((a, b) => codexThreadUpdatedAt(b) - codexThreadUpdatedAt(a));
+    for (const thread of sortedThreads) {
+        const updatedAt = codexThreadUpdatedAt(thread);
+        if (updatedAt <= 0 || now - updatedAt > CODEX_SYNC_MAX_THREAD_AGE_MS) {
+            skippedByAge++;
+            continue;
+        }
+
+        const projectKey = codexThreadProjectKey(thread);
+        const projectCount = perProjectCounts.get(projectKey) ?? 0;
+        if (projectCount >= perProjectLimit) {
+            skippedByProjectLimit++;
+            continue;
+        }
+
+        perProjectCounts.set(projectKey, projectCount + 1);
+        selected.push(thread);
+    }
+
+    return { selected, skippedByProjectLimit, skippedByAge };
+}
+
+export function buildCodexImportedSessionMetadata(
+    thread: CodexThreadListItem,
+    machineId: string,
+    machineMetadata?: MachineMetadata | null,
+): Metadata {
+    const path = firstNonEmpty(thread.cwd, thread.path) ?? '~';
+    const title = firstNonEmpty(thread.name, thread.preview) ?? `Codex ${thread.id.slice(0, 8)}`;
+    const updatedAt = codexThreadUpdatedAt(thread) || Date.now();
+
+    return {
+        path,
+        host: machineMetadata?.host ?? 'codex.app',
+        name: title,
+        summary: {
+            text: title,
+            updatedAt,
+        },
+        machineId,
+        homeDir: machineMetadata?.homeDir,
+        happyHomeDir: machineMetadata?.happyHomeDir,
+        codexThreadId: thread.id,
+        flavor: 'codex',
+        version: thread.cliVersion ?? undefined,
+        lifecycleState: 'imported',
+        archivedBy: 'codex-session-sync',
+    };
+}
+
+function findImportedCodexThread(machineId: string, codexThreadId: string): Session | null {
+    return Object.values(storage.getState().sessions).find((session) => (
+        session.metadata?.machineId === machineId
+        && session.metadata?.flavor === 'codex'
+        && session.metadata?.codexThreadId === codexThreadId
+    )) ?? null;
+}
+
+async function applyImportedCodexSessionLocally(response: Response, metadata: Metadata): Promise<void> {
+    if (typeof response.json !== 'function') {
+        return;
+    }
+
+    const payload = await response.json() as ImportedSessionCreateResponse;
+    const created = payload.session;
+    if (!created?.id) {
+        return;
+    }
+
+    const active = created.active ?? false;
+    const activeAt = metadata.summary?.updatedAt ?? created.activeAt ?? Date.now();
+    const localSession: Omit<Session, 'presence'> & { presence?: 'online' | number } = {
+        id: created.id,
+        seq: created.seq ?? 0,
+        createdAt: metadata.summary?.updatedAt ?? created.createdAt ?? activeAt,
+        updatedAt: metadata.summary?.updatedAt ?? created.updatedAt ?? activeAt,
+        active,
+        activeAt,
+        metadata,
+        metadataVersion: created.metadataVersion ?? 0,
+        agentState: null,
+        agentStateVersion: created.agentStateVersion ?? 0,
+        thinking: false,
+        thinkingAt: 0,
+        presence: active ? 'online' : activeAt,
+    };
+
+    storage.getState().applySessions([localSession]);
+}
+
+async function createImportedCodexSession(machineId: string, thread: CodexThreadListItem): Promise<void> {
+    const machineMetadata = storage.getState().machines[machineId]?.metadata ?? null;
+    const metadata = buildCodexImportedSessionMetadata(thread, machineId, machineMetadata);
+    const dataEncryptionKey = getRandomBytes(32);
+    const encryptedDataKey = await sync.encryption.encryptEncryptionKey(dataEncryptionKey);
+    const sessionEncryption = await sync.encryption.openEncryption(dataEncryptionKey);
+    const encryptedMetadata = await sessionEncryption.encrypt([metadata]);
+    const tag = `codex:${machineId}:${thread.id}`;
+
+    const response = await apiSocket.request('/v1/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            tag,
+            metadata: encodeBase64(encryptedMetadata[0], 'base64'),
+            agentState: null,
+            dataEncryptionKey: encodeBase64(encryptedDataKey, 'base64'),
+            active: false,
+            updatedAt: metadata.summary?.updatedAt,
+        }),
+    });
+
+    if (!response.ok) {
+        throw new Error(`Failed to import Codex session ${thread.id}: ${response.status}`);
+    }
+
+    await applyImportedCodexSessionLocally(response, metadata);
 }
 
 // Exported session operation functions
@@ -394,6 +610,115 @@ export async function codexListRewindPoints(
         return {
             type: 'error',
             errorMessage: error instanceof Error ? error.message : 'Failed to list Codex rewind points',
+        };
+    }
+}
+
+export async function codexListThreads(machineId: string): Promise<CodexListThreadsResult> {
+    try {
+        return await apiSocket.machineRPC<CodexListThreadsResult, Record<string, never>>(
+            machineId,
+            'codex-list-threads',
+            {},
+        );
+    } catch (error) {
+        return {
+            type: 'error',
+            errorMessage: errorMessageFromUnknown(error, 'Failed to list Codex threads'),
+        };
+    }
+}
+
+export async function syncCodexSessions(machineId: string): Promise<CodexSessionSyncResult> {
+    try {
+        const listResult = await codexListThreads(machineId);
+        if (listResult.type !== 'success') {
+            return {
+                type: 'error',
+                errorMessage: firstNonEmpty(listResult.errorMessage) ?? 'Failed to list Codex threads',
+            };
+        }
+
+        let imported = 0;
+        let skipped = 0;
+        const { selected, skippedByProjectLimit, skippedByAge } = selectCodexThreadsForSync(listResult.threads);
+        skipped += skippedByProjectLimit + skippedByAge;
+
+        for (const thread of selected) {
+            if (!thread.id) {
+                skipped++;
+                continue;
+            }
+
+            const existingImportedSession = findImportedCodexThread(machineId, thread.id);
+            await createImportedCodexSession(machineId, thread);
+            if (existingImportedSession) {
+                skipped++;
+            } else {
+                imported++;
+            }
+        }
+
+        if (imported > 0) {
+            await sync.refreshSessions();
+        }
+
+        return {
+            type: 'success',
+            fetched: listResult.threads.length,
+            imported,
+            skipped,
+        };
+    } catch (error) {
+        return {
+            type: 'error',
+            errorMessage: errorMessageFromUnknown(error, 'Failed to sync Codex sessions'),
+        };
+    }
+}
+
+export async function refreshCodexAccountRateLimits(sessionId: string): Promise<CodexAccountRateLimitsRefreshResult> {
+    const session = storage.getState().sessions[sessionId];
+    if (!session) {
+        return { type: 'error', errorMessage: 'Session not found' };
+    }
+    const machineId = session.metadata?.machineId;
+    if (session.metadata?.flavor !== 'codex' || !machineId) {
+        return { type: 'success', updated: false };
+    }
+
+    try {
+        const result = await apiSocket.machineRPC<{
+            type: 'success';
+            rateLimits: AgentState['codexAccountRateLimits'] | null;
+        }, Record<string, never>>(
+            machineId,
+            'codex-read-account-rate-limits',
+            {},
+        );
+
+        if (result.type !== 'success' || !result.rateLimits) {
+            return { type: 'success', updated: false };
+        }
+
+        const currentSession = storage.getState().sessions[sessionId];
+        if (!currentSession) {
+            return { type: 'error', errorMessage: 'Session not found' };
+        }
+
+        storage.getState().applySessions([{
+            ...currentSession,
+            agentState: {
+                ...(currentSession.agentState ?? {}),
+                codexAccountRateLimits: result.rateLimits,
+            },
+        }]);
+
+        return { type: 'success', updated: true };
+    } catch (error) {
+        return {
+            type: 'error',
+            errorMessage: errorMessageFromUnknown(error, 'Failed to refresh Codex account rate limits'),
         };
     }
 }

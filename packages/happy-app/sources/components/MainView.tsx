@@ -13,7 +13,7 @@ import { SettingsViewWrapper } from './SettingsViewWrapper';
 import { SessionsListWrapper } from './SessionsListWrapper';
 import { Header } from './navigation/Header';
 import { StatusDot } from './StatusDot';
-import { Ionicons } from '@expo/vector-icons';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import { isUsingCustomServer } from '@/sync/serverConfig';
@@ -203,6 +203,40 @@ const HeaderRight = React.memo(({ activeTab }: { activeTab: ActiveTabType }) => 
     return null;
 });
 
+const HeaderLeft = React.memo(({
+    activeTab,
+    hasActiveSessions,
+    activeSessionsCollapsed,
+    onToggleActiveSessionsCollapsed,
+}: {
+    activeTab: ActiveTabType;
+    hasActiveSessions: boolean;
+    activeSessionsCollapsed: boolean;
+    onToggleActiveSessionsCollapsed: () => void;
+}) => {
+    const { theme } = useUnistyles();
+
+    if (activeTab !== 'sessions' || !hasActiveSessions) {
+        return <View style={styles.headerButton} />;
+    }
+
+    return (
+        <Pressable
+            onPress={onToggleActiveSessionsCollapsed}
+            hitSlop={15}
+            style={styles.headerButton}
+            accessibilityRole="button"
+            accessibilityLabel={activeSessionsCollapsed ? '展开全部项目' : '折叠全部项目'}
+        >
+            <Feather
+                name="align-left"
+                size={24}
+                color={theme.colors.header.tint}
+            />
+        </Pressable>
+    );
+});
+
 export const MainView = React.memo(({ variant }: MainViewProps) => {
     const { theme } = useUnistyles();
     const sessionListViewData = useVisibleSessionListViewData();
@@ -211,10 +245,27 @@ export const MainView = React.memo(({ variant }: MainViewProps) => {
     // Tab state management
     // NOTE: Zen tab removed - the feature never got to a useful state
     const [activeTab, setActiveTab] = React.useState<TabType>('sessions');
+    const [activeSessionsCollapsed, setActiveSessionsCollapsed] = React.useState(false);
+
+    const hasActiveSessions = React.useMemo(() => {
+        return sessionListViewData?.some(item =>
+            item.type === 'active-sessions' && item.sessions.length > 0
+        ) ?? false;
+    }, [sessionListViewData]);
 
     const handleTabPress = React.useCallback((tab: TabType) => {
         setActiveTab(tab);
     }, []);
+
+    const handleToggleActiveSessionsCollapsed = React.useCallback(() => {
+        setActiveSessionsCollapsed(prev => !prev);
+    }, []);
+
+    React.useEffect(() => {
+        if (!hasActiveSessions && activeSessionsCollapsed) {
+            setActiveSessionsCollapsed(false);
+        }
+    }, [activeSessionsCollapsed, hasActiveSessions]);
 
     // Regular phone mode with tabs - define this before any conditional returns
     const renderTabContent = React.useCallback(() => {
@@ -223,9 +274,9 @@ export const MainView = React.memo(({ variant }: MainViewProps) => {
                 return <SettingsViewWrapper />;
             case 'sessions':
             default:
-                return <SessionsListWrapper />;
+                return <SessionsListWrapper activeSessionsCollapsed={activeSessionsCollapsed} />;
         }
-    }, [activeTab]);
+    }, [activeSessionsCollapsed, activeTab]);
 
     // Sidebar variant
     if (variant === 'sidebar') {
@@ -275,7 +326,14 @@ export const MainView = React.memo(({ variant }: MainViewProps) => {
                     <Header
                         title={<HeaderTitle activeTab={activeTab as ActiveTabType} />}
                         headerRight={() => <HeaderRight activeTab={activeTab as ActiveTabType} />}
-                        headerLeft={() => <View style={styles.headerButton} />}
+                        headerLeft={() => (
+                            <HeaderLeft
+                                activeTab={activeTab as ActiveTabType}
+                                hasActiveSessions={hasActiveSessions}
+                                activeSessionsCollapsed={activeSessionsCollapsed}
+                                onToggleActiveSessionsCollapsed={handleToggleActiveSessionsCollapsed}
+                            />
+                        )}
                         headerShadowVisible={false}
                         headerTransparent={true}
                     />

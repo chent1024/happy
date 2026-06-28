@@ -83,11 +83,46 @@ export type ThreadTurn = {
 
 export type Thread = {
     id: ThreadId;
+    sessionId?: string | null;
     forkedFromId?: string | null;
+    parentThreadId?: string | null;
+    preview?: string | null;
+    name?: string | null;
+    ephemeral?: boolean;
+    modelProvider?: string | null;
+    createdAt?: number | null;
+    updatedAt?: number | null;
+    recencyAt?: number | null;
+    status?: unknown;
     path?: string | null;
-    cwd?: string;
+    cwd?: string | null;
+    cliVersion?: string | null;
+    source?: unknown;
+    threadSource?: unknown;
+    agentNickname?: string | null;
+    agentRole?: string | null;
+    gitInfo?: unknown;
     turns?: ThreadTurn[];
     [key: string]: unknown;
+};
+
+export type ThreadListParams = {
+    cursor?: string | null;
+    limit?: number | null;
+    sortKey?: "created_at" | "updated_at" | "recency_at" | null;
+    sortDirection?: "asc" | "desc" | null;
+    modelProviders?: string[] | null;
+    sourceKinds?: string[] | null;
+    archived?: boolean | null;
+    cwd?: string | null;
+    useStateDbOnly?: boolean | null;
+    searchTerm?: string | null;
+};
+
+export type ThreadListResponse = {
+    data: Thread[];
+    nextCursor: string | null;
+    backwardsCursor: string | null;
 };
 
 export type ThreadGoalStatus = "active" | "paused" | "blocked" | "usageLimited" | "budgetLimited" | "complete";

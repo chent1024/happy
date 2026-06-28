@@ -1,6 +1,5 @@
 import * as React from 'react';
-import { Platform } from 'react-native';
-import Animated from 'react-native-reanimated';
+import { Platform, ScrollView, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 
 const stylesheet = StyleSheet.create((theme, runtime) => ({
@@ -35,14 +34,14 @@ export const FloatingOverlay = React.memo((props: FloatingOverlayProps) => {
     } = props;
 
     return (
-        <Animated.View style={[styles.container, { maxHeight }]}>
-            <Animated.ScrollView
+        <View style={[styles.container, { maxHeight }]}>
+            <ScrollView
                 style={{ maxHeight }}
                 keyboardShouldPersistTaps={keyboardShouldPersistTaps}
                 showsVerticalScrollIndicator={showScrollIndicator}
             >
                 {children}
-            </Animated.ScrollView>
-        </Animated.View>
+            </ScrollView>
+        </View>
     );
 });
