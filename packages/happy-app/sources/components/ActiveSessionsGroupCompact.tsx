@@ -333,14 +333,14 @@ export function ActiveSessionsGroupCompact({ sessions, selectedSessionId, collap
                             const hasScrollableSessions = projectGroup.sessions.length > PROJECT_VISIBLE_SESSION_COUNT;
 
                             return (
-                                <View key={projectPath}>
+                                <View key={projectPath} style={styles.projectCard}>
                                     <SectionHeader
                                         session={firstSession}
                                         displayPath={projectGroup.displayPath}
                                         onToggle={() => handleToggleProject(projectKey)}
                                     />
                                     {!projectCollapsed && (
-                                        <View style={styles.projectCard}>
+                                        <View style={styles.projectSessionsContainer}>
                                             <ScrollView
                                                 nestedScrollEnabled
                                                 showsVerticalScrollIndicator={hasScrollableSessions}
@@ -417,9 +417,16 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
     } as any : {
         onLongPress: showActionAlert,
     };
-    const updatedTimeText = t('status.recentlyActive', {
-        time: formatShortRelativeTime(getSessionRecencyTime(session)),
-    });
+    const shortTimeText = formatShortRelativeTime(getSessionRecencyTime(session));
+    const statusText = session.hasUnread
+        ? t('status.unread')
+        : session.state === 'thinking'
+            ? t('status.activeNow')
+            : session.state === 'permission_required'
+                ? t('status.permissionRequired')
+                : session.state === 'waiting' && session.hasDraft
+                    ? '草稿'
+                    : null;
 
     const renderLeadingIndicator = () => {
         let indicator: React.ReactNode = null;
@@ -456,22 +463,29 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
             {...menuProps}
         >
             <View style={styles.sessionContent}>
-                <View style={styles.sessionTitleRow}>
-                    {renderLeadingIndicator()}
+                <View style={styles.sessionTopRow}>
+                    <View style={styles.sessionTitleRow}>
+                        {renderLeadingIndicator()}
 
-                    <Text
-                        style={[
-                            styles.sessionTitle,
-                            status.isConnected ? styles.sessionTitleConnected : styles.sessionTitleDisconnected
-                        ]}
-                        numberOfLines={1}
-                    >
-                        {session.name}
+                        <Text
+                            style={[
+                                styles.sessionTitle,
+                                status.isConnected ? styles.sessionTitleConnected : styles.sessionTitleDisconnected
+                            ]}
+                            numberOfLines={1}
+                        >
+                            {session.name}
+                        </Text>
+                    </View>
+                    <Text style={styles.sessionTimeText} numberOfLines={1}>
+                        {shortTimeText}
                     </Text>
                 </View>
-                <Text style={styles.sessionUpdatedTime} numberOfLines={1}>
-                    {updatedTimeText}
-                </Text>
+                {statusText && (
+                    <Text style={[styles.sessionStatusText, { color: status.color }]} numberOfLines={1}>
+                        {statusText}
+                    </Text>
+                )}
             </View>
         </Pressable>
     );
@@ -522,16 +536,16 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     // Section header styles
     sectionHeader: {
-        paddingTop: 10,
-        paddingBottom: Platform.select({ ios: 5, default: 6 }),
-        paddingHorizontal: Platform.select({ ios: 28, default: 24 }),
+        paddingTop: 12,
+        paddingBottom: Platform.select({ ios: 8, default: 10 }),
+        paddingHorizontal: 16,
         flexDirection: 'row',
         alignItems: 'center',
     },
     sectionHeaderSingleLine: {
-        paddingTop: 10,
-        paddingBottom: Platform.select({ ios: 5, default: 6 }),
-        paddingHorizontal: Platform.select({ ios: 28, default: 24 }),
+        paddingTop: 12,
+        paddingBottom: Platform.select({ ios: 8, default: 10 }),
+        paddingHorizontal: 16,
         flexDirection: 'row',
         alignItems: 'center',
     },
@@ -624,7 +638,8 @@ const stylesheet = StyleSheet.create((theme) => ({
     // Project card styles
     projectCard: {
         backgroundColor: theme.colors.surface,
-        marginBottom: 6,
+        marginTop: 4,
+        marginBottom: 10,
         marginHorizontal: Platform.select({ ios: 18, default: 14 }),
         borderRadius: 14,
         borderWidth: StyleSheet.hairlineWidth,
@@ -635,6 +650,10 @@ const stylesheet = StyleSheet.create((theme) => ({
         shadowOpacity: theme.colors.shadow.opacity * 0.7,
         shadowRadius: 2,
         elevation: 1,
+    },
+    projectSessionsContainer: {
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: theme.colors.divider,
     },
     projectSessionsScroll: {
         height: PROJECT_SESSION_ROW_HEIGHT * PROJECT_VISIBLE_SESSION_COUNT,
@@ -657,22 +676,36 @@ const stylesheet = StyleSheet.create((theme) => ({
     sessionContent: {
         flex: 1,
         justifyContent: 'center',
+        minWidth: 0,
     },
-    sessionTitleRow: {
+    sessionTopRow: {
         flexDirection: 'row',
         alignItems: 'center',
     },
+    sessionTitleRow: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        minWidth: 0,
+    },
     sessionTitle: {
         fontSize: 15,
+        lineHeight: 20,
         flex: 1,
         ...Typography.default('regular'),
     },
-    sessionUpdatedTime: {
-        marginTop: 2,
-        marginLeft: 20,
+    sessionTimeText: {
+        marginLeft: 10,
         color: theme.colors.textSecondary,
         fontSize: 12,
         lineHeight: 16,
+        ...Typography.default('regular'),
+    },
+    sessionStatusText: {
+        marginTop: 1,
+        marginLeft: 20,
+        fontSize: 11,
+        lineHeight: 15,
         ...Typography.default('regular'),
     },
     sessionTitleConnected: {
