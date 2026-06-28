@@ -169,8 +169,10 @@ const SectionHeader = React.memo(({
                 onPress={handleAdd}
                 hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
                 style={[styles.addButton, { opacity: Platform.OS !== 'web' || isHovered ? 1 : 0 }]}
+                accessibilityRole="button"
+                accessibilityLabel="在当前项目新建会话"
             >
-                <Ionicons name="add-outline" size={18} color={theme.colors.textSecondary} />
+                <Ionicons name="add-outline" size={16} color={theme.colors.textSecondary} />
             </Pressable>
         </Pressable>
     );
@@ -608,13 +610,15 @@ const stylesheet = StyleSheet.create((theme) => ({
         marginLeft: 3,
     },
     addButton: {
-        width: 28,
-        height: 28,
+        width: 26,
+        height: 26,
         marginLeft: 8,
-        borderRadius: 14,
+        borderRadius: 13,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: theme.colors.surfaceHigh,
+        backgroundColor: theme.colors.groupped.background,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
     },
     // Machine separator styles
     machineSeparator: {

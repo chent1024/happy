@@ -87,10 +87,23 @@ const styles = StyleSheet.create((theme) => ({
         ...Typography.default(),
     },
     headerButton: {
-        width: 32,
-        height: 32,
+        width: 36,
+        height: 36,
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    headerActionButton: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.surfaceHigh,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+    },
+    headerActionButtonPressed: {
+        backgroundColor: theme.colors.surfacePressed,
     },
 }));
 
@@ -177,9 +190,11 @@ const HeaderRight = React.memo(({ activeTab }: { activeTab: ActiveTabType }) => 
             <Pressable
                 onPress={() => router.navigate('/new')}
                 hitSlop={15}
-                style={styles.headerButton}
+                style={({ pressed }) => [styles.headerActionButton, pressed && styles.headerActionButtonPressed]}
+                accessibilityRole="button"
+                accessibilityLabel="新建会话"
             >
-                <Ionicons name="add-outline" size={28} color={theme.colors.header.tint} />
+                <Ionicons name="add-outline" size={22} color={theme.colors.header.tint} />
             </Pressable>
         );
     }
@@ -193,9 +208,11 @@ const HeaderRight = React.memo(({ activeTab }: { activeTab: ActiveTabType }) => 
             <Pressable
                 onPress={() => router.push('/server')}
                 hitSlop={15}
-                style={styles.headerButton}
+                style={({ pressed }) => [styles.headerActionButton, pressed && styles.headerActionButtonPressed]}
+                accessibilityRole="button"
+                accessibilityLabel="服务器设置"
             >
-                <Ionicons name="server-outline" size={24} color={theme.colors.header.tint} />
+                <Ionicons name="server-outline" size={21} color={theme.colors.header.tint} />
             </Pressable>
         );
     }

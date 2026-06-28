@@ -143,6 +143,7 @@ function BottomSheet({
 }) {
     const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
+    const { height } = useWindowDimensions();
 
     if (Platform.OS === 'ios') {
         return (
@@ -166,6 +167,7 @@ function BottomSheet({
     // Android: slide-up sheet with backdrop
     const fadeAnim = React.useRef(new Animated.Value(0)).current;
     const slideAnim = React.useRef(new Animated.Value(300)).current;
+    const sheetMinHeight = Math.min(Math.max(height * 0.52, 360), height * 0.7);
 
     React.useEffect(() => {
         if (visible) {
@@ -197,6 +199,7 @@ function BottomSheet({
                         sheetStyles.sheet,
                         {
                             backgroundColor: theme.colors.header.background,
+                            minHeight: sheetMinHeight,
                             paddingBottom: Math.max(16, safeArea.bottom),
                             transform: [{ translateY: slideAnim }],
                         },

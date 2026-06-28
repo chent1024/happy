@@ -13,11 +13,17 @@ import { t } from '@/text';
 
 const stylesheet = StyleSheet.create((theme, runtime) => ({
     headerButton: {
-        // marginHorizontal: 4,
-        width: 32,
-        height: 32,
+        width: 36,
+        height: 36,
+        borderRadius: 18,
         alignItems: 'center',
         justifyContent: 'center',
+        backgroundColor: theme.colors.surfaceHigh,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+    },
+    headerButtonPressed: {
+        backgroundColor: theme.colors.surfacePressed,
     },
     iconButton: {
         color: theme.colors.header.tint,
@@ -123,9 +129,11 @@ function HeaderRight() {
         <Pressable
             onPress={() => router.navigate('/new')}
             hitSlop={15}
-            style={styles.headerButton}
+            style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]}
+            accessibilityRole="button"
+            accessibilityLabel="新建会话"
         >
-            <Ionicons name="add-outline" size={28} color={theme.colors.header.tint} />
+            <Ionicons name="add-outline" size={22} color={theme.colors.header.tint} />
         </Pressable>
     );
 }
@@ -140,9 +148,11 @@ function HeaderRightNotAuth() {
         <Pressable
             onPress={() => router.push('/server')}
             hitSlop={15}
-            style={styles.headerButton}
+            style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]}
+            accessibilityRole="button"
+            accessibilityLabel="服务器设置"
         >
-            <Ionicons name="server-outline" size={24} color={theme.colors.header.tint} />
+            <Ionicons name="server-outline" size={21} color={theme.colors.header.tint} />
         </Pressable>
     );
 }
