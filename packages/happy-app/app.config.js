@@ -1,4 +1,5 @@
 const { execFileSync } = require('node:child_process');
+const { withEntitlementsPlist } = require('expo/config-plugins');
 
 const variant = process.env.APP_ENV || 'development';
 const name = {
@@ -11,11 +12,21 @@ const bundleId = {
     preview: "com.slopus.happy.preview",
     production: "com.ex3ndr.happy"
 }[variant];
+const iosBundleId = process.env.HAPPY_IOS_BUNDLE_ID || bundleId;
 const consoleLoggingDefault = {
     development: true,
     preview: true,
     production: false,
 }[variant];
+const notificationPlugins = variant === 'development'
+    ? []
+    : [[
+        "expo-notifications",
+        {
+            "enableBackgroundRemoteNotifications": true,
+            "icon": "./sources/assets/images/icon-notification.png"
+        }
+    ]];
 
 function git(args) {
     try {
@@ -48,6 +59,18 @@ function loadBuildMetadata() {
 
 const buildMetadata = loadBuildMetadata();
 
+function withDevelopmentPersonalTeamEntitlements(config) {
+    if (variant !== 'development') {
+        return config;
+    }
+
+    return withEntitlementsPlist(config, (config) => {
+        delete config.modResults['aps-environment'];
+        delete config.modResults['com.apple.developer.associated-domains'];
+        return config;
+    });
+}
+
 export default {
     expo: {
         name,
@@ -59,7 +82,7 @@ export default {
         userInterfaceStyle: "automatic",
         ios: {
             supportsTablet: true,
-            bundleIdentifier: bundleId,
+            bundleIdentifier: iosBundleId,
             config: {
                 usesNonExemptEncryption: false
             },
@@ -78,7 +101,7 @@ export default {
                     ? { NSAllowsLocalNetworking: true }
                     : { NSAllowsLocalNetworking: true, NSAllowsArbitraryLoads: true }
             },
-            associatedDomains: variant === 'production' ? ["applinks:app.happy.engineering"] : []
+            ...(variant === 'production' ? { associatedDomains: ["applinks:app.happy.engineering"] } : {})
         },
         android: {
             adaptiveIcon: {
@@ -159,13 +182,7 @@ export default {
                     recordAudioAndroid: false,
                 }
             ],
-            [
-                "expo-notifications",
-                {
-                    "enableBackgroundRemoteNotifications": true,
-                    "icon": "./sources/assets/images/icon-notification.png"
-                }
-            ],
+            ...notificationPlugins,
             [
                 'expo-splash-screen',
                 {
@@ -184,7 +201,8 @@ export default {
                         }
                     }
                 }
-            ]
+            ],
+            withDevelopmentPersonalTeamEntitlements
         ],
         experiments: {
             typedRoutes: true
