@@ -30,6 +30,10 @@ import {
 } from '@/codex/codexThreadFork';
 import type { InputItem, Thread, ThreadItem } from '@/codex/codexAppServerTypes';
 import type { EnsureSessionLiveResult } from '@/daemon/types';
+import type {
+    DaemonCodexRuntimeReplayOptions,
+    DaemonCodexRuntimeStatus,
+} from '@/daemon/codexRuntimeManager';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CODEX_TITLE_ENRICHMENT_LIMIT = 50;
@@ -97,6 +101,8 @@ type MachineRpcHandlers = {
     resumeSession?: (sessionId: string, options?: { model?: string; permissionMode?: string }) => Promise<SpawnSessionResult>;
     ensureSessionLive?: (sessionId: string, options?: { model?: string; permissionMode?: string; reason?: string }) => Promise<EnsureSessionLiveResult>;
     restartSession?: (sessionId: string, options?: { model?: string; permissionMode?: string; reason?: string }) => Promise<EnsureSessionLiveResult>;
+    codexRuntimeStatus?: (sessionId: string) => DaemonCodexRuntimeStatus | null | Promise<DaemonCodexRuntimeStatus | null>;
+    codexRuntimeReplay?: (sessionId: string, options?: DaemonCodexRuntimeReplayOptions) => unknown[] | Promise<unknown[]>;
     stopSession: (sessionId: string) => boolean;
     requestShutdown: () => void;
 }
@@ -272,6 +278,8 @@ export class ApiMachineClient {
         resumeSession,
         ensureSessionLive,
         restartSession,
+        codexRuntimeStatus,
+        codexRuntimeReplay,
         stopSession,
         requestShutdown
     }: MachineRpcHandlers) {
@@ -482,6 +490,36 @@ export class ApiMachineClient {
                 throw error;
             }
         });
+
+        if (codexRuntimeStatus) {
+            this.rpcHandlerManager.registerHandler('codex-runtime-status', async (params: any) => {
+                const sessionId = requireNonEmptyString(params?.sessionId, 'sessionId');
+                return {
+                    type: 'success',
+                    session: await codexRuntimeStatus(sessionId),
+                };
+            });
+        }
+
+        if (codexRuntimeReplay) {
+            this.rpcHandlerManager.registerHandler('codex-runtime-replay', async (params: any) => {
+                const sessionId = requireNonEmptyString(params?.sessionId, 'sessionId');
+                const afterSeq = typeof params?.afterSeq === 'number' && Number.isFinite(params.afterSeq)
+                    ? Math.max(0, Math.floor(params.afterSeq))
+                    : undefined;
+                const limit = typeof params?.limit === 'number' && Number.isFinite(params.limit)
+                    ? Math.max(0, Math.floor(params.limit))
+                    : undefined;
+                const replayOptions: DaemonCodexRuntimeReplayOptions = {
+                    ...(afterSeq !== undefined ? { afterSeq } : {}),
+                    ...(limit !== undefined ? { limit } : {}),
+                };
+                return {
+                    type: 'success',
+                    entries: await codexRuntimeReplay(sessionId, replayOptions),
+                };
+            });
+        }
 
         // Register stop daemon handler
         this.rpcHandlerManager.registerHandler('stop-daemon', () => {

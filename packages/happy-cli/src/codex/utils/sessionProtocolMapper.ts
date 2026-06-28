@@ -412,7 +412,10 @@ export function mapCodexMcpMessageToSessionEnvelopes(message: Record<string, unk
     const providerSubagentToSessionSubagent = getProviderSubagentToSessionSubagent(state);
 
     if (type === 'task_started') {
-        const turnId = createId();
+        const providerTurnId = message.turn_id ?? message.turnId;
+        const turnId = typeof providerTurnId === 'string' && providerTurnId.length > 0
+            ? providerTurnId
+            : createId();
         const turnStart = createEnvelope('agent', { t: 'turn-start' }, { turn: turnId });
         startedSubagents.clear();
         activeSubagents.clear();

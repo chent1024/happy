@@ -62,19 +62,26 @@ async function localImagePathToAttachment(
 export async function buildCodexThreadBackfillEnvelopes(opts: {
     thread: Pick<Thread, 'turns'>;
     uploadLocalImage: LocalImageUpload;
+    skipUserMessages?: boolean;
+    skipTurnBoundary?: boolean;
 }): Promise<SessionEnvelope[]> {
     const envelopes: SessionEnvelope[] = [];
 
     for (const turn of opts.thread.turns ?? []) {
         const startedAt = turnTimestampMs(turn);
         const completedAt = completedTimestampMs(turn);
-        envelopes.push(createEnvelope('agent', { t: 'turn-start' }, {
-            id: `${turn.id}:start`,
-            turn: turn.id,
-            time: startedAt,
-        }));
+        if (!opts.skipTurnBoundary) {
+            envelopes.push(createEnvelope('agent', { t: 'turn-start' }, {
+                id: `${turn.id}:start`,
+                turn: turn.id,
+                time: startedAt,
+            }));
+        }
 
         for (const item of turn.items ?? []) {
+            if (opts.skipUserMessages && item.type === 'userMessage') {
+                continue;
+            }
             const paths = localImagePaths(item);
             for (let index = 0; index < paths.length; index += 1) {
                 const attachment = await localImagePathToAttachment(paths[index], index + 1);
@@ -97,11 +104,13 @@ export async function buildCodexThreadBackfillEnvelopes(opts: {
             }));
         }
 
-        envelopes.push(createEnvelope('agent', { t: 'turn-end', status: turnStatus(turn) }, {
-            id: `${turn.id}:end`,
-            turn: turn.id,
-            time: completedAt,
-        }));
+        if (!opts.skipTurnBoundary) {
+            envelopes.push(createEnvelope('agent', { t: 'turn-end', status: turnStatus(turn) }, {
+                id: `${turn.id}:end`,
+                turn: turn.id,
+                time: completedAt,
+            }));
+        }
     }
 
     return envelopes;

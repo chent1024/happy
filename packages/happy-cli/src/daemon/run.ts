@@ -36,6 +36,7 @@ import { encodeBase64, decodeBase64 } from '@/api/encryption';
 import { createHappyChildEnv, createHappyTmuxChildEnv } from '@/utils/happyReconnectEnv';
 import { fetchServerSessionSnapshot } from './serverSessionSnapshot';
 import { mergeServerSessionMetadataForResume } from './sessionMetadataMerge';
+import { createDaemonCodexRuntimeManager } from './codexRuntimeManager';
 
 const SESSION_STARTUP_STABILITY_WINDOW_MS = 3_000;
 
@@ -166,6 +167,10 @@ export async function startDaemon(): Promise<void> {
 
     // Setup state - key by PID
     const pidToTrackedSession = new Map<number, TrackedSession>();
+    const codexRuntimeManager = createDaemonCodexRuntimeManager();
+    if (codexRuntimeManager.enabled) {
+      logger.debug('[DAEMON RUN] Codex daemon runtime manager enabled');
+    }
 
     // Retain session data after process exits so resume can still find it.
     // Pre-populate from disk so sessions survive daemon restarts.
@@ -185,6 +190,12 @@ export async function startDaemon(): Promise<void> {
         },
         pid: 0,
       });
+      codexRuntimeManager.registerSession({
+        sessionId: id,
+        pid: null,
+        metadata: s.metadata,
+        active: false,
+      });
     }
     if (Object.keys(persisted).length > 0) {
       logger.debug(`[DAEMON RUN] Loaded ${Object.keys(persisted).length} persisted sessions from disk`);
@@ -202,6 +213,7 @@ export async function startDaemon(): Promise<void> {
       const session = pidToTrackedSession.get(pid);
       if (session?.happySessionId && session.encryption) {
         sessionIdToFinishedSession.set(session.happySessionId, session);
+        codexRuntimeManager.recordWorkerExited(session.happySessionId);
         logger.debug(`[DAEMON RUN] Process PID ${pid} exited, preserved session ${session.happySessionId} for resume`);
       } else {
         logger.debug(`[DAEMON RUN] Removing exited process PID ${pid} from tracking`);
@@ -243,6 +255,12 @@ export async function startDaemon(): Promise<void> {
         existingSession.happySessionId = sessionId;
         existingSession.happySessionMetadataFromLocalWebhook = sessionMetadata;
         existingSession.encryption = encryption;
+        codexRuntimeManager.registerSession({
+          sessionId,
+          pid,
+          metadata: sessionMetadata,
+          active: true,
+        });
         logger.debug(`[DAEMON RUN] Updated daemon-spawned session ${sessionId} with metadata`);
 
         // Resolve any awaiter for this PID
@@ -262,6 +280,12 @@ export async function startDaemon(): Promise<void> {
           pid
         };
         pidToTrackedSession.set(pid, trackedSession);
+        codexRuntimeManager.registerSession({
+          sessionId,
+          pid,
+          metadata: sessionMetadata,
+          active: true,
+        });
         logger.debug(`[DAEMON RUN] Registered externally-started session ${sessionId}`);
       }
     };
@@ -780,6 +804,7 @@ export async function startDaemon(): Promise<void> {
           { id: happySessionId, active: true, metadata },
           { startedBy: 'daemon', claudeStartingMode: 'remote' },
         );
+        codexRuntimeManager.recordResumeRequested(happySessionId);
 
         if (options?.model) {
           launch.args.push('--model', options.model);
@@ -790,7 +815,7 @@ export async function startDaemon(): Promise<void> {
 
         await fs.access(launch.cwd);
 
-        return spawnTrackedHappyProcess({
+        const result = await spawnTrackedHappyProcess({
           args: launch.args,
           cwd: launch.cwd,
           env: {
@@ -803,8 +828,11 @@ export async function startDaemon(): Promise<void> {
             HAPPY_RECONNECT_AGENT_STATE_VERSION: String(tracked.encryption.agentStateVersion),
           },
         });
+        codexRuntimeManager.recordResumeResult(happySessionId, result.type === 'success' ? 'success' : 'error');
+        return result;
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : (error && typeof error === 'object' ? JSON.stringify(error) : String(error));
+        codexRuntimeManager.recordResumeResult(happySessionId, 'error');
         logger.debug(`[DAEMON RUN] Failed to resume session: ${errorMessage}`, error instanceof Error ? error.stack : undefined);
         return {
           type: 'error',
@@ -879,6 +907,9 @@ export async function startDaemon(): Promise<void> {
             }
           }
 
+          if (session.happySessionId) {
+            codexRuntimeManager.recordStopRequested(session.happySessionId);
+          }
           onChildExited(pid);
           logger.debug(`[DAEMON RUN] Removed session ${sessionId} from active tracking`);
           return true;
@@ -914,7 +945,8 @@ export async function startDaemon(): Promise<void> {
       stopSession,
       spawnSession,
       requestShutdown: () => requestShutdown('happy-cli'),
-      onHappySessionWebhook
+      onHappySessionWebhook,
+      recordCodexRuntimeJournalEntry: (sessionId, entry) => codexRuntimeManager.recordJournalEntry(sessionId, entry),
     });
 
     // Write initial daemon state (no lock needed for state file)
@@ -972,6 +1004,8 @@ export async function startDaemon(): Promise<void> {
       resumeSession,
       ensureSessionLive,
       restartSession,
+      codexRuntimeStatus: (sessionId) => codexRuntimeManager.getSession(sessionId),
+      codexRuntimeReplay: (sessionId, options) => codexRuntimeManager.replay(sessionId, options),
       stopSession,
       requestShutdown: () => requestShutdown('happy-app')
     });

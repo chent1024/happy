@@ -163,4 +163,39 @@ describe('buildCodexThreadBackfillEnvelopes', () => {
         ]);
         expect(uploadLocalImage).not.toHaveBeenCalled();
     });
+
+    it('can skip user messages and turn boundaries when backfilling into an active Happy session', async () => {
+        const uploadLocalImage = vi.fn();
+
+        const envelopes = await buildCodexThreadBackfillEnvelopes({
+            thread: {
+                turns: [{
+                    id: 'turn-1',
+                    startedAt: 100,
+                    completedAt: 101,
+                    status: 'completed',
+                    items: [
+                        {
+                            id: 'user-1',
+                            type: 'userMessage',
+                            content: [{ type: 'text', text: 'already shown locally' }],
+                        },
+                        { id: 'agent-1', type: 'agentMessage', text: 'recovered answer' },
+                    ],
+                }],
+            },
+            uploadLocalImage,
+            skipUserMessages: true,
+            skipTurnBoundary: true,
+        });
+
+        expect(envelopes.map((envelope) => envelope.ev.t)).toEqual([
+            'text',
+        ]);
+        expect(envelopes.find((envelope) => envelope.role === 'user')).toBeUndefined();
+        expect(envelopes.find((envelope) => envelope.role === 'agent' && envelope.ev.t === 'text')).toMatchObject({
+            ev: { t: 'text', text: 'recovered answer' },
+        });
+        expect(uploadLocalImage).not.toHaveBeenCalled();
+    });
 });

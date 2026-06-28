@@ -25,6 +25,20 @@ describe('mapCodexMcpMessageToSessionEnvelopes', () => {
         expect(ended.currentTurnId).toBeNull();
     });
 
+    it('uses provider turn id when Codex includes it on task_started', () => {
+        const started = mapCodexMcpMessageToSessionEnvelopes(
+            { type: 'task_started', turn_id: 'codex-turn-1' },
+            { currentTurnId: null },
+        );
+
+        expect(started.currentTurnId).toBe('codex-turn-1');
+        expect(started.envelopes[0]).toMatchObject({
+            role: 'agent',
+            turn: 'codex-turn-1',
+            ev: { t: 'turn-start' },
+        });
+    });
+
     it('maps abort lifecycle with cancelled turn-end status', () => {
         const result = mapCodexMcpMessageToSessionEnvelopes(
             { type: 'turn_aborted' },

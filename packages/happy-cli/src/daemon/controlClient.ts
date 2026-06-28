@@ -7,6 +7,7 @@ import { logger } from '@/ui/logger';
 import { clearDaemonState, readDaemonState } from '@/persistence';
 import { Metadata } from '@/api/types';
 import { configuration } from '@/configuration';
+import type { CodexRuntimeJournalEntry } from '@/codex/runtime/codexRuntimeEventJournal';
 
 async function daemonPost(path: string, body?: any): Promise<{ error?: string } | any> {
   const state = await readDaemonState();
@@ -98,6 +99,22 @@ export async function listDaemonSessions(): Promise<any[]> {
 export async function stopDaemonSession(sessionId: string): Promise<boolean> {
   const result = await daemonPost('/stop-session', { sessionId });
   return result.success || false;
+}
+
+export async function notifyDaemonCodexRuntimeJournalEntry(
+  sessionId: string,
+  entry: CodexRuntimeJournalEntry,
+): Promise<{ error?: string } | any> {
+  return await daemonPost('/codex-runtime/journal-entry', {
+    sessionId,
+    entry: {
+      kind: entry.kind,
+      threadId: entry.threadId,
+      turnId: entry.turnId,
+      eventType: entry.eventType,
+      ...(entry.payload ? { payload: entry.payload } : {}),
+    },
+  });
 }
 
 export async function spawnDaemonSession(directory: string, sessionId?: string): Promise<any> {

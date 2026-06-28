@@ -64,6 +64,11 @@ type PendingRequest = {
     epoch: number;
 };
 
+export type CodexTurnResult = {
+    aborted: boolean;
+    runtimeInterrupted?: boolean;
+};
+
 type LegacyPatchChanges = Record<string, Record<string, unknown>>;
 type CodexCliVersion = { major: number; minor: number; patch: number };
 type CodexBinaryCandidate = { command: string; version: CodexCliVersion };
@@ -313,7 +318,7 @@ export class CodexAppServerClient {
     // Turn completion tracking for the currently active sendTurnAndWait call.
     // A completion event only resolves once we have seen task_started for this turn.
     private pendingTurnCompletion: {
-        resolve: (aborted: boolean) => void;
+        resolve: (result: CodexTurnResult) => void;
         turnId: string | null;
     } | null = null;
 
@@ -677,8 +682,8 @@ export class CodexAppServerClient {
                 req.reject(new Error(`Codex process exited (code=${code}) while waiting for ${req.method}`));
                 this.pending.delete(id);
             }
-            // Resolve pending turn completion (treat as abort)
-            this.resolvePendingTurn(true);
+            // Resolve pending turn completion (treat as a recoverable runtime interruption).
+            this.resolvePendingTurn(true, { runtimeInterrupted: true });
         });
 
         // Pipe stderr for debug logging
@@ -1005,9 +1010,12 @@ export class CodexAppServerClient {
         return this.pendingTurnCompletion !== null;
     }
 
-    private resolvePendingTurn(aborted: boolean): void {
+    private resolvePendingTurn(aborted: boolean, opts?: { runtimeInterrupted?: boolean }): void {
         if (!this.pendingTurnCompletion) return;
-        this.pendingTurnCompletion.resolve(aborted);
+        this.pendingTurnCompletion.resolve({
+            aborted,
+            ...(opts?.runtimeInterrupted ? { runtimeInterrupted: true } : {}),
+        });
         this.pendingTurnCompletion = null;
     }
 
@@ -1226,7 +1234,7 @@ export class CodexAppServerClient {
         effort?: ReasoningEffort;
         extraInputItems?: InputItem[];
         turnTimeoutMs?: number;
-    }): Promise<{ aborted: boolean }> {
+    }): Promise<CodexTurnResult> {
         // Wait for any in-flight interruptTurn() to complete before starting a new
         // turn. Otherwise the stale turn/interrupt RPC can reach Codex after our
         // turn/start and abort the wrong turn.
@@ -1258,7 +1266,7 @@ export class CodexAppServerClient {
         const timeoutMs = opts?.turnTimeoutMs ?? CodexAppServerClient.TURN_TIMEOUT_MS;
         let timer: ReturnType<typeof setTimeout> | null = null;
 
-        const completion = new Promise<boolean>((resolve) => {
+        const completion = new Promise<CodexTurnResult>((resolve) => {
             this.pendingTurnCompletion = {
                 resolve,
                 turnId: null,
@@ -1280,9 +1288,9 @@ export class CodexAppServerClient {
             throw err;
         }
 
-        const aborted = await completion;
+        const result = await completion;
         if (timer) clearTimeout(timer);
-        return { aborted };
+        return result;
     }
 
     async interruptTurn(): Promise<void> {

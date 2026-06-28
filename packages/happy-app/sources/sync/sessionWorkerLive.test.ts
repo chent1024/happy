@@ -85,6 +85,66 @@ describe('session worker live helpers', () => {
         );
     });
 
+    it('calls Codex runtime status and replay machine RPC helpers', async () => {
+        machineRPC
+            .mockResolvedValueOnce({
+                type: 'success',
+                session: {
+                    sessionId: 'session-1',
+                    pid: 123,
+                    threadId: 'thread-1',
+                    path: '/tmp/project',
+                    active: true,
+                    stopped: false,
+                    createdAt: 1,
+                    updatedAt: 2,
+                },
+            })
+            .mockResolvedValueOnce({
+                type: 'success',
+                entries: [{
+                    seq: 2,
+                    createdAt: 3,
+                    kind: 'lifecycle',
+                    threadId: 'thread-1',
+                    turnId: null,
+                    eventType: 'daemon-runtime-resume-result',
+                }],
+            });
+
+        const { machineReadCodexRuntimeStatus, machineReplayCodexRuntime } = await import('./sessionWorkerLive');
+
+        await expect(machineReadCodexRuntimeStatus({
+            machineId: 'machine-1',
+            sessionId: 'session-1',
+        })).resolves.toEqual(expect.objectContaining({
+            type: 'success',
+            session: expect.objectContaining({ threadId: 'thread-1' }),
+        }));
+        await expect(machineReplayCodexRuntime({
+            machineId: 'machine-1',
+            sessionId: 'session-1',
+            afterSeq: 1,
+            limit: 20,
+        })).resolves.toEqual(expect.objectContaining({
+            type: 'success',
+            entries: [expect.objectContaining({ eventType: 'daemon-runtime-resume-result' })],
+        }));
+
+        expect(machineRPC).toHaveBeenNthCalledWith(
+            1,
+            'machine-1',
+            'codex-runtime-status',
+            { sessionId: 'session-1' },
+        );
+        expect(machineRPC).toHaveBeenNthCalledWith(
+            2,
+            'machine-1',
+            'codex-runtime-replay',
+            { sessionId: 'session-1', afterSeq: 1, limit: 20 },
+        );
+    });
+
     it('does not block the caller while ensuring a worker is live', async () => {
         let resolveRpc!: (value: any) => void;
         machineRPC.mockReturnValue(new Promise((resolve) => {

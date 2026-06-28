@@ -4,10 +4,12 @@ import type { Machine } from './types';
 
 const {
     mockIo,
-    mockShouldReconnect
+    mockShouldReconnect,
+    mockRpcHandlers
 } = vi.hoisted(() => ({
     mockIo: vi.fn(),
-    mockShouldReconnect: vi.fn(() => true)
+    mockShouldReconnect: vi.fn(() => true),
+    mockRpcHandlers: new Map<string, (params: any) => any>()
 }));
 
 vi.mock('socket.io-client', () => ({
@@ -37,9 +39,13 @@ vi.mock('@/api/rpc/RpcHandlerManager', () => ({
         onSocketConnect = vi.fn();
         onSocketDisconnect = vi.fn();
         handleRequest = vi.fn(async () => '');
-        registerHandler = vi.fn();
-        unregisterHandler = vi.fn();
-        hasHandler = vi.fn(() => false);
+        registerHandler = vi.fn((method: string, handler: (params: any) => any) => {
+            mockRpcHandlers.set(method, handler);
+        });
+        unregisterHandler = vi.fn((method: string) => {
+            mockRpcHandlers.delete(method);
+        });
+        hasHandler = vi.fn((method: string) => mockRpcHandlers.has(method));
     }
 }));
 
@@ -98,6 +104,7 @@ describe('ApiMachineClient socket reconnection', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mockRpcHandlers.clear();
         mockShouldReconnect.mockReturnValue(true);
         socketHandlers = {};
         mockSocket = {
@@ -145,5 +152,79 @@ describe('ApiMachineClient socket reconnection', () => {
         expect(mockSocket.connect).toHaveBeenCalledTimes(2);
 
         client.shutdown();
+    });
+});
+
+describe('ApiMachineClient Codex runtime RPC', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockRpcHandlers.clear();
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it('exposes daemon Codex runtime status and replay handlers when provided', async () => {
+        const status = {
+            sessionId: 'happy-1',
+            pid: 123,
+            threadId: 'thread-1',
+            path: '/tmp/project',
+            active: true,
+            stopped: false,
+            createdAt: 1000,
+            updatedAt: 1001,
+        };
+        const runtimeStatus = vi.fn(() => status);
+        const runtimeReplay = vi.fn(() => [
+            {
+                seq: 2,
+                createdAt: 1002,
+                kind: 'lifecycle',
+                threadId: 'thread-1',
+                turnId: null,
+                eventType: 'daemon-runtime-resume-result',
+            },
+        ]);
+
+        const client = new ApiMachineClient('fake-token', makeMachine());
+        client.setRPCHandlers({
+            spawnSession: vi.fn(),
+            stopSession: vi.fn(),
+            requestShutdown: vi.fn(),
+            codexRuntimeStatus: runtimeStatus,
+            codexRuntimeReplay: runtimeReplay,
+        });
+
+        await expect(mockRpcHandlers.get('codex-runtime-status')?.({ sessionId: 'happy-1' })).resolves.toEqual({
+            type: 'success',
+            session: status,
+        });
+        await expect(mockRpcHandlers.get('codex-runtime-replay')?.({
+            sessionId: 'happy-1',
+            afterSeq: 1.8,
+            limit: 50.4,
+        })).resolves.toEqual({
+            type: 'success',
+            entries: [expect.objectContaining({ seq: 2, eventType: 'daemon-runtime-resume-result' })],
+        });
+
+        expect(runtimeStatus).toHaveBeenCalledWith('happy-1');
+        expect(runtimeReplay).toHaveBeenCalledWith('happy-1', { afterSeq: 1, limit: 50 });
+    });
+
+    it('rejects Codex runtime RPC calls without a session id', async () => {
+        const client = new ApiMachineClient('fake-token', makeMachine());
+        client.setRPCHandlers({
+            spawnSession: vi.fn(),
+            stopSession: vi.fn(),
+            requestShutdown: vi.fn(),
+            codexRuntimeStatus: vi.fn(),
+            codexRuntimeReplay: vi.fn(),
+        });
+
+        await expect(mockRpcHandlers.get('codex-runtime-status')?.({})).rejects.toThrow('sessionId is required');
+        await expect(mockRpcHandlers.get('codex-runtime-replay')?.({})).rejects.toThrow('sessionId is required');
     });
 });

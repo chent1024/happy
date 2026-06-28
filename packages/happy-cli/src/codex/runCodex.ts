@@ -1,8 +1,10 @@
 import { render } from "ink";
 import React from "react";
 import { ApiClient } from '@/api/api';
-import { CodexAppServerClient } from './codexAppServerClient';
 import type { ReasoningEffort } from './codexAppServerTypes';
+import type { CodexRuntimeAdapter } from './runtime/codexRuntimeAdapter';
+import { DaemonBackedCodexRuntimeAdapter } from './runtime/daemonBackedCodexRuntimeAdapter';
+import { LocalCodexRuntimeAdapter } from './runtime/localCodexRuntimeAdapter';
 import { CodexPermissionHandler } from './utils/permissionHandler';
 import { ReasoningProcessor } from './utils/reasoningProcessor';
 import { DiffProcessor } from './utils/diffProcessor';
@@ -21,7 +23,7 @@ import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { MessageBuffer } from "@/ui/ink/messageBuffer";
 import { CodexDisplay } from "@/ui/ink/CodexDisplay";
 import { trimIdent } from "@/utils/trimIdent";
-import { notifyDaemonSessionStarted } from "@/daemon/controlClient";
+import { notifyDaemonCodexRuntimeJournalEntry, notifyDaemonSessionStarted } from "@/daemon/controlClient";
 import { encodeBase64, decodeBase64 } from '@/api/encryption';
 import type { CodexAccountRateLimitsState, Session as ApiSession, UserMessage } from '@/api/types';
 import { registerKillSessionHandler } from "@/claude/registerKillSessionHandler";
@@ -267,7 +269,7 @@ export async function runCodex(opts: {
     // Permission handler declared here so it can be updated in onSessionSwap callback
     // (assigned later at line ~385 after client setup)
     let permissionHandler: CodexPermissionHandler;
-    let client!: CodexAppServerClient;
+    let client!: CodexRuntimeAdapter;
     let reasoningProcessor!: ReasoningProcessor;
     let abortInProgress: Promise<void> | null = null;
     const { session: initialSession, reconnectionHandle } = setupOfflineReconnection({
@@ -700,7 +702,10 @@ export async function runCodex(opts: {
     // Start Context 
     //
 
-    client = new CodexAppServerClient(sandboxConfig);
+    const localCodexRuntime = new LocalCodexRuntimeAdapter({ sandboxConfig });
+    client = new DaemonBackedCodexRuntimeAdapter(localCodexRuntime, {
+        onJournalEntry: (entry) => notifyDaemonCodexRuntimeJournalEntry(session.sessionId, entry),
+    });
 
     permissionHandler = new CodexPermissionHandler(session);
     // Drop any permission requests left in agent state from a previous CLI
@@ -954,7 +959,7 @@ export async function runCodex(opts: {
     } as const;
     let first = true;
     let appendSystemPromptInjected = false;
-    const backfillCodexThreadHistory = async (threadId: string, reason: string): Promise<void> => {
+    const backfillCodexThreadHistory = async (threadId: string, reason: string, opts?: { skipUserMessages?: boolean; skipTurnBoundary?: boolean }): Promise<void> => {
         try {
             const { thread } = await client.readThread({
                 threadId,
@@ -965,6 +970,8 @@ export async function runCodex(opts: {
                 uploadLocalImage: (attachment, imageOpts) => (
                     session.uploadLocalImageAttachmentEnvelope(attachment, imageOpts)
                 ),
+                skipUserMessages: opts?.skipUserMessages,
+                skipTurnBoundary: opts?.skipTurnBoundary,
             });
             for (const envelope of envelopes) {
                 session.sendSessionProtocolMessage(envelope);
@@ -1159,6 +1166,12 @@ export async function runCodex(opts: {
                     // Turn was aborted (user abort or permission cancel).
                     // UI handling already done by the event handler (turn_aborted).
                     logger.debug('[Codex] Turn aborted');
+                }
+                if (result.recoveredFromHistory && result.threadId) {
+                    await backfillCodexThreadHistory(result.threadId, 'runtime-recovered-history', {
+                        skipUserMessages: true,
+                        skipTurnBoundary: true,
+                    });
                 }
             } catch (error) {
                 // Only actual errors reach here (process crash, connection failure, etc.)

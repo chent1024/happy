@@ -11,19 +11,22 @@ import { Metadata } from '@/api/types';
 import { decodeBase64 } from '@/api/encryption';
 import { TrackedSession, SessionEncryptionData } from './types';
 import { SpawnSessionOptions, SpawnSessionResult } from '@/modules/common/registerCommonHandlers';
+import type { CodexRuntimeJournalEntry } from '@/codex/runtime/codexRuntimeEventJournal';
 
 export function startDaemonControlServer({
   getChildren,
   stopSession,
   spawnSession,
   requestShutdown,
-  onHappySessionWebhook
+  onHappySessionWebhook,
+  recordCodexRuntimeJournalEntry
 }: {
   getChildren: () => TrackedSession[];
   stopSession: (sessionId: string) => boolean;
   spawnSession: (options: SpawnSessionOptions) => Promise<SpawnSessionResult>;
   requestShutdown: () => void;
   onHappySessionWebhook: (sessionId: string, metadata: Metadata, encryption?: SessionEncryptionData) => void;
+  recordCodexRuntimeJournalEntry?: (sessionId: string, entry: Omit<CodexRuntimeJournalEntry, 'seq' | 'createdAt'>) => void;
 }): Promise<{ port: number; stop: () => Promise<void> }> {
   return new Promise((resolve) => {
     const app = fastify({
@@ -121,6 +124,30 @@ export function startDaemonControlServer({
       logger.debug(`[CONTROL SERVER] Stop session request: ${sessionId}`);
       const success = stopSession(sessionId);
       return { success };
+    });
+
+    typed.post('/codex-runtime/journal-entry', {
+      schema: {
+        body: z.object({
+          sessionId: z.string(),
+          entry: z.object({
+            kind: z.enum(['lifecycle', 'event']),
+            threadId: z.string().nullable(),
+            turnId: z.string().nullable(),
+            eventType: z.string(),
+            payload: z.record(z.string(), z.unknown()).optional(),
+          }),
+        }),
+        response: {
+          200: z.object({
+            status: z.literal('ok')
+          })
+        }
+      }
+    }, async (request) => {
+      const { sessionId, entry } = request.body;
+      recordCodexRuntimeJournalEntry?.(sessionId, entry);
+      return { status: 'ok' as const };
     });
 
     // Spawn new session

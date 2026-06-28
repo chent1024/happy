@@ -37,6 +37,37 @@ export type EnsureSessionLiveOptions = {
     reason?: string;
 };
 
+export type CodexRuntimeJournalEntry = {
+    seq: number;
+    createdAt: number;
+    kind: 'lifecycle' | 'event';
+    threadId: string | null;
+    turnId: string | null;
+    eventType: string;
+    payload?: Record<string, unknown>;
+};
+
+export type CodexRuntimeStatus = {
+    sessionId: string;
+    pid: number | null;
+    threadId: string | null;
+    path: string | null;
+    active: boolean;
+    stopped: boolean;
+    createdAt: number;
+    updatedAt: number;
+};
+
+export type CodexRuntimeStatusResult = {
+    type: 'success';
+    session: CodexRuntimeStatus | null;
+};
+
+export type CodexRuntimeReplayResult = {
+    type: 'success';
+    entries: CodexRuntimeJournalEntry[];
+};
+
 type SessionWorkerLiveState =
     | {
         status: 'running' | 'resumed';
@@ -137,6 +168,39 @@ export async function machineEnsureSessionLive(options: EnsureSessionLiveOptions
             errorMessage: errorMessageFromUnknown(error),
         };
     }
+}
+
+export async function machineReadCodexRuntimeStatus(options: {
+    machineId: string;
+    sessionId: string;
+}): Promise<CodexRuntimeStatusResult> {
+    return await apiSocket.machineRPC<CodexRuntimeStatusResult, { sessionId: string }>(
+        options.machineId,
+        'codex-runtime-status',
+        { sessionId: options.sessionId },
+    );
+}
+
+export async function machineReplayCodexRuntime(options: {
+    machineId: string;
+    sessionId: string;
+    afterSeq?: number;
+    limit?: number;
+}): Promise<CodexRuntimeReplayResult> {
+    const { machineId, sessionId, afterSeq, limit } = options;
+    return await apiSocket.machineRPC<CodexRuntimeReplayResult, {
+        sessionId: string;
+        afterSeq?: number;
+        limit?: number;
+    }>(
+        machineId,
+        'codex-runtime-replay',
+        {
+            sessionId,
+            ...(afterSeq !== undefined ? { afterSeq } : {}),
+            ...(limit !== undefined ? { limit } : {}),
+        },
+    );
 }
 
 export function triggerSessionWorkerEnsureLiveForSend(session: Session): void {
