@@ -209,7 +209,12 @@ async function enrichMissingCodexThreadNames(
 
     for (const thread of threads) {
         if (nonEmptyText(thread.name) || remainingEnrichments <= 0) {
-            enriched.push(thread);
+            try {
+                await client.readThread({ threadId: thread.id, includeTurns: false });
+                enriched.push(thread);
+            } catch (error) {
+                logger.debug('[API MACHINE] Skipping unreadable Codex thread', { threadId: thread.id, error });
+            }
             continue;
         }
 
@@ -219,8 +224,7 @@ async function enrichMissingCodexThreadNames(
             const derivedName = firstUserTextFromCodexThread(response.thread);
             enriched.push(derivedName ? { ...thread, name: derivedName } : thread);
         } catch (error) {
-            logger.debug('[API MACHINE] Failed to enrich Codex thread title', { threadId: thread.id, error });
-            enriched.push(thread);
+            logger.debug('[API MACHINE] Skipping unreadable Codex thread during title enrichment', { threadId: thread.id, error });
         }
     }
 

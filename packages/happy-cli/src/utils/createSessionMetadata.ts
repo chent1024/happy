@@ -33,6 +33,8 @@ export interface CreateSessionMetadataOptions {
     startedBy?: 'daemon' | 'terminal';
     /** Active sandbox config for the session, or undefined when not used */
     sandbox?: SandboxConfig;
+    /** Codex app-server thread id used when resuming an existing Codex thread. */
+    codexThreadId?: string;
     /** Whether the backend runs with "dangerously skip permissions" behavior */
     dangerouslySkipPermissions?: boolean;
     /** Happy session id this session was forked from. */
@@ -94,6 +96,7 @@ export function createSessionMetadata(opts: CreateSessionMetadataOptions): Sessi
         flavor: opts.flavor,
         sandbox: opts.sandbox?.enabled ? opts.sandbox : null,
         dangerouslySkipPermissions: opts.dangerouslySkipPermissions ?? null,
+        ...(opts.codexThreadId ? { codexThreadId: opts.codexThreadId } : {}),
         ...(opts.parentSessionId ? { parentSessionId: opts.parentSessionId } : {}),
         ...(opts.forkedFromMessageId ? { forkedFromMessageId: opts.forkedFromMessageId } : {}),
     };

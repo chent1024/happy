@@ -227,12 +227,6 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
-                name="dev/masked-progress"
-                options={{
-                    headerTitle: '遮罩进度',
-                }}
-            />
-            <Stack.Screen
                 name="dev/shimmer-demo"
                 options={{
                     headerTitle: '闪光加载演示',

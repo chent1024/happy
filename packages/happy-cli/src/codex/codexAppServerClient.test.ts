@@ -117,10 +117,14 @@ const sandboxConfig: SandboxConfig = {
 
 describe('CodexAppServerClient sandbox integration', () => {
     const originalRustLog = process.env.RUST_LOG;
+    const originalHappierCodexAppServerBin = process.env.HAPPIER_CODEX_APP_SERVER_BIN;
+    const originalHappyCodexAppServerBin = process.env.HAPPY_CODEX_APP_SERVER_BIN;
 
     beforeEach(() => {
         vi.clearAllMocks();
         process.env.RUST_LOG = originalRustLog;
+        delete process.env.HAPPIER_CODEX_APP_SERVER_BIN;
+        delete process.env.HAPPY_CODEX_APP_SERVER_BIN;
         mockExecSync.mockReturnValue('codex-cli 0.107.0');
         mockInitializeSandbox.mockResolvedValue(mockSandboxCleanup);
         mockWrapForMcpTransport.mockResolvedValue({ command: 'sh', args: ['-c', 'wrapped codex app-server'] });
@@ -129,6 +133,16 @@ describe('CodexAppServerClient sandbox integration', () => {
 
     afterAll(() => {
         process.env.RUST_LOG = originalRustLog;
+        if (originalHappierCodexAppServerBin === undefined) {
+            delete process.env.HAPPIER_CODEX_APP_SERVER_BIN;
+        } else {
+            process.env.HAPPIER_CODEX_APP_SERVER_BIN = originalHappierCodexAppServerBin;
+        }
+        if (originalHappyCodexAppServerBin === undefined) {
+            delete process.env.HAPPY_CODEX_APP_SERVER_BIN;
+        } else {
+            process.env.HAPPY_CODEX_APP_SERVER_BIN = originalHappyCodexAppServerBin;
+        }
     });
 
     it('reports goal action support for Codex versions with goal action requests', async () => {
@@ -161,6 +175,62 @@ describe('CodexAppServerClient sandbox integration', () => {
             }),
         );
         expect(client.sandboxEnabled).toBe(true);
+
+        await client.disconnect();
+    });
+
+    it('uses the configured Codex app-server binary for version checks and spawning', async () => {
+        process.env.HAPPIER_CODEX_APP_SERVER_BIN = '/Applications/Codex.app/Contents/Resources/codex';
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+
+        await client.connect();
+
+        expect(mockExecSync).toHaveBeenCalledWith(
+            '"/Applications/Codex.app/Contents/Resources/codex" --version',
+            expect.objectContaining({ encoding: 'utf8', windowsHide: true }),
+        );
+        expect(mockSpawn).toHaveBeenCalledWith(
+            '/Applications/Codex.app/Contents/Resources/codex',
+            ['app-server', '--listen', 'stdio://'],
+            expect.anything(),
+        );
+
+        await client.disconnect();
+    });
+
+    it('passes the configured Codex app-server binary through sandbox wrapping', async () => {
+        process.env.HAPPY_CODEX_APP_SERVER_BIN = '/opt/codex';
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient(sandboxConfig);
+
+        await client.connect();
+
+        expect(mockWrapForMcpTransport).toHaveBeenCalledWith('/opt/codex', ['app-server', '--listen', 'stdio://']);
+
+        await client.disconnect();
+    });
+
+    it('prefers a newer system Codex app-server over the repo-local Codex shim', async () => {
+        mockExecSync.mockImplementation((command: string) => {
+            if (command.includes('/opt/homebrew/bin/codex')) {
+                return 'codex-cli 0.142.2';
+            }
+            if (command.includes('/Applications/Codex.app/Contents/Resources/codex')) {
+                return 'codex-cli 0.141.0';
+            }
+            return 'codex-cli 0.130.0';
+        });
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+
+        await client.connect();
+
+        expect(mockSpawn).toHaveBeenCalledWith(
+            '/opt/homebrew/bin/codex',
+            ['app-server', '--listen', 'stdio://'],
+            expect.anything(),
+        );
 
         await client.disconnect();
     });
@@ -214,6 +284,45 @@ describe('CodexAppServerClient sandbox integration', () => {
                 }),
             }),
         );
+
+        await client.disconnect();
+    });
+
+    it('rejects thread/resume when app-server returns a different thread id', async () => {
+        const requests: MockRpcMessage[] = [];
+        const proc = createMockProcess({
+            onRequest: (msg, stdout) => {
+                requests.push(msg);
+
+                if (msg.method === 'thread/resume' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: {
+                                thread: { id: 'thread-new', path: '/tmp/thread-new' },
+                                model: 'gpt-test',
+                                modelProvider: 'openai',
+                                cwd: '/tmp/project',
+                                approvalPolicy: 'on-request',
+                                sandbox: { type: 'readOnly' },
+                                reasoningEffort: null,
+                            },
+                        });
+                    }, 0);
+                }
+            },
+        });
+        mockSpawn.mockImplementationOnce(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+
+        await client.connect();
+        await expect(client.resumeThread({ threadId: 'thread-original', cwd: '/tmp/project' }))
+            .rejects.toThrow('Codex app-server resumed a different thread: expected thread-original, got thread-new');
+
+        expect(requests.some((msg) => msg.method === 'thread/resume')).toBe(true);
+        expect(client.threadId).toBeNull();
 
         await client.disconnect();
     });

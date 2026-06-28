@@ -151,6 +151,10 @@ describe('session worker live helpers', () => {
         expect(applySessions).toHaveBeenCalledWith([
             expect.objectContaining({
                 id: 'session-1',
+                active: false,
+                thinking: false,
+                thinkingAt: 0,
+                presence: 1,
                 agentState: {
                     existing: true,
                     sessionWorkerLive: {

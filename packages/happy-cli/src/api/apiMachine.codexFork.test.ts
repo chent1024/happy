@@ -36,6 +36,12 @@ describe('ApiMachineClient Codex fork RPCs', () => {
         }
         codexClientMethods.connect.mockResolvedValue(undefined);
         codexClientMethods.disconnect.mockResolvedValue(undefined);
+        codexClientMethods.readThread.mockResolvedValue({
+            thread: {
+                id: 'thread-default',
+                turns: [],
+            },
+        });
     });
 
     it('registers a full Codex thread fork RPC', async () => {
@@ -241,7 +247,73 @@ describe('ApiMachineClient Codex fork RPCs', () => {
             sortKey: 'updated_at',
             sortDirection: 'desc',
         });
+        expect(codexClientMethods.readThread).toHaveBeenCalledWith({
+            threadId: 'thread-recent',
+            includeTurns: true,
+        });
         expect(codexClientMethods.disconnect).toHaveBeenCalledOnce();
+    });
+
+    it('filters unreadable Codex threads from the imported session list', async () => {
+        codexClientMethods.listThreads.mockResolvedValue({
+            data: [
+                {
+                    id: 'thread-readable',
+                    cwd: '/tmp/project',
+                    name: 'Readable work',
+                    updatedAt: 1700000000000,
+                },
+                {
+                    id: 'thread-rollout-summary',
+                    cwd: '/tmp/project',
+                    name: 'Rollout summary',
+                    updatedAt: 1700000001000,
+                },
+            ],
+            nextCursor: null,
+            backwardsCursor: null,
+        });
+        codexClientMethods.readThread.mockImplementation(async ({ threadId }: { threadId: string }) => {
+            if (threadId === 'thread-rollout-summary') {
+                throw new Error('thread-store internal error');
+            }
+            return {
+                thread: {
+                    id: threadId,
+                    turns: [],
+                },
+            };
+        });
+
+        const { ApiMachineClient } = await import('./apiMachine');
+        const client = new ApiMachineClient('token', machineClient());
+        client.setRPCHandlers({
+            spawnSession: vi.fn(),
+            stopSession: vi.fn(),
+            requestShutdown: vi.fn(),
+        });
+
+        const result = await handlersFrom(client).get('machine-1:codex-list-threads')?.({});
+
+        expect(result).toEqual({
+            type: 'success',
+            threads: [{
+                id: 'thread-readable',
+                cwd: '/tmp/project',
+                name: 'Readable work',
+                updatedAt: 1700000000000,
+            }],
+            nextCursor: null,
+            backwardsCursor: null,
+        });
+        expect(codexClientMethods.readThread).toHaveBeenCalledWith({
+            threadId: 'thread-readable',
+            includeTurns: false,
+        });
+        expect(codexClientMethods.readThread).toHaveBeenCalledWith({
+            threadId: 'thread-rollout-summary',
+            includeTurns: false,
+        });
     });
 
     it('enriches missing Codex thread names from the first user message', async () => {

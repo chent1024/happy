@@ -3,6 +3,7 @@ import { type Fastify } from "../types";
 import { db } from "@/storage/db";
 import { dispatchSessionEventPush } from "@/app/push/pushDispatch";
 import { buildSessionEventEphemeral, eventRouter } from "@/app/events/eventRouter";
+import { auth } from "@/app/auth/auth";
 
 export function pushRoutes(app: Fastify) {
     
@@ -64,17 +65,13 @@ export function pushRoutes(app: Fastify) {
                 })
             }
         },
-        preHandler: app.authenticate
     }, async (request, reply) => {
-        const userId = request.userId;
+        const userId = await getOptionalUserId(request);
         const { token } = request.params;
 
         try {
             await db.accountPushToken.deleteMany({
-                where: {
-                    accountId: userId,
-                    token: token
-                }
+                where: userId ? { accountId: userId, token } : { token }
             });
 
             return reply.send({ success: true });
@@ -168,4 +165,15 @@ export function pushRoutes(app: Fastify) {
             return reply.code(500).send({ error: 'Failed to get push tokens' });
         }
     });
+}
+
+async function getOptionalUserId(request: { headers: { authorization?: string | string[] } }): Promise<string | null> {
+    const authHeader = request.headers.authorization;
+    const value = Array.isArray(authHeader) ? authHeader[0] : authHeader;
+    if (!value?.startsWith('Bearer ')) {
+        return null;
+    }
+
+    const verified = await auth.verifyToken(value.substring(7));
+    return verified?.userId ?? null;
 }

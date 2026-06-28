@@ -65,6 +65,8 @@ type PendingRequest = {
 };
 
 type LegacyPatchChanges = Record<string, Record<string, unknown>>;
+type CodexCliVersion = { major: number; minor: number; patch: number };
+type CodexBinaryCandidate = { command: string; version: CodexCliVersion };
 
 function createCodexAppServerEnv(baseEnv: NodeJS.ProcessEnv = process.env): Record<string, string> {
     const env: Record<string, string> = {};
@@ -73,6 +75,33 @@ function createCodexAppServerEnv(baseEnv: NodeJS.ProcessEnv = process.env): Reco
     }
 
     return stripStaleOpenAiEnvForCodexAuth(env);
+}
+
+function resolveCodexAppServerCommand(env: NodeJS.ProcessEnv = process.env): string {
+    const candidates = [
+        env.HAPPIER_CODEX_APP_SERVER_BIN,
+        env.HAPPY_CODEX_APP_SERVER_BIN,
+    ];
+
+    for (const candidate of candidates) {
+        if (typeof candidate === 'string' && candidate.trim().length > 0) {
+            return candidate;
+        }
+    }
+
+    return 'codex';
+}
+
+function getCodexAppServerCommandCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
+    const explicit = resolveCodexAppServerCommand(env);
+    const candidates = [
+        explicit,
+        '/Applications/Codex.app/Contents/Resources/codex',
+        '/opt/homebrew/bin/codex',
+        '/usr/local/bin/codex',
+        'codex',
+    ];
+    return Array.from(new Set(candidates));
 }
 
 export type ApprovalHandler = (params: {
@@ -99,7 +128,7 @@ type SteerResult = {
 /**
  * Check that `codex app-server` is available.
  */
-function parseCodexCliVersion(version: string): { major: number; minor: number; patch: number } | null {
+function parseCodexCliVersion(version: string): CodexCliVersion | null {
     const match = version.match(/codex-cli\s+(\d+)\.(\d+)\.(\d+)/);
     if (!match) return null;
     const major = Number(match[1]);
@@ -111,31 +140,53 @@ function parseCodexCliVersion(version: string): { major: number; minor: number; 
     return { major, minor, patch };
 }
 
-function readCodexCliVersion(): { major: number; minor: number; patch: number } | null {
+function compareCodexCliVersion(a: CodexCliVersion, b: CodexCliVersion): number {
+    return a.major - b.major || a.minor - b.minor || a.patch - b.patch;
+}
+
+function isCodexAppServerVersion(version: CodexCliVersion): boolean {
+    return version.major > 0 || version.minor >= 100;
+}
+
+function readCodexCliVersion(command: string): CodexCliVersion | null {
     try {
-        const version = execSync('codex --version', { encoding: 'utf8', windowsHide: true }).trim();
+        const version = execSync(`"${command.replaceAll('"', '\\"')}" --version`, { encoding: 'utf8', windowsHide: true }).trim();
         return parseCodexCliVersion(version);
     } catch {
         return null;
     }
 }
 
-function isAppServerAvailable(): boolean {
-    const version = readCodexCliVersion();
-    if (!version) {
-        return false;
+function resolveCodexAppServerBinary(env: NodeJS.ProcessEnv = process.env): CodexBinaryCandidate | null {
+    const explicit = resolveCodexAppServerCommand(env);
+    const candidates = getCodexAppServerCommandCandidates(env)
+        .map((command): CodexBinaryCandidate | null => {
+            const version = readCodexCliVersion(command);
+            return version && isCodexAppServerVersion(version) ? { command, version } : null;
+        })
+        .filter((candidate): candidate is CodexBinaryCandidate => Boolean(candidate));
+
+    if (candidates.length === 0) {
+        return null;
     }
-    const { major, minor } = version;
-    // app-server available in recent versions
-    return major > 0 || minor >= 100;
+
+    if (explicit !== 'codex') {
+        return candidates.find(candidate => candidate.command === explicit) ?? null;
+    }
+
+    return candidates.sort((a, b) => compareCodexCliVersion(b.version, a.version))[0];
+}
+
+function isAppServerAvailable(): boolean {
+    return resolveCodexAppServerBinary() !== null;
 }
 
 function isGoalActionsAvailable(): boolean {
-    const version = readCodexCliVersion();
-    if (!version) {
+    const binary = resolveCodexAppServerBinary();
+    if (!binary) {
         return false;
     }
-    const { major, minor } = version;
+    const { major, minor } = binary.version;
     // thread/goal/set and thread/goal/clear are present in Codex 0.140+.
     return major > 0 || minor >= 140;
 }
@@ -561,14 +612,19 @@ export class CodexAppServerClient {
             );
         }
 
-        let command = 'codex';
+        const resolvedCodex = resolveCodexAppServerBinary();
+        if (!resolvedCodex) {
+            throw new Error('Codex CLI is not installed or does not support app-server');
+        }
+
+        let command = resolvedCodex.command;
         let args = ['app-server', '--listen', 'stdio://'];
         this.sandboxEnabled = false;
 
         if (this.sandboxConfig?.enabled && process.platform !== 'win32') {
             try {
                 this.sandboxCleanup = await initializeSandbox(this.sandboxConfig, process.cwd());
-                const wrapped = await wrapForMcpTransport('codex', ['app-server', '--listen', 'stdio://']);
+                const wrapped = await wrapForMcpTransport(command, ['app-server', '--listen', 'stdio://']);
                 command = wrapped.command;
                 args = wrapped.args;
                 this.sandboxEnabled = true;
@@ -797,6 +853,9 @@ export class CodexAppServerClient {
         };
 
         const result = await this.request('thread/resume', params) as ResumeConversationResponse;
+        if (result.thread.id !== threadId) {
+            throw new Error(`Codex app-server resumed a different thread: expected ${threadId}, got ${result.thread.id}`);
+        }
         this._threadId = result.thread.id;
         this._turnId = null;
         this.rememberThreadDefaults({

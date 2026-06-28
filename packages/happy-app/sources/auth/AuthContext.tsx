@@ -1,9 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { TokenStorage, AuthCredentials } from '@/auth/tokenStorage';
 import { syncCreate } from '@/sync/sync';
-import { clearPersistence, loadRegisteredPushToken } from '@/sync/persistence';
-import { unregisterPushToken } from '@/sync/apiPush';
 import { reloadApp } from '@/utils/reloadApp';
+import { clearAuthSession } from './logout';
 
 interface AuthContextType {
     isAuthenticated: boolean;
@@ -36,16 +35,10 @@ export function AuthProvider({ children, initialCredentials }: { children: React
     };
 
     const logout = async () => {
-        const registeredPushToken = credentials ? loadRegisteredPushToken() : null;
-        if (credentials && registeredPushToken) {
-            try {
-                await unregisterPushToken(credentials, registeredPushToken);
-            } catch (error) {
-                console.log('Failed to unregister push token during logout:', error);
-            }
+        const result = await clearAuthSession(credentials);
+        if (!result.credentialsRemoved) {
+            throw new Error('Failed to remove credentials');
         }
-        clearPersistence();
-        await TokenStorage.removeCredentials();
         
         // Update React state to ensure UI consistency
         setCredentials(null);

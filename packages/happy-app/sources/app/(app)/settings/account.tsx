@@ -217,7 +217,12 @@ export default React.memo(() => {
             { confirmText: t('common.logout'), destructive: true }
         );
         if (confirmed) {
-            auth.logout();
+            try {
+                await auth.logout();
+            } catch (error) {
+                console.error('Failed to logout:', error);
+                Modal.alert(t('common.error'), error instanceof Error ? error.message : String(error));
+            }
         }
     };
 

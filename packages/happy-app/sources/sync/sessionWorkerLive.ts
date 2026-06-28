@@ -93,11 +93,21 @@ function applySessionWorkerLiveState(sessionId: string, result: EnsureSessionLiv
         return;
     }
 
+    const liveState = buildLiveState(result);
+    const isUnavailable = liveState.status === 'not-resumable' || liveState.status === 'error';
     storage.getState().applySessions([{
         ...currentSession,
+        ...(isUnavailable
+            ? {
+                active: false,
+                thinking: false,
+                thinkingAt: 0,
+                presence: currentSession.activeAt,
+            }
+            : {}),
         agentState: {
             ...(currentSession.agentState ?? {}),
-            sessionWorkerLive: buildLiveState(result),
+            sessionWorkerLive: liveState,
         },
     }]);
 }

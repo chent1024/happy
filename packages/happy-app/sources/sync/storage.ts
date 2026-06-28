@@ -28,7 +28,7 @@ import { sync } from "./sync";
 import { isMutableTool } from "@/components/tools/knownTools";
 import { DecryptedArtifact } from "./artifactTypes";
 import { FeedItem } from "./feedTypes";
-import { getSessionListSortTime, isProjectGroupSession } from "./sessionListVisibility";
+import { buildDuplicateImportedCodexSessionIds, getSessionListSortTime, inheritImportedCodexSessionTitles, isProjectGroupSession } from "./sessionListVisibility";
 
 // Debounce timer for realtimeMode changes
 let realtimeModeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -242,7 +242,10 @@ function buildSessionListViewData(
     const projectGroupSessions: Session[] = [];
     const inactiveSessions: Session[] = [];
 
-    Object.values(sessions).forEach(session => {
+    const duplicateImportedIds = buildDuplicateImportedCodexSessionIds(sessions);
+    const visibleSessions = Object.values(sessions).filter(session => !duplicateImportedIds.has(session.id));
+
+    visibleSessions.forEach(session => {
         if (isProjectGroupSession(session)) {
             projectGroupSessions.push(session);
         } else {
@@ -403,7 +406,7 @@ export const storage = create<StorageState>()((set, get) => {
             const savedEffortLevels = isInitialLoad ? sessionEffortLevels : {};
 
             // Merge new sessions with existing ones
-            const mergedSessions: Record<string, Session> = { ...state.sessions };
+            let mergedSessions: Record<string, Session> = { ...state.sessions };
 
             // Update sessions with calculated presence using centralized resolver
             sessions.forEach(session => {
@@ -443,9 +446,14 @@ export const storage = create<StorageState>()((set, get) => {
                 };
             });
 
+            mergedSessions = inheritImportedCodexSessionTitles(mergedSessions);
+
             // Build active set from all sessions (including existing ones)
             const activeSet = new Set<string>();
-            Object.values(mergedSessions).forEach(session => {
+            const duplicateImportedIds = buildDuplicateImportedCodexSessionIds(mergedSessions);
+            const visibleSessions = Object.values(mergedSessions).filter(session => !duplicateImportedIds.has(session.id));
+
+            visibleSessions.forEach(session => {
                 if (isProjectGroupSession(session)) {
                     activeSet.add(session.id);
                 }
@@ -456,7 +464,7 @@ export const storage = create<StorageState>()((set, get) => {
             const inactiveSessions: Session[] = [];
 
             // Process all sessions from merged set
-            Object.values(mergedSessions).forEach(session => {
+            visibleSessions.forEach(session => {
                 if (activeSet.has(session.id)) {
                     activeSessions.push(session);
                 } else {

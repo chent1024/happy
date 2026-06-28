@@ -150,6 +150,135 @@ describe('codex fork ops', () => {
         );
     });
 
+    it('resumes an imported Codex session by spawning a new Happy session from the Codex thread', async () => {
+        machineRPC.mockResolvedValue({ type: 'success', sessionId: 'happy-resumed' });
+        storageState.sessions = {
+            'happy-resumed': {
+                id: 'happy-resumed',
+                seq: 1,
+                createdAt: 1,
+                updatedAt: 1,
+                active: true,
+                activeAt: 1,
+                metadata: {
+                    machineId: 'machine-1',
+                    path: '/tmp/project',
+                    flavor: 'codex',
+                    codexThreadId: 'thread-created-after-spawn',
+                },
+                metadataVersion: 0,
+                agentState: null,
+                agentStateVersion: 0,
+                thinking: false,
+                thinkingAt: 0,
+                presence: 'online',
+            },
+        };
+
+        const { resumeImportedCodexSession } = await import('./ops');
+        const result = await resumeImportedCodexSession({
+            id: 'happy-imported',
+            updatedAt: 1700000000000,
+            metadata: {
+                machineId: 'machine-1',
+                path: '/tmp/project',
+                flavor: 'codex',
+                lifecycleState: 'imported',
+                codexThreadId: 'thread-source',
+                name: 'Continue previous work',
+                summary: { text: 'Continue previous work', updatedAt: 1699999999000 },
+            },
+        } as any);
+
+        expect(result).toEqual({ type: 'success', sessionId: 'happy-resumed' });
+        expect(machineRPC).toHaveBeenCalledWith(
+            'machine-1',
+            'spawn-happy-session',
+            expect.objectContaining({
+                type: 'spawn-in-directory',
+                directory: '/tmp/project',
+                agent: 'codex',
+                approvedNewDirectoryCreation: false,
+                resumeCodexThreadId: 'thread-source',
+                parentSessionId: 'happy-imported',
+            }),
+        );
+        expect(refreshSessions).toHaveBeenCalledTimes(1);
+        expect(applySessions).toHaveBeenCalledWith([
+            expect.objectContaining({
+                id: 'happy-resumed',
+                metadata: expect.objectContaining({
+                    name: 'Continue previous work',
+                    summary: { text: 'Continue previous work', updatedAt: 1699999999000 },
+                }),
+            }),
+        ]);
+    });
+
+    it('reuses a running Happy session for the same imported Codex thread instead of spawning again', async () => {
+        storageState.sessions = {
+            'happy-running': {
+                id: 'happy-running',
+                seq: 3,
+                createdAt: 10,
+                updatedAt: 200,
+                active: true,
+                activeAt: 200,
+                metadata: {
+                    machineId: 'machine-1',
+                    path: '/tmp/project',
+                    flavor: 'codex',
+                    lifecycleState: 'running',
+                    codexThreadId: 'thread-source',
+                },
+                metadataVersion: 1,
+                agentState: null,
+                agentStateVersion: 0,
+                thinking: false,
+                thinkingAt: 0,
+                presence: 'online',
+            },
+        };
+
+        const { resumeImportedCodexSession } = await import('./ops');
+        const result = await resumeImportedCodexSession({
+            id: 'happy-imported',
+            updatedAt: 1700000000000,
+            metadata: {
+                machineId: 'machine-1',
+                path: '/tmp/project',
+                flavor: 'codex',
+                lifecycleState: 'imported',
+                codexThreadId: 'thread-source',
+            },
+        } as any);
+
+        expect(result).toEqual({ type: 'success', sessionId: 'happy-running' });
+        expect(machineRPC).not.toHaveBeenCalled();
+        expect(refreshSessions).not.toHaveBeenCalled();
+    });
+
+    it('does not wait for session refresh when resuming an imported Codex session', async () => {
+        machineRPC.mockResolvedValue({ type: 'success', sessionId: 'happy-resumed' });
+        refreshSessions.mockReturnValue(new Promise(() => {}));
+
+        const { resumeImportedCodexSession } = await import('./ops');
+        const result = await resumeImportedCodexSession({
+            id: 'happy-imported',
+            updatedAt: 1700000000000,
+            metadata: {
+                machineId: 'machine-1',
+                path: '/tmp/project',
+                flavor: 'codex',
+                lifecycleState: 'imported',
+                codexThreadId: 'thread-source',
+            },
+        } as any);
+
+        expect(result).toEqual({ type: 'success', sessionId: 'happy-resumed' });
+        expect(refreshSessions).toHaveBeenCalledTimes(1);
+    });
+
     it('maps Codex thread metadata into an imported Happy session shape', async () => {
         const { buildCodexImportedSessionMetadata } = await import('./ops');
 

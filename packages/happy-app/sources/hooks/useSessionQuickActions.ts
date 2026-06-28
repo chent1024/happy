@@ -2,10 +2,10 @@ import * as React from 'react';
 import { useHappyAction } from '@/hooks/useHappyAction';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { Modal } from '@/modal';
-import { machineResumeSession, machineRestartSession, sessionArchiveWithStop, forkAndSpawn, type ForkSource } from '@/sync/ops';
+import { canResumeImportedCodexSession, machineResumeSession, machineRestartSession, resumeImportedCodexSession, sessionArchiveWithStop, forkAndSpawn, type ForkSource } from '@/sync/ops';
 import { maybeCleanupWorktree } from '@/hooks/useWorktreeCleanup';
 import { storage, useLocalSetting, useMachine, useSetting } from '@/sync/storage';
-import { Machine, Session } from '@/sync/storageTypes';
+import { Session } from '@/sync/storageTypes';
 import { sync } from '@/sync/sync';
 import { resolveMessageModeMeta } from '@/sync/messageMeta';
 import { t } from '@/text';
@@ -17,6 +17,7 @@ import { getSessionForkSource } from '@/utils/sessionFork';
 import { usePathname, useRouter } from 'expo-router';
 import { useSession } from '@/sync/storage';
 import { DuplicateSheet } from '@/components/DuplicateSheet';
+import { getRestartAvailability, getResumeAvailability } from './sessionQuickActionAvailability';
 import {
     buildOptimisticResumedSession,
     getResumeNavigationAction,
@@ -38,94 +39,31 @@ interface UseSessionQuickActionsOptions {
     onAfterCopySessionMetadata?: () => void;
 }
 
-type ResumeAvailability = {
-    canResume: boolean;
-    canShowResume: boolean;
-    subtitle: string;
-    message: string;
-};
-
-function getResumeAvailability(session: Session, machine: Machine | null | undefined, isConnected: boolean): ResumeAvailability {
-    if (isConnected) {
-        return {
-            canResume: false,
-            canShowResume: false,
-            subtitle: '',
-            message: '',
-        };
-    }
-
-    const machineId = session.metadata?.machineId;
-    if (!machineId) {
-        const message = t('sessionInfo.resumeSessionMissingMachine');
-        return {
-            canResume: false,
-            canShowResume: true,
-            subtitle: message,
-            message,
-        };
-    }
-
-    const hasBackendResumeId = Boolean(session.metadata?.claudeSessionId || session.metadata?.codexThreadId);
-    if (!hasBackendResumeId) {
-        const message = t('sessionInfo.resumeSessionMissingBackendId');
-        return {
-            canResume: false,
-            canShowResume: true,
-            subtitle: message,
-            message,
-        };
-    }
-
-    if (!machine) {
-        const message = t('sessionInfo.resumeSessionSameMachineOnly');
-        return {
-            canResume: false,
-            canShowResume: true,
-            subtitle: message,
-            message,
-        };
-    }
-
-    if (!isMachineOnline(machine)) {
-        return {
-            canResume: false,
-            canShowResume: true,
-            subtitle: t('sessionInfo.resumeSessionMachineOffline'),
-            message: t('sessionInfo.resumeSessionMachineOffline'),
-        };
-    }
-
-    return {
-        canResume: true,
-        canShowResume: true,
-        subtitle: t('sessionInfo.resumeSessionSubtitle'),
-        message: t('sessionInfo.resumeSessionSubtitle'),
-    };
+function buildOptimisticSessionForResume(source: Session, resumedSessionId: string, activeAt: number): Session {
+    const targetSession = source.id === resumedSessionId ? source : { ...source, id: resumedSessionId };
+    return buildOptimisticResumedSession(targetSession, activeAt);
 }
 
-function getRestartAvailability(session: Session, machine: Machine | null | undefined, isConnected: boolean): ResumeAvailability {
-    const machineId = session.metadata?.machineId;
-    if (!machineId) {
-        const message = t('sessionInfo.resumeSessionMissingMachine');
-        return {
-            canResume: false,
-            canShowResume: true,
-            subtitle: message,
-            message,
-        };
+function refreshResumedSessionInBackground(resumedSessionId: string, resumeStartedAt: number): void {
+    let refreshResult: Promise<void> | void;
+    try {
+        refreshResult = sync.refreshSessions();
+    } catch {
+        return;
     }
 
-    if (isConnected) {
-        return {
-            canResume: true,
-            canShowResume: true,
-            subtitle: t('sessionInfo.restartSession'),
-            message: t('sessionInfo.restartSession'),
-        };
-    }
-
-    return getResumeAvailability(session, machine, false);
+    void Promise.resolve(refreshResult)
+        .then(() => {
+            const refreshedSession = storage.getState().sessions[resumedSessionId];
+            if (shouldReapplyOptimisticResume(refreshedSession, resumeStartedAt)) {
+                storage.getState().applySessions([
+                    buildOptimisticResumedSession(refreshedSession, resumeStartedAt),
+                ]);
+            }
+        })
+        .catch(() => {
+            // Realtime activity updates will still reconcile the row.
+        });
 }
 
 export function useSessionQuickActions(
@@ -144,13 +82,21 @@ export function useSessionQuickActions(
     const machine = useMachine(machineId);
     const devModeEnabled = useLocalSetting('devModeEnabled');
     const expResumeSession = useSetting('expResumeSession');
+    const availabilityLabels = React.useMemo(() => ({
+        resumeSessionSubtitle: t('sessionInfo.resumeSessionSubtitle'),
+        resumeSessionMissingMachine: t('sessionInfo.resumeSessionMissingMachine'),
+        resumeSessionMissingBackendId: t('sessionInfo.resumeSessionMissingBackendId'),
+        resumeSessionSameMachineOnly: t('sessionInfo.resumeSessionSameMachineOnly'),
+        resumeSessionMachineOffline: t('sessionInfo.resumeSessionMachineOffline'),
+        restartSession: t('sessionInfo.restartSession'),
+    }), []);
     const resumeAvailability = React.useMemo(
-        () => expResumeSession ? getResumeAvailability(session, machine, sessionStatus.isConnected) : { canResume: false, canShowResume: false, subtitle: '', message: '' },
-        [machine, session, sessionStatus.isConnected, expResumeSession],
+        () => expResumeSession ? getResumeAvailability(session, machine, sessionStatus.isConnected, availabilityLabels) : { canResume: false, canShowResume: false, subtitle: '', message: '' },
+        [availabilityLabels, machine, session, sessionStatus.isConnected, expResumeSession],
     );
     const restartAvailability = React.useMemo(
-        () => expResumeSession ? getRestartAvailability(session, machine, sessionStatus.isConnected) : { canResume: false, canShowResume: false, subtitle: '', message: '' },
-        [machine, session, sessionStatus.isConnected, expResumeSession],
+        () => expResumeSession ? getRestartAvailability(session, machine, sessionStatus.isConnected, availabilityLabels) : { canResume: false, canShowResume: false, subtitle: '', message: '' },
+        [availabilityLabels, machine, session, sessionStatus.isConnected, expResumeSession],
     );
 
     // Fork eligibility — separate from resume because fork works on both
@@ -204,12 +150,14 @@ export function useSessionQuickActions(
         }
 
         const modeMeta = resolveMessageModeMeta(session, storage.getState().settings);
-        const result = await machineResumeSession({
-            machineId,
-            sessionId: session.id,
-            model: modeMeta.model ?? undefined,
-            permissionMode: modeMeta.permissionMode,
-        });
+        const result = canResumeImportedCodexSession(session)
+            ? await resumeImportedCodexSession(session)
+            : await machineResumeSession({
+                machineId,
+                sessionId: session.id,
+                model: modeMeta.model ?? undefined,
+                permissionMode: modeMeta.permissionMode,
+            });
 
         switch (result.type) {
             case 'success': {
@@ -219,7 +167,7 @@ export function useSessionQuickActions(
                 const resumeStartedAt = Date.now();
                 const currentSession = storage.getState().sessions[result.sessionId] ?? session;
                 storage.getState().applySessions([
-                    buildOptimisticResumedSession(currentSession, resumeStartedAt),
+                    buildOptimisticSessionForResume(currentSession, result.sessionId, resumeStartedAt),
                 ]);
 
                 if (session.permissionMode) {
@@ -240,17 +188,7 @@ export function useSessionQuickActions(
                     navigateToSession(result.sessionId);
                 }
 
-                try {
-                    await sync.refreshSessions();
-                    const refreshedSession = storage.getState().sessions[result.sessionId];
-                    if (shouldReapplyOptimisticResume(refreshedSession, resumeStartedAt)) {
-                        storage.getState().applySessions([
-                            buildOptimisticResumedSession(refreshedSession, resumeStartedAt),
-                        ]);
-                    }
-                } catch {
-                    // Realtime activity updates will still reconcile the row.
-                }
+                refreshResumedSessionInBackground(result.sessionId, resumeStartedAt);
                 return;
             }
             case 'requestToApproveDirectoryCreation':
@@ -283,7 +221,7 @@ export function useSessionQuickActions(
                 const restartStartedAt = Date.now();
                 const currentSession = storage.getState().sessions[result.sessionId] ?? session;
                 storage.getState().applySessions([
-                    buildOptimisticResumedSession(currentSession, restartStartedAt),
+                    buildOptimisticSessionForResume(currentSession, result.sessionId, restartStartedAt),
                 ]);
 
                 if (session.permissionMode) {
@@ -304,17 +242,7 @@ export function useSessionQuickActions(
                     navigateToSession(result.sessionId);
                 }
 
-                try {
-                    await sync.refreshSessions();
-                    const refreshedSession = storage.getState().sessions[result.sessionId];
-                    if (shouldReapplyOptimisticResume(refreshedSession, restartStartedAt)) {
-                        storage.getState().applySessions([
-                            buildOptimisticResumedSession(refreshedSession, restartStartedAt),
-                        ]);
-                    }
-                } catch {
-                    // Realtime activity updates will still reconcile the row.
-                }
+                refreshResumedSessionInBackground(result.sessionId, restartStartedAt);
                 return;
             }
             case 'not-resumable':

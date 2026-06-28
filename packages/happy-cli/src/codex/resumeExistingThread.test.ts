@@ -72,4 +72,35 @@ describe('resumeExistingThread', () => {
             }),
         ).rejects.toThrow('Failed to resume Codex thread thread-404: thread not found');
     });
+
+    it('rejects resume results that switch to a different Codex thread', async () => {
+        const client = {
+            resumeThread: vi.fn().mockResolvedValue({
+                threadId: 'thread-new',
+                model: 'gpt-5.4',
+            }),
+        };
+        const session = {
+            updateMetadata: vi.fn(),
+            sendSessionEvent: vi.fn(),
+        };
+        const messageBuffer = {
+            addMessage: vi.fn(),
+        };
+
+        await expect(
+            resumeExistingThread({
+                client,
+                session,
+                messageBuffer,
+                threadId: 'thread-original',
+                cwd: '/tmp/project',
+                mcpServers: {},
+            }),
+        ).rejects.toThrow('Failed to resume Codex thread thread-original: Codex app-server resumed a different thread: expected thread-original, got thread-new');
+
+        expect(session.updateMetadata).not.toHaveBeenCalled();
+        expect(messageBuffer.addMessage).not.toHaveBeenCalled();
+        expect(session.sendSessionEvent).not.toHaveBeenCalled();
+    });
 });

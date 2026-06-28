@@ -480,6 +480,8 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
     const { canResume, canShowRestart, resumeSession, restartSession, resumingSession, restartingSession } = useSessionQuickActions(session);
     const isDisconnected = !sessionStatus.isConnected;
     const resumeCommandBlock = getResumeCommandBlock(session);
+    const recoverSession = isDisconnected ? (canResume ? resumeSession : undefined) : (canShowRestart ? restartSession : undefined);
+    const recoveringSession = isDisconnected ? resumingSession : restartingSession;
 
     // Image attachment state (expImageUpload feature flag)
     const expImageUpload = useSetting('expImageUpload');
@@ -660,8 +662,8 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
             connectionStatus={connectionStatus}
             blockSend={false}
             onSend={handleSend}
-            onRestartSession={canShowRestart ? restartSession : undefined}
-            isRestartingSession={restartingSession}
+            onRecoverSession={recoverSession}
+            isRecoveringSession={recoveringSession}
             onAbort={isDisconnected ? undefined : handleAbort}
             showAbortButton={sessionStatus.state === 'thinking' || sessionStatus.state === 'waiting'}
             onFileViewerPress={experiments && !isTablet ? handleFileViewerPress : undefined}
@@ -677,20 +679,13 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
         />
     );
 
-    // Disconnected sessions get the full Resume affordance regardless of
-    // whether they were explicitly archived or just lost their CLI (e.g.
-    // Ctrl-C in terminal — lifecycleState stays 'running', server flips
-    // active=false). InactiveArchivedHint handles both cases: shows the
-    // Resume button when canResume is true, falls back to the
-    // copy-this-command hint when the experiments toggle is off or the
-    // machine isn't reachable.
+    // Disconnected sessions get a state hint near the composer. The recovery
+    // action itself lives in AgentInput so resume and restart share one entry.
     const inactiveHint = isDisconnected ? (
         <CenteredInputWidth horizontalPadding={sessionInputHorizontalPadding}>
             <InactiveArchivedHint
                 resumeCommandBlock={expResumeSession ? resumeCommandBlock : null}
                 canResume={canResume}
-                resuming={resumingSession}
-                onResume={resumeSession}
             />
         </CenteredInputWidth>
     ) : null;
@@ -997,8 +992,6 @@ function SessionHeaderDetailsButton(props: { session: Session }) {
 function InactiveArchivedHint(props: {
     resumeCommandBlock: NonNullable<ReturnType<typeof getResumeCommandBlock>> | null;
     canResume: boolean;
-    resuming: boolean;
-    onResume: () => void;
 }) {
     const { theme } = useUnistyles();
     const hintTextStyle = {
@@ -1025,29 +1018,7 @@ function InactiveArchivedHint(props: {
                     </Text>
                 )}
             </View>
-            {props.canResume ? (
-                <Pressable
-                    onPress={props.onResume}
-                    disabled={props.resuming}
-                    style={({ pressed }) => ({
-                        height: 40,
-                        borderRadius: 10,
-                        backgroundColor: theme.colors.button.primary.background,
-                        opacity: props.resuming ? 0.6 : pressed ? 0.8 : 1,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        marginHorizontal: 8,
-                    })}
-                >
-                    {props.resuming ? (
-                        <ActivityIndicator size="small" color={theme.colors.button.primary.tint} />
-                    ) : (
-                        <Text style={{ color: theme.colors.button.primary.tint, fontSize: 15, fontWeight: '600' }}>
-                            {t('sessionInfo.resumeSession')}
-                        </Text>
-                    )}
-                </Pressable>
-            ) : props.resumeCommandBlock && (
+            {!props.canResume && props.resumeCommandBlock && (
                 <ResumeCommandCopyBlock resumeCommandBlock={props.resumeCommandBlock} />
             )}
         </View>

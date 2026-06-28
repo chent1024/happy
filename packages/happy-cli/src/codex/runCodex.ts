@@ -35,12 +35,14 @@ import {
     mapCodexProcessorMessageToSessionEnvelopes,
 } from './utils/sessionProtocolMapper';
 import { resumeExistingThread } from './resumeExistingThread';
+import { buildCodexSessionTag } from './codexSessionTag';
 import { emitReadyIfIdle } from './emitReadyIfIdle';
 import { enqueueCodexUserText, isCodexClearText } from './codexClearCommand';
 import { downloadCodexFileEventAttachment } from './utils/attachmentEvents';
 import { prepareCodexImageInputItems } from './utils/imageInput';
 import { createSerialAsyncHandler } from './utils/serialAsyncHandler';
 import { buildCodexThreadBackfillEnvelopes } from './utils/threadImageBackfill';
+import { shouldBackfillCodexThread } from './codexThreadBackfill';
 import {
     buildCodexTurnPrompt,
     hashCodexEnhancedMode,
@@ -181,8 +183,6 @@ export async function runCodex(opts: {
     // Define session
     //
 
-    const sessionTag = randomUUID();
-
     // Set backend for offline warnings (before any API calls)
     connectionState.setBackend('Codex');
 
@@ -216,6 +216,9 @@ export async function runCodex(opts: {
     // Lineage from the daemon's spawn RPC (set by app-side fork / duplicate).
     const forkedFromSessionId = process.env.HAPPY_FORKED_FROM_SESSION_ID;
     const forkedFromMessageId = process.env.HAPPY_FORKED_FROM_MESSAGE_ID;
+    const sessionTag = buildCodexSessionTag(machineId, opts.resumeThreadId, randomUUID(), {
+        parentSessionId: forkedFromSessionId,
+    });
 
     const { state, metadata } = createSessionMetadata({
         flavor: 'codex',
@@ -223,6 +226,7 @@ export async function runCodex(opts: {
         startedBy: opts.startedBy,
         sandbox: sandboxConfig,
         dangerouslySkipPermissions: initialPermissionMode === 'yolo' || initialPermissionMode === 'bypassPermissions',
+        ...(opts.resumeThreadId ? { codexThreadId: opts.resumeThreadId } : {}),
         ...(forkedFromSessionId ? { parentSessionId: forkedFromSessionId } : {}),
         ...(forkedFromMessageId ? { forkedFromMessageId } : {}),
     });
@@ -950,6 +954,31 @@ export async function runCodex(opts: {
     } as const;
     let first = true;
     let appendSystemPromptInjected = false;
+    const backfillCodexThreadHistory = async (threadId: string, reason: string): Promise<void> => {
+        try {
+            const { thread } = await client.readThread({
+                threadId,
+                includeTurns: true,
+            });
+            const envelopes = await buildCodexThreadBackfillEnvelopes({
+                thread,
+                uploadLocalImage: (attachment, imageOpts) => (
+                    session.uploadLocalImageAttachmentEnvelope(attachment, imageOpts)
+                ),
+            });
+            for (const envelope of envelopes) {
+                session.sendSessionProtocolMessage(envelope);
+            }
+            session.updateMetadata((currentMetadata) => ({
+                ...currentMetadata,
+                codexThreadId: threadId,
+                codexBackfilledThreadId: threadId,
+            }));
+            logger.debug(`[CODEX THREAD BACKFILL] Replayed ${envelopes.length} historical envelopes from thread ${threadId} (${reason})`);
+        } catch (error) {
+            logger.debug(`[CODEX THREAD BACKFILL] Failed to read thread ${threadId} (${reason}):`, error);
+        }
+    };
 
     try {
         logger.debug('[codex]: client.connect begin');
@@ -958,42 +987,41 @@ export async function runCodex(opts: {
         await refreshCodexAccountRateLimitsState();
 
         if (opts.resumeThreadId) {
-            await resumeExistingThread({
-                client,
-                session,
-                messageBuffer,
+            try {
+                await resumeExistingThread({
+                    client,
+                    session,
+                    messageBuffer,
+                    threadId: opts.resumeThreadId,
+                    cwd: process.cwd(),
+                    mcpServers,
+                });
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                logger.warn('[Codex] Failed to resume existing thread:', error);
+                messageBuffer.addMessage(message, 'status');
+                session.sendSessionEvent({ type: 'message', message });
+                throw error;
+            }
+            const resumeThreadId = opts.resumeThreadId;
+            if (resumeThreadId && shouldBackfillCodexThread({
                 threadId: opts.resumeThreadId,
-                cwd: process.cwd(),
-                mcpServers,
-            });
+                sessionSeq: response?.seq,
+                metadata: session.getMetadata(),
+            })) {
+                await backfillCodexThreadHistory(resumeThreadId, 'resume-empty-happy-session');
+            }
             first = false;
             appendSystemPromptInjected = true;
         }
 
         const forkCodexThreadId = process.env.HAPPY_FORK_CODEX_THREAD_ID;
-        if (!reconnectSessionId && forkCodexThreadId) {
-            try {
-                const { thread } = await client.readThread({
-                    threadId: forkCodexThreadId,
-                    includeTurns: true,
-                });
-                const envelopes = await buildCodexThreadBackfillEnvelopes({
-                    thread,
-                    uploadLocalImage: (attachment, imageOpts) => (
-                        session.uploadLocalImageAttachmentEnvelope(attachment, imageOpts)
-                    ),
-                });
-                for (const envelope of envelopes) {
-                    session.sendSessionProtocolMessage(envelope);
-                }
-                session.updateMetadata((currentMetadata) => ({
-                    ...currentMetadata,
-                    codexThreadId: forkCodexThreadId,
-                }));
-                logger.debug(`[CODEX FORK BACKFILL] Replayed ${envelopes.length} historical envelopes from thread ${forkCodexThreadId}`);
-            } catch (error) {
-                logger.debug(`[CODEX FORK BACKFILL] Failed to read thread ${forkCodexThreadId}:`, error);
-            }
+        if (forkCodexThreadId && shouldBackfillCodexThread({
+            threadId: forkCodexThreadId,
+            sessionSeq: response?.seq,
+            metadata: session.getMetadata(),
+        })) {
+            await backfillCodexThreadHistory(forkCodexThreadId, 'fork');
         }
 
         let pending: { message: string; mode: EnhancedMode; isolate: boolean; hash: string; attachments?: PendingAttachment[] } | null = null;

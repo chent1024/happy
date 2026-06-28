@@ -1,8 +1,6 @@
 import fs from 'fs/promises';
 import os from 'os';
 import * as tmp from 'tmp';
-import axios from 'axios';
-
 import { ApiClient } from '@/api/api';
 import { TrackedSession, SessionEncryptionData } from './types';
 import { MachineMetadata, DaemonState, Metadata } from '@/api/types';
@@ -34,8 +32,10 @@ import { expandEnvironmentVariables } from '@/utils/expandEnvVars';
 import { detectCLIAvailability } from '@/utils/detectCLI';
 import { buildResumeLaunch } from '@/resume/handleResumeCommand';
 import { detectResumeSupport } from '@/resume/localHappyAgentAuth';
-import { encodeBase64, decodeBase64, decrypt } from '@/api/encryption';
+import { encodeBase64, decodeBase64 } from '@/api/encryption';
 import { createHappyChildEnv, createHappyTmuxChildEnv } from '@/utils/happyReconnectEnv';
+import { fetchServerSessionSnapshot } from './serverSessionSnapshot';
+import { mergeServerSessionMetadataForResume } from './sessionMetadataMerge';
 
 const SESSION_STARTUP_STABILITY_WINDOW_MS = 3_000;
 
@@ -702,21 +702,27 @@ export async function startDaemon(): Promise<void> {
       });
     };
 
-    const fetchServerSessionMetadata = async (sessionId: string, encryptionKey: Uint8Array, encryptionVariant: 'legacy' | 'dataKey'): Promise<Metadata | null> => {
-      try {
-        const response = await axios.get(`${configuration.serverUrl}/v1/sessions`, {
-          headers: { Authorization: `Bearer ${credentials.token}` },
-          timeout: 10_000,
-        });
-        const sessions = (response.data as { sessions: { id: string; metadata: string }[] }).sessions;
-        const matched = sessions.find(s => s.id === sessionId);
-        if (!matched) return null;
-        const decrypted = decrypt(encryptionKey, encryptionVariant, decodeBase64(matched.metadata));
-        return decrypted as Metadata | null;
-      } catch (error) {
-        logger.debug(`[DAEMON RUN] Failed to fetch session metadata from server: ${error instanceof Error ? error.message : error}`);
+    const refreshTrackedSessionFromServer = async (sessionId: string, session: TrackedSession): Promise<Metadata | null> => {
+      if (!session.encryption) {
         return null;
       }
+      const snapshot = await fetchServerSessionSnapshot({
+        sessionId,
+        token: credentials.token,
+        encryptionKey: session.encryption.encryptionKey,
+        encryptionVariant: session.encryption.encryptionVariant,
+        log: message => logger.debug(`[DAEMON RUN] ${message}`),
+      });
+      if (!snapshot) {
+        return null;
+      }
+      session.encryption.seq = Math.max(session.encryption.seq, snapshot.seq);
+      session.encryption.metadataVersion = Math.max(session.encryption.metadataVersion, snapshot.metadataVersion);
+      session.encryption.agentStateVersion = Math.max(session.encryption.agentStateVersion, snapshot.agentStateVersion);
+      if (snapshot.metadata) {
+        session.happySessionMetadataFromLocalWebhook = snapshot.metadata;
+      }
+      return snapshot.metadata;
     };
 
     const refreshSessionMetadataForResumeIfNeeded = async (sessionId: string, session: TrackedSession | undefined): Promise<void> => {
@@ -729,13 +735,11 @@ export async function startDaemon(): Promise<void> {
       }
 
       logger.debug(`[DAEMON RUN] Fetching fresh metadata before ensure-live for session ${sessionId}`);
-      const serverMetadata = await fetchServerSessionMetadata(
-        sessionId,
-        session.encryption.encryptionKey,
-        session.encryption.encryptionVariant,
-      );
+      const serverMetadata = await refreshTrackedSessionFromServer(sessionId, session);
       if (serverMetadata) {
-        session.happySessionMetadataFromLocalWebhook = serverMetadata;
+        session.happySessionMetadataFromLocalWebhook = metadata
+          ? mergeServerSessionMetadataForResume(metadata, serverMetadata)
+          : serverMetadata;
       }
     };
 
@@ -759,10 +763,16 @@ export async function startDaemon(): Promise<void> {
           || (!metadata.codexThreadId && metadata.flavor === 'codex');
         if (needsFetch) {
           logger.debug(`[DAEMON RUN] Session ${happySessionId} missing agent session ID in webhook metadata, fetching from server`);
-          const serverMetadata = await fetchServerSessionMetadata(happySessionId, tracked.encryption.encryptionKey, tracked.encryption.encryptionVariant);
+          const serverMetadata = await refreshTrackedSessionFromServer(happySessionId, tracked);
           if (serverMetadata) {
-            metadata = serverMetadata;
-            tracked.happySessionMetadataFromLocalWebhook = serverMetadata;
+            metadata = mergeServerSessionMetadataForResume(metadata, serverMetadata);
+            tracked.happySessionMetadataFromLocalWebhook = metadata;
+          }
+        } else {
+          const serverMetadata = await refreshTrackedSessionFromServer(happySessionId, tracked);
+          if (serverMetadata) {
+            metadata = mergeServerSessionMetadataForResume(metadata, serverMetadata);
+            tracked.happySessionMetadataFromLocalWebhook = metadata;
           }
         }
 

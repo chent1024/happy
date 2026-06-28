@@ -771,6 +771,110 @@ export async function machineResumeSession(options: ResumeSessionOptions & { mod
     }
 }
 
+export function canResumeImportedCodexSession(session: Session): boolean {
+    return Boolean(
+        session.metadata?.flavor === 'codex'
+        && session.metadata.lifecycleState === 'imported'
+        && session.metadata.machineId
+        && session.metadata.codexThreadId
+        && session.metadata.path,
+    );
+}
+
+function applyImportedCodexTitleToResumedSession(source: Session, resumedSessionId: string): void {
+    const resumedSession = storage.getState().sessions[resumedSessionId];
+    const sourceMetadata = source.metadata;
+    if (!resumedSession?.metadata || !sourceMetadata) {
+        return;
+    }
+
+    const inheritedName = firstNonEmpty(sourceMetadata.name, sourceMetadata.summary?.text);
+    const inheritedSummary = sourceMetadata.summary;
+
+    if (!inheritedName && !inheritedSummary) {
+        return;
+    }
+
+    storage.getState().applySessions([{
+        ...resumedSession,
+        metadata: {
+            ...resumedSession.metadata,
+            ...(inheritedName ? { name: inheritedName } : {}),
+            ...(inheritedSummary ? { summary: inheritedSummary } : {}),
+        },
+    }]);
+}
+
+function findRunningCodexSessionForImportedThread(source: Session): Session | null {
+    const sourceMetadata = source.metadata;
+    if (!sourceMetadata?.machineId || !sourceMetadata.codexThreadId) {
+        return null;
+    }
+
+    const matches = Object.values(storage.getState().sessions)
+        .filter((session) => (
+            session.id !== source.id
+            && session.metadata?.machineId === sourceMetadata.machineId
+            && session.metadata?.flavor === 'codex'
+            && session.metadata?.codexThreadId === sourceMetadata.codexThreadId
+            && session.metadata?.lifecycleState !== 'imported'
+            && (session.active || session.metadata?.lifecycleState === 'running')
+        ))
+        .sort((a, b) => (b.activeAt || b.updatedAt || 0) - (a.activeAt || a.updatedAt || 0));
+
+    return matches[0] ?? null;
+}
+
+function refreshSessionsInBackground(afterRefresh?: () => void): void {
+    let refreshResult: Promise<void> | void;
+    try {
+        refreshResult = sync.refreshSessions();
+    } catch {
+        return;
+    }
+
+    void Promise.resolve(refreshResult)
+        .then(() => {
+            afterRefresh?.();
+        })
+        .catch(() => {
+            // Broadcast sync will still hydrate sessions when this fetch flakes.
+        });
+}
+
+export async function resumeImportedCodexSession(session: Session): Promise<SpawnSessionResult> {
+    const metadata = session.metadata;
+    if (!metadata?.machineId || !metadata.codexThreadId || !metadata.path) {
+        return {
+            type: 'error',
+            errorMessage: 'Imported Codex session is missing machine, thread, or path metadata.',
+        };
+    }
+
+    const runningSession = findRunningCodexSessionForImportedThread(session);
+    if (runningSession) {
+        return { type: 'success', sessionId: runningSession.id };
+    }
+
+    const spawnResult = await machineSpawnNewSession({
+        machineId: metadata.machineId,
+        directory: metadata.path,
+        agent: 'codex',
+        approvedNewDirectoryCreation: false,
+        resumeCodexThreadId: metadata.codexThreadId,
+        parentSessionId: session.id,
+    });
+
+    if (spawnResult.type === 'success') {
+        applyImportedCodexTitleToResumedSession(session, spawnResult.sessionId);
+        refreshSessionsInBackground(() => {
+            applyImportedCodexTitleToResumedSession(session, spawnResult.sessionId);
+        });
+    }
+
+    return spawnResult;
+}
+
 export async function machineRestartSession(options: ResumeSessionOptions & { model?: string; permissionMode?: string }): Promise<RestartSessionResult> {
     const { machineId, sessionId, model, permissionMode } = options;
 
@@ -1314,11 +1418,7 @@ export async function forkAndSpawn(
         });
 
         if (spawnResult.type === 'success') {
-            try {
-                await sync.refreshSessions();
-            } catch {
-                // Refresh is best-effort; broadcast sync will still hydrate.
-            }
+            refreshSessionsInBackground();
         }
 
         return spawnResult;
@@ -1351,17 +1451,11 @@ export async function forkAndSpawn(
         forkedFromMessageId: opts.forkedFromMessageId,
     });
 
-    // Pull the newly-created session row into local sync state before we
-    // hand control back to the caller — otherwise router.replace into the
-    // new session id races the broadcast and the app screams
-    // "Session X not found" until the next sync tick lands.
+    // Pull the newly-created session row into local sync state in the
+    // background. The spawn RPC already returned the new ID, so refresh must
+    // not keep action buttons spinning on slow mobile links.
     if (spawnResult.type === 'success') {
-        try {
-            await sync.refreshSessions();
-        } catch {
-            // Refresh is best-effort; the broadcast will still hydrate the
-            // session shortly even if this fetch flaked.
-        }
+        refreshSessionsInBackground();
     }
 
     return spawnResult;

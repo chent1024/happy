@@ -51,8 +51,8 @@ interface AgentInputProps {
     availableEffortLevels?: EffortLevel[];
     onEffortLevelChange?: (level: EffortLevel) => void;
     metadata?: Metadata | null;
-    onRestartSession?: () => void;
-    isRestartingSession?: boolean;
+    onRecoverSession?: () => void;
+    isRecoveringSession?: boolean;
     onAbort?: () => void | Promise<void>;
     showAbortButton?: boolean;
     connectionStatus?: {
@@ -1363,12 +1363,12 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                 </View>}
 
                                 <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 0, gap: 2 }}>
-                                    {/* Restart session button */}
-                                    {props.onRestartSession && (
+                                    {/* Recover session button: restart when connected, resume when disconnected. */}
+                                    {props.onRecoverSession && (
                                         <Pressable
                                             onPress={() => {
                                                 hapticsLight();
-                                                props.onRestartSession?.();
+                                                props.onRecoverSession?.();
                                             }}
                                             hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
                                             style={(p) => ({
@@ -1381,9 +1381,9 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                                 height: 32,
                                                 opacity: p.pressed ? 0.7 : 1,
                                             })}
-                                            disabled={props.isRestartingSession}
+                                            disabled={props.isRecoveringSession}
                                         >
-                                            {props.isRestartingSession ? (
+                                            {props.isRecoveringSession ? (
                                                 <ActivityIndicator
                                                     size="small"
                                                     color={theme.colors.button.secondary.tint}
