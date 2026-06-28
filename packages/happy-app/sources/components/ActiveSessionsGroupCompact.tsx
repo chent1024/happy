@@ -31,7 +31,7 @@ const STATUS_CONFIG: Record<SessionState, { color: string; dotColor: string; isP
 };
 
 const PROJECT_VISIBLE_SESSION_COUNT = 3;
-const PROJECT_SESSION_ROW_HEIGHT = 56;
+const PROJECT_SESSION_ROW_HEIGHT = 52;
 
 interface ActiveSessionsGroupProps {
     sessions: SessionRowData[];
@@ -170,7 +170,7 @@ const SectionHeader = React.memo(({
                 hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
                 style={[styles.addButton, { opacity: Platform.OS !== 'web' || isHovered ? 1 : 0 }]}
             >
-                <Ionicons name="add-outline" size={14} color={theme.colors.textSecondary} />
+                <Ionicons name="add-outline" size={18} color={theme.colors.textSecondary} />
             </Pressable>
         </Pressable>
     );
@@ -436,8 +436,6 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
             );
         } else if (session.state === 'permission_required' || session.state === 'thinking') {
             indicator = <StatusDot color={status.dotColor} isPulsing={status.isPulsing} />;
-        } else if (session.state === 'waiting') {
-            indicator = <StatusDot color={theme.colors.textSecondary} isPulsing={false} />;
         }
 
         return (
@@ -524,21 +522,21 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     // Section header styles
     sectionHeader: {
-        paddingTop: 12,
-        paddingBottom: Platform.select({ ios: 6, default: 8 }),
-        paddingHorizontal: Platform.select({ ios: 32, default: 24 }),
+        paddingTop: 10,
+        paddingBottom: Platform.select({ ios: 5, default: 6 }),
+        paddingHorizontal: Platform.select({ ios: 28, default: 24 }),
         flexDirection: 'row',
         alignItems: 'center',
     },
     sectionHeaderSingleLine: {
-        paddingTop: 12,
-        paddingBottom: Platform.select({ ios: 6, default: 8 }),
-        paddingHorizontal: Platform.select({ ios: 32, default: 24 }),
+        paddingTop: 10,
+        paddingBottom: Platform.select({ ios: 5, default: 6 }),
+        paddingHorizontal: Platform.select({ ios: 28, default: 24 }),
         flexDirection: 'row',
         alignItems: 'center',
     },
     sectionHeaderAvatar: {
-        marginRight: 8,
+        marginRight: 10,
     },
     projectInitialAvatar: {
         alignItems: 'center',
@@ -560,10 +558,10 @@ const stylesheet = StyleSheet.create((theme) => ({
     sectionHeaderPath: {
         ...Typography.default('regular'),
         color: theme.colors.groupped.sectionTitle,
-        fontSize: Platform.select({ ios: 13, default: 14 }),
-        lineHeight: Platform.select({ ios: 18, default: 20 }),
-        letterSpacing: Platform.select({ ios: -0.08, default: 0.1 }),
-        fontWeight: Platform.select({ ios: 'normal', default: '500' }),
+        fontSize: 15,
+        lineHeight: 20,
+        letterSpacing: 0,
+        fontWeight: '500',
         flexShrink: 1,
     },
     branchRow: {
@@ -572,7 +570,8 @@ const stylesheet = StyleSheet.create((theme) => ({
         marginTop: 1,
     },
     branchText: {
-        fontSize: 11,
+        fontSize: 12,
+        lineHeight: 16,
         color: theme.colors.textSecondary,
         ...Typography.default('regular'),
         flexShrink: 1,
@@ -581,20 +580,27 @@ const stylesheet = StyleSheet.create((theme) => ({
         marginLeft: 4,
     },
     addedText: {
-        fontSize: 11,
+        fontSize: 12,
+        lineHeight: 16,
         fontWeight: '600',
         color: theme.colors.gitAddedText,
         marginLeft: 6,
     },
     removedText: {
-        fontSize: 11,
+        fontSize: 12,
+        lineHeight: 16,
         fontWeight: '600',
         color: theme.colors.gitRemovedText,
         marginLeft: 3,
     },
     addButton: {
-        marginLeft: 4,
-        padding: 8,
+        width: 28,
+        height: 28,
+        marginLeft: 8,
+        borderRadius: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.surfaceHigh,
     },
     // Machine separator styles
     machineSeparator: {
@@ -618,14 +624,16 @@ const stylesheet = StyleSheet.create((theme) => ({
     // Project card styles
     projectCard: {
         backgroundColor: theme.colors.surface,
-        marginBottom: 8,
-        marginHorizontal: Platform.select({ ios: 16, default: 12 }),
-        borderRadius: Platform.select({ ios: 10, default: 16 }),
+        marginBottom: 6,
+        marginHorizontal: Platform.select({ ios: 18, default: 14 }),
+        borderRadius: 14,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
         overflow: 'hidden',
         shadowColor: theme.colors.shadow.color,
-        shadowOffset: { width: 0, height: 0.33 },
-        shadowOpacity: theme.colors.shadow.opacity,
-        shadowRadius: 0,
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: theme.colors.shadow.opacity * 0.7,
+        shadowRadius: 2,
         elevation: 1,
     },
     projectSessionsScroll: {
@@ -636,7 +644,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         height: PROJECT_SESSION_ROW_HEIGHT,
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 16,
+        paddingHorizontal: 15,
         backgroundColor: theme.colors.surface,
     },
     sessionRowWithBorder: {
@@ -661,10 +669,10 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     sessionUpdatedTime: {
         marginTop: 2,
-        marginLeft: 24,
+        marginLeft: 20,
         color: theme.colors.textSecondary,
-        fontSize: 13,
-        lineHeight: 17,
+        fontSize: 12,
+        lineHeight: 16,
         ...Typography.default('regular'),
     },
     sessionTitleConnected: {
@@ -676,7 +684,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     leadingIndicatorSlot: {
         alignItems: 'center',
         justifyContent: 'center',
-        width: 16,
+        width: 12,
         height: 16,
         marginRight: 8,
     },
