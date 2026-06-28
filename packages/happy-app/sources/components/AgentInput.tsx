@@ -26,6 +26,7 @@ import { hackMode, hackModes } from '@/sync/modeHacks';
 import { Theme } from '@/theme';
 import { t } from '@/text';
 import { Metadata } from '@/sync/storageTypes';
+import { buildAgentInputModeSummary } from './agentInputModeSummary';
 
 interface AgentInputProps {
     // `initialValue` seeds the uncontrolled textarea once; keystrokes never
@@ -336,17 +337,15 @@ type StatusRowProps = {
     displayPermissionMode: ReturnType<typeof hackMode> | null;
     permissionModeKey: string;
     isSandboxedYoloMode: boolean;
-    permissionLabel: string | null;
+    modeSummaryLabel: string | null;
+    onModeSummaryPress?: () => void;
     zenMode?: boolean;
 };
 
 const AgentInputStatusRow = React.memo(function AgentInputStatusRow(p: StatusRowProps) {
     const { theme } = useUnistyles();
-    const showPermissionBadge = !!p.displayPermissionMode
-        && p.permissionModeKey !== 'default'
-        && !p.zenMode
-        && !!p.permissionLabel;
-    if (!p.connectionStatus && !p.contextWarning && !showPermissionBadge) {
+    const showModeSummary = !p.zenMode && !!p.modeSummaryLabel;
+    if (!p.connectionStatus && !p.contextWarning && !showModeSummary) {
         return null;
     }
     return (
@@ -442,7 +441,8 @@ const AgentInputStatusRow = React.memo(function AgentInputStatusRow(p: StatusRow
                     </Text>
                 )}
             </View>
-            {showPermissionBadge && (() => {
+            {showModeSummary && (() => {
+                const showPermissionIcon = !!p.displayPermissionMode && p.permissionModeKey !== 'default';
                 const permColor = p.isSandboxedYoloMode ? '#4169E1' :
                     p.permissionModeKey === 'acceptEdits' ? theme.colors.permission.acceptEdits :
                         p.permissionModeKey === 'bypassPermissions' ? theme.colors.permission.bypass :
@@ -455,16 +455,28 @@ const AgentInputStatusRow = React.memo(function AgentInputStatusRow(p: StatusRow
                     p.permissionModeKey === 'plan' || p.permissionModeKey === 'read-only'
                         ? 'pause' : 'play-forward';
                 return (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                        <Ionicons name={permIcon} size={11} color={permColor} />
+                    <Pressable
+                        onPress={p.onModeSummaryPress}
+                        disabled={!p.onModeSummaryPress}
+                        hitSlop={{ top: 5, bottom: 8, left: 8, right: 8 }}
+                        style={(s) => ({
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 4,
+                            maxWidth: '52%',
+                            opacity: s.pressed ? 0.7 : 1,
+                        })}
+                    >
+                        {showPermissionIcon && <Ionicons name={permIcon} size={11} color={permColor} />}
                         <Text style={{
                             fontSize: 11,
-                            color: permColor,
+                            color: showPermissionIcon ? permColor : theme.colors.textSecondary,
+                            flexShrink: 1,
                             ...Typography.default()
-                        }}>
-                            {p.permissionLabel}
+                        }} numberOfLines={1} ellipsizeMode="tail">
+                            {p.modeSummaryLabel}
                         </Text>
-                    </View>
+                    </Pressable>
                 );
             })()}
         </View>
@@ -573,6 +585,11 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     const isCodex = props.metadata?.flavor === 'codex' || props.agentType === 'codex';
     const isGemini = props.metadata?.flavor === 'gemini' || props.agentType === 'gemini';
     const isOpenClaw = props.metadata?.flavor === 'openclaw' || props.agentType === 'openclaw';
+    const canOpenSettings = Boolean(
+        props.onPermissionModeChange
+        || props.onModelModeChange
+        || props.onEffortLevelChange
+    );
     const displayPermissionMode = React.useMemo(() => (
         props.permissionMode ? hackMode(props.permissionMode) : null
     ), [props.permissionMode]);
@@ -605,6 +622,15 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         }
         return label;
     }, [isSandboxEnabled]);
+    const modeSummaryLabel = React.useMemo(() => buildAgentInputModeSummary({
+        permissionLabel: displayPermissionMode && permissionModeKey !== 'default'
+            ? withSandboxSuffix(displayPermissionMode.name, permissionModeKey)
+            : null,
+        permissionModeKey,
+        modelMode: props.modelMode,
+        effortLevel: props.effortLevel,
+    }), [displayPermissionMode, permissionModeKey, props.modelMode, props.effortLevel, withSandboxSuffix]);
+    const showModeSummaryInStatusRow = canOpenSettings && !!modeSummaryLabel && !props.zenMode;
 
     // Calculate context warning
     const contextWarning = props.usageData?.contextSize
@@ -1216,7 +1242,8 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                     displayPermissionMode={displayPermissionMode}
                     permissionModeKey={permissionModeKey}
                     isSandboxedYoloMode={isSandboxedYoloMode}
-                    permissionLabel={displayPermissionMode ? withSandboxSuffix(displayPermissionMode.name, permissionModeKey) : null}
+                    modeSummaryLabel={modeSummaryLabel}
+                    onModeSummaryPress={showModeSummaryInStatusRow ? handleSettingsPress : undefined}
                     zenMode={props.zenMode}
                 />
 
@@ -1398,8 +1425,8 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                         </Pressable>
                                     )}
 
-                                    {/* Settings button */}
-                                    {props.onPermissionModeChange && (
+                                    {/* Settings button fallback when the status-row summary is not visible. */}
+                                    {props.onPermissionModeChange && !showModeSummaryInStatusRow && (
                                         <Pressable
                                             onPress={handleSettingsPress}
                                             hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
@@ -1415,7 +1442,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                             })}
                                         >
                                             <Octicons
-                                                name={'gear'}
+                                                name="gear"
                                                 size={16}
                                                 color={theme.colors.button.secondary.tint}
                                             />
