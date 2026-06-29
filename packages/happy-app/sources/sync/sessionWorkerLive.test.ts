@@ -145,7 +145,7 @@ describe('session worker live helpers', () => {
         );
     });
 
-    it('does not block the caller while ensuring a worker is live', async () => {
+    it('waits for ensure-live and records a running worker state', async () => {
         let resolveRpc!: (value: any) => void;
         machineRPC.mockReturnValue(new Promise((resolve) => {
             resolveRpc = resolve;
@@ -154,10 +154,9 @@ describe('session worker live helpers', () => {
         const currentSession = session();
         storageState.sessions = { 'session-1': currentSession };
 
-        const { triggerSessionWorkerEnsureLiveForSend } = await import('./sessionWorkerLive');
-        const result = triggerSessionWorkerEnsureLiveForSend(currentSession);
+        const { ensureSessionWorkerLiveForSend } = await import('./sessionWorkerLive');
+        const resultPromise = ensureSessionWorkerLiveForSend(currentSession);
 
-        expect(result).toBeUndefined();
         expect(machineRPC).toHaveBeenCalledWith(
             'machine-1',
             'ensure-happy-session-live',
@@ -171,7 +170,7 @@ describe('session worker live helpers', () => {
         expect(applySessions).not.toHaveBeenCalled();
 
         resolveRpc({ type: 'running', sessionId: 'session-1', workerState: 'running' });
-        await Promise.resolve();
+        await expect(resultPromise).resolves.toEqual({ type: 'running', sessionId: 'session-1', workerState: 'running' });
         await Promise.resolve();
         await Promise.resolve();
 
@@ -202,9 +201,11 @@ describe('session worker live helpers', () => {
         });
         storageState.sessions = { 'session-1': currentSession };
 
-        const { triggerSessionWorkerEnsureLiveForSend } = await import('./sessionWorkerLive');
-        triggerSessionWorkerEnsureLiveForSend(currentSession);
-        await Promise.resolve();
+        const { ensureSessionWorkerLiveForSend } = await import('./sessionWorkerLive');
+        await expect(ensureSessionWorkerLiveForSend(currentSession)).resolves.toEqual(expect.objectContaining({
+            type: 'not-resumable',
+            reason: 'missing-provider-resume-id',
+        }));
         await Promise.resolve();
         await Promise.resolve();
 
@@ -227,5 +228,34 @@ describe('session worker live helpers', () => {
                 },
             }),
         ]);
+    });
+
+    it('skips ensure-live when the session has no machine metadata', async () => {
+        const currentSession = session({ metadata: { flavor: 'codex' } });
+
+        const { ensureSessionWorkerLiveForSend } = await import('./sessionWorkerLive');
+        await expect(ensureSessionWorkerLiveForSend(currentSession)).resolves.toBeNull();
+
+        expect(machineRPC).not.toHaveBeenCalled();
+        expect(applySessions).not.toHaveBeenCalled();
+    });
+
+    it('only retries transient ensure-live errors', async () => {
+        const { shouldRetryEnsureSessionLiveForSend } = await import('./sessionWorkerLive');
+
+        expect(shouldRetryEnsureSessionLiveForSend(null)).toBe(false);
+        expect(shouldRetryEnsureSessionLiveForSend({ type: 'running', sessionId: 'session-1', workerState: 'running' })).toBe(false);
+        expect(shouldRetryEnsureSessionLiveForSend({ type: 'resumed', sessionId: 'session-1' })).toBe(false);
+        expect(shouldRetryEnsureSessionLiveForSend({
+            type: 'not-resumable',
+            sessionId: 'session-1',
+            workerState: 'exited-not-resumable',
+            reason: 'missing-provider-resume-id',
+        })).toBe(false);
+        expect(shouldRetryEnsureSessionLiveForSend({
+            type: 'error',
+            sessionId: 'session-1',
+            errorMessage: 'machine offline',
+        })).toBe(true);
     });
 });

@@ -203,20 +203,47 @@ export async function machineReplayCodexRuntime(options: {
     );
 }
 
-export function triggerSessionWorkerEnsureLiveForSend(session: Session): void {
+export function canSendAfterEnsureSessionLive(result: EnsureSessionLiveResult | null): boolean {
+    return result === null || result.type === 'running' || result.type === 'resumed';
+}
+
+export function shouldRetryEnsureSessionLiveForSend(result: EnsureSessionLiveResult | null): boolean {
+    return result?.type === 'error';
+}
+
+export function getEnsureSessionLiveFailureMessage(result: EnsureSessionLiveResult | null): string {
+    if (result === null) {
+        return '';
+    }
+    switch (result.type) {
+        case 'running':
+        case 'resumed':
+            return '';
+        case 'error':
+            return result.errorMessage;
+        case 'not-resumable':
+            return result.detail ?? result.reason;
+    }
+}
+
+export async function ensureSessionWorkerLiveForSend(session: Session): Promise<EnsureSessionLiveResult | null> {
     const machineId = session.metadata?.machineId;
     if (!machineId) {
-        return;
+        return null;
     }
 
     const modeMeta = resolveMessageModeMeta(session, storage.getState().settings);
-    void machineEnsureSessionLive({
+    const result = await machineEnsureSessionLive({
         machineId,
         sessionId: session.id,
         model: modeMeta.model ?? undefined,
         permissionMode: modeMeta.permissionMode,
         reason: 'send-message',
-    }).then((result) => {
-        applySessionWorkerLiveState(session.id, result);
     });
+    applySessionWorkerLiveState(session.id, result);
+    return result;
+}
+
+export function triggerSessionWorkerEnsureLiveForSend(session: Session): void {
+    void ensureSessionWorkerLiveForSend(session);
 }

@@ -71,6 +71,21 @@ export async function normalizePickedAssetForUpload(asset: ImagePicker.ImagePick
     };
 }
 
+export async function requestImagePickerPermission(platformOS: typeof Platform.OS = Platform.OS): Promise<boolean> {
+    if (platformOS !== 'ios') return true;
+
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+        Modal.alert(
+            t('imageUpload.permissionTitle'),
+            t('imageUpload.permissionMessage'),
+            [{ text: t('common.ok') }],
+        );
+        return false;
+    }
+    return true;
+}
+
 export function useImagePicker(): UseImagePickerResult {
     const [selectedImages, setSelectedImages] = useState<AttachmentPreview[]>([]);
     // Ref tracks current count to avoid stale closures on rapid taps.
@@ -79,23 +94,8 @@ export function useImagePicker(): UseImagePickerResult {
         selectedCountRef.current = selectedImages.length;
     }, [selectedImages]);
 
-    const requestPermission = useCallback(async (): Promise<boolean> => {
-        if (Platform.OS === 'web') return true;
-
-        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (status !== 'granted') {
-            Modal.alert(
-                t('imageUpload.permissionTitle'),
-                t('imageUpload.permissionMessage'),
-                [{ text: t('common.ok') }],
-            );
-            return false;
-        }
-        return true;
-    }, []);
-
     const pickImages = useCallback(async () => {
-        const hasPermission = await requestPermission();
+        const hasPermission = await requestImagePickerPermission();
         if (!hasPermission) return;
 
         const remaining = MAX_IMAGES_PER_MESSAGE - selectedCountRef.current;
@@ -156,7 +156,7 @@ export function useImagePicker(): UseImagePickerResult {
         if (previews.length > 0) {
             setSelectedImages(prev => [...prev, ...previews].slice(0, MAX_IMAGES_PER_MESSAGE));
         }
-    }, [requestPermission]);
+    }, []);
 
     const removeImage = useCallback((id: string) => {
         setSelectedImages(prev => prev.filter(img => img.id !== id));

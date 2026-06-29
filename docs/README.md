@@ -10,6 +10,7 @@ This folder documents how Happy works internally, with a focus on protocol, back
 - backend-architecture.md: Internal backend structure, data flow, and key subsystems.
 - deployment.md: How to deploy the backend and required infrastructure.
 - cli-architecture.md: CLI and daemon architecture and how they interact with the server.
+- cli-management.md: Unified CLI management commands for status, services, config, logs, env, self-host triage, and safety boundaries.
 - multi-process.md: Deeper multi-replica Socket.IO + Redis streams behavior, failure modes, and integration-test history.
 - dev-environments.md: Local `environments/data/` workflow, lab-rat project provisioning, `env:cli` passthrough behavior, and daemon usage.
 - session-protocol.md: Unified encrypted chat event protocol.

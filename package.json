@@ -22,7 +22,11 @@
         "env:up": "tsx environments/environments.ts up",
         "env:up:authenticated": "corepack pnpm env:up --template authenticated-empty",
         "env:down": "tsx environments/environments.ts down",
-        "env:tailscale": "tsx environments/environments.ts tailscale"
+        "env:tailscale": "tsx environments/environments.ts tailscale",
+        "dev:tailscale": "node ./scripts/dev-tailscale.cjs",
+        "dev:tailscale:setup": "node ./scripts/dev-tailscale.cjs setup",
+        "dev:tailscale:status": "node ./scripts/dev-tailscale.cjs status",
+        "dev:tailscale:stop": "node ./scripts/dev-tailscale.cjs stop"
     },
     "workspaces": {
         "packages": [

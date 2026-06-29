@@ -27,6 +27,7 @@ import { handleAuthCommand } from './commands/auth'
 import { handleConnectCommand } from './commands/connect'
 import { handleSandboxCommand } from './commands/sandbox'
 import { handleServerCommand } from './commands/server'
+import { handleConfigCommand, handleEnvCommand, handleLogsCommand, handleServicesCommand, handleStatusCommand } from './commands/management'
 import { spawnHappyCLI } from './utils/spawnHappyCLI'
 import { claudeCliPath } from './claude/claudeLocal'
 import { execFileSync } from 'node:child_process'
@@ -75,6 +76,61 @@ Conversation history is preserved on the server, but in-flight tool calls are in
       process.exit(0)
     }
     await runDoctorCommand();
+    return;
+  } else if (subcommand === 'status') {
+    try {
+      await handleStatusCommand(args.slice(1));
+    } catch (error) {
+      console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error')
+      if (process.env.DEBUG) {
+        console.error(error)
+      }
+      process.exit(1)
+    }
+    return;
+  } else if (subcommand === 'services') {
+    try {
+      await handleServicesCommand(args.slice(1));
+    } catch (error) {
+      console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error')
+      if (process.env.DEBUG) {
+        console.error(error)
+      }
+      process.exit(1)
+    }
+    return;
+  } else if (subcommand === 'config') {
+    try {
+      await handleConfigCommand(args.slice(1));
+    } catch (error) {
+      console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error')
+      if (process.env.DEBUG) {
+        console.error(error)
+      }
+      process.exit(1)
+    }
+    return;
+  } else if (subcommand === 'logs') {
+    try {
+      await handleLogsCommand(args.slice(1));
+    } catch (error) {
+      console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error')
+      if (process.env.DEBUG) {
+        console.error(error)
+      }
+      process.exit(1)
+    }
+    return;
+  } else if (subcommand === 'env') {
+    try {
+      await handleEnvCommand(args.slice(1));
+    } catch (error) {
+      console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error')
+      if (process.env.DEBUG) {
+        console.error(error)
+      }
+      process.exit(1)
+    }
     return;
   } else if (subcommand === 'auth') {
     // Handle auth subcommands
@@ -686,6 +742,13 @@ ${chalk.bold('Usage:')}
   happy notify            Send push notification
   happy daemon            Manage background service that allows
                             to spawn new sessions away from your computer
+  happy status            Unified status for config, auth, services, logs,
+                            current dev env, and Tailscale mappings
+  happy services          Service status for daemon, server, Expo, app logs,
+                            and Tailscale mappings
+  happy config            Show effective Happy URL and settings sources
+  happy logs              List recent Happy logs
+  happy env               Show current pnpm env:* environment, if any
   happy doctor            System diagnostics & troubleshooting
 
 ${chalk.bold('Examples:')}

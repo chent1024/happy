@@ -34,7 +34,8 @@ vi.mock('@/utils/thumbhash', () => ({
     generateThumbhash: mocks.generateThumbhash,
 }));
 
-import { normalizePickedAssetForUpload } from './useImagePicker';
+import { normalizePickedAssetForUpload, requestImagePickerPermission } from './useImagePicker';
+import { Modal } from '@/modal';
 
 describe('normalizePickedAssetForUpload', () => {
     beforeEach(() => {
@@ -69,5 +70,41 @@ describe('normalizePickedAssetForUpload', () => {
             width: 4032,
             height: 3024,
         });
+    });
+});
+
+describe('requestImagePickerPermission', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mocks.platform.OS = 'ios';
+    });
+
+    it('requests photo library permission on iOS', async () => {
+        mocks.requestMediaLibraryPermissionsAsync.mockResolvedValue({ status: 'granted' });
+
+        await expect(requestImagePickerPermission('ios')).resolves.toBe(true);
+
+        expect(mocks.requestMediaLibraryPermissionsAsync).toHaveBeenCalledTimes(1);
+        expect(Modal.alert).not.toHaveBeenCalled();
+    });
+
+    it('shows the permission hint when iOS photo access is denied', async () => {
+        mocks.requestMediaLibraryPermissionsAsync.mockResolvedValue({ status: 'denied' });
+
+        await expect(requestImagePickerPermission('ios')).resolves.toBe(false);
+
+        expect(mocks.requestMediaLibraryPermissionsAsync).toHaveBeenCalledTimes(1);
+        expect(Modal.alert).toHaveBeenCalledWith(
+            'imageUpload.permissionTitle',
+            'imageUpload.permissionMessage',
+            [{ text: 'common.ok' }],
+        );
+    });
+
+    it('does not request media permissions on Android because the app uses the system picker', async () => {
+        await expect(requestImagePickerPermission('android')).resolves.toBe(true);
+
+        expect(mocks.requestMediaLibraryPermissionsAsync).not.toHaveBeenCalled();
+        expect(Modal.alert).not.toHaveBeenCalled();
     });
 });

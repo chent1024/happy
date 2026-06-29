@@ -42,7 +42,12 @@ import { encryptBlob } from '@/encryption/blob';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { Modal } from '@/modal';
 import { t } from '@/text';
-import { triggerSessionWorkerEnsureLiveForSend } from './sessionWorkerLive';
+import {
+    canSendAfterEnsureSessionLive,
+    ensureSessionWorkerLiveForSend,
+    getEnsureSessionLiveFailureMessage,
+    shouldRetryEnsureSessionLiveForSend,
+} from './sessionWorkerLive';
 
 type V3GetSessionMessagesResponse = {
     messages: ApiMessage[];
@@ -697,7 +702,6 @@ class Sync {
             content: encryptedRawRecord
         });
         this.getSendSync(sessionId).invalidate();
-        triggerSessionWorkerEnsureLiveForSend(session);
         this.maybeStartBackgroundSendWatchdog();
     }
 
@@ -1469,6 +1473,24 @@ class Sync {
         const controller = new AbortController();
         this.sendAbortControllers.set(sessionId, controller);
         try {
+            const session = storage.getState().sessions[sessionId];
+            if (session) {
+                const liveResult = await ensureSessionWorkerLiveForSend(session);
+                if (!canSendAfterEnsureSessionLive(liveResult)) {
+                    const message = getEnsureSessionLiveFailureMessage(liveResult);
+                    const errorMessage = message ? `Session worker is not live: ${message}` : 'Session worker is not live';
+                    if (shouldRetryEnsureSessionLiveForSend(liveResult)) {
+                        throw new Error(errorMessage);
+                    }
+                    log.log(`[message-delivery] outbox batch blocked ${JSON.stringify({
+                        sessionId,
+                        localIds: batch.map((message) => message.localId),
+                        error: errorMessage,
+                    })}`);
+                    return;
+                }
+            }
+
             const response = await apiSocket.request(`/v3/sessions/${sessionId}/messages`, {
                 method: 'POST',
                 body: JSON.stringify({
