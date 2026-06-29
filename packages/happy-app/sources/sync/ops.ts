@@ -245,6 +245,14 @@ export interface CodexThreadListItem {
     name?: string | null;
     path?: string | null;
     cwd?: string | null;
+    projectPath?: string | null;
+    workspaceRoot?: string | null;
+    workspaceRoots?: string[] | null;
+    gitInfo?: {
+        originUrl?: string | null;
+        [key: string]: unknown;
+    } | null;
+    codexProjectPath?: string | null;
     createdAt?: number | null;
     updatedAt?: number | null;
     recencyAt?: number | null;
@@ -301,6 +309,31 @@ function firstNonEmpty(...values: Array<string | null | undefined>): string | nu
     return null;
 }
 
+function normalizeCodexPath(value: string | null | undefined): string | null {
+    const path = firstNonEmpty(value);
+    if (!path) {
+        return null;
+    }
+
+    if (path === '/') {
+        return path;
+    }
+
+    return path.replace(/\/+$/g, '');
+}
+
+function isSameOrChildPath(path: string, parent: string): boolean {
+    if (path === parent) {
+        return true;
+    }
+
+    if (parent === '/') {
+        return path.startsWith('/');
+    }
+
+    return path.startsWith(`${parent}/`);
+}
+
 function errorMessageFromUnknown(error: unknown, fallback: string): string {
     return firstNonEmpty(
         error instanceof Error ? error.message : null,
@@ -308,8 +341,82 @@ function errorMessageFromUnknown(error: unknown, fallback: string): string {
     ) ?? fallback;
 }
 
+function codexThreadExplicitProjectPath(thread: CodexThreadListItem): string | null {
+    return normalizeCodexPath(firstNonEmpty(
+        thread.codexProjectPath,
+        thread.projectPath,
+        thread.workspaceRoot,
+        thread.workspaceRoots?.[0],
+    ));
+}
+
+function codexThreadPath(thread: CodexThreadListItem): string | null {
+    return normalizeCodexPath(firstNonEmpty(thread.cwd, thread.path));
+}
+
+function codexThreadGitOrigin(thread: CodexThreadListItem): string | null {
+    return firstNonEmpty(thread.gitInfo?.originUrl);
+}
+
+function findCodexProjectPathForThread(
+    thread: CodexThreadListItem,
+    candidatePathsByOrigin: Map<string, string[]>,
+): string | null {
+    const explicitPath = codexThreadExplicitProjectPath(thread);
+    if (explicitPath) {
+        return explicitPath;
+    }
+
+    const threadPath = codexThreadPath(thread);
+    const origin = codexThreadGitOrigin(thread);
+    if (!threadPath || !origin) {
+        return threadPath;
+    }
+
+    const candidates = candidatePathsByOrigin.get(origin) ?? [];
+    const ancestor = candidates.find((candidate) => isSameOrChildPath(threadPath, candidate));
+    return ancestor ?? threadPath;
+}
+
+function withCodexProjectPaths(threads: CodexThreadListItem[]): CodexThreadListItem[] {
+    const candidatePathsByOrigin = new Map<string, string[]>();
+    for (const thread of threads) {
+        const origin = codexThreadGitOrigin(thread);
+        const threadPath = codexThreadPath(thread);
+        if (!origin || !threadPath) {
+            continue;
+        }
+
+        const candidates = candidatePathsByOrigin.get(origin) ?? [];
+        if (!candidates.includes(threadPath)) {
+            candidates.push(threadPath);
+            candidatePathsByOrigin.set(origin, candidates);
+        }
+    }
+
+    for (const candidates of candidatePathsByOrigin.values()) {
+        candidates.sort((a, b) => a.length - b.length || a.localeCompare(b));
+    }
+
+    return threads.map((thread) => {
+        const codexProjectPath = findCodexProjectPathForThread(thread, candidatePathsByOrigin);
+        if (!codexProjectPath || codexProjectPath === thread.codexProjectPath) {
+            return thread;
+        }
+
+        return {
+            ...thread,
+            codexProjectPath,
+        };
+    });
+}
+
+function codexThreadProjectPath(thread: CodexThreadListItem): string {
+    return codexThreadExplicitProjectPath(thread) ?? codexThreadPath(thread) ?? '~';
+}
+
 function codexThreadProjectKey(thread: CodexThreadListItem): string {
-    return firstNonEmpty(thread.cwd, thread.path) ?? '~';
+    return codexThreadProjectPath(thread);
 }
 
 function normalizeCodexTimestamp(value: number | null | undefined): number | null {
@@ -337,7 +444,8 @@ function selectCodexThreadsForSync(
     let skippedByProjectLimit = 0;
     let skippedByAge = 0;
 
-    const sortedThreads = [...threads].sort((a, b) => codexThreadUpdatedAt(b) - codexThreadUpdatedAt(a));
+    const sortedThreads = withCodexProjectPaths(threads)
+        .sort((a, b) => codexThreadUpdatedAt(b) - codexThreadUpdatedAt(a));
     for (const thread of sortedThreads) {
         const updatedAt = codexThreadUpdatedAt(thread);
         if (updatedAt <= 0 || now - updatedAt > CODEX_SYNC_MAX_THREAD_AGE_MS) {
@@ -364,7 +472,7 @@ export function buildCodexImportedSessionMetadata(
     machineId: string,
     machineMetadata?: MachineMetadata | null,
 ): Metadata {
-    const path = firstNonEmpty(thread.cwd, thread.path) ?? '~';
+    const path = codexThreadProjectPath(thread);
     const title = sanitizeCodexTitle(firstNonEmpty(thread.name, thread.preview)) ?? `Codex ${thread.id.slice(0, 8)}`;
     const updatedAt = codexThreadUpdatedAt(thread) || Date.now();
 

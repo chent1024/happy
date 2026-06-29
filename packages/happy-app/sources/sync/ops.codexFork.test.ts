@@ -401,6 +401,161 @@ describe('codex fork ops', () => {
         expect(refreshSessions).toHaveBeenCalledTimes(1);
     });
 
+    it('imports nested Codex environment threads under the Codex project root for the same git origin', async () => {
+        machineRPC.mockResolvedValue({
+            type: 'success',
+            threads: [
+                {
+                    id: 'thread-root',
+                    cwd: '/Users/tester/workspace/happy',
+                    preview: 'root',
+                    updatedAt: 1700000009000,
+                    gitInfo: { originUrl: 'https://github.com/chent1024/happy.git' },
+                },
+                {
+                    id: 'thread-env',
+                    cwd: '/Users/tester/workspace/happy/environments/data/envs/zesty-glacier/project',
+                    preview: 'env',
+                    updatedAt: 1700000008000,
+                    gitInfo: { originUrl: 'https://github.com/chent1024/happy.git' },
+                },
+            ],
+            nextCursor: null,
+            backwardsCursor: null,
+        });
+        request.mockImplementation(async (_url: string, init: RequestInit) => {
+            const body = JSON.parse(String(init.body));
+            const threadId = String(body.tag).split(':').pop();
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    session: {
+                        id: `happy-${threadId}`,
+                        seq: 1,
+                        metadataVersion: 0,
+                        agentState: null,
+                        agentStateVersion: 0,
+                        active: false,
+                    },
+                }),
+            };
+        });
+
+        const { syncCodexSessions } = await import('./ops');
+        const result = await syncCodexSessions('machine-1');
+
+        expect(result).toEqual({
+            type: 'success',
+            fetched: 2,
+            imported: 2,
+            refreshed: 0,
+            skipped: 0,
+        });
+        const importedMetadata = applySessions.mock.calls.flatMap((call) => call[0].map((session: any) => session.metadata));
+        expect(importedMetadata.map((metadata: any) => [metadata.codexThreadId, metadata.path])).toEqual([
+            ['thread-root', '/Users/tester/workspace/happy'],
+            ['thread-env', '/Users/tester/workspace/happy'],
+        ]);
+    });
+
+    it('keeps same-origin Codex threads in separate clones when neither path is an ancestor', async () => {
+        machineRPC.mockResolvedValue({
+            type: 'success',
+            threads: [
+                {
+                    id: 'thread-workspace',
+                    cwd: '/Users/tester/workspace/happy',
+                    preview: 'workspace',
+                    updatedAt: 1700000009000,
+                    gitInfo: { originUrl: 'https://github.com/chent1024/happy.git' },
+                },
+                {
+                    id: 'thread-other-clone',
+                    cwd: '/tmp/other-happy',
+                    preview: 'other clone',
+                    updatedAt: 1700000008000,
+                    gitInfo: { originUrl: 'https://github.com/chent1024/happy.git' },
+                },
+            ],
+            nextCursor: null,
+            backwardsCursor: null,
+        });
+        request.mockImplementation(async (_url: string, init: RequestInit) => {
+            const body = JSON.parse(String(init.body));
+            const threadId = String(body.tag).split(':').pop();
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    session: {
+                        id: `happy-${threadId}`,
+                        seq: 1,
+                        metadataVersion: 0,
+                        agentState: null,
+                        agentStateVersion: 0,
+                        active: false,
+                    },
+                }),
+            };
+        });
+
+        const { syncCodexSessions } = await import('./ops');
+        const result = await syncCodexSessions('machine-1');
+
+        expect(result.type).toBe('success');
+        const importedMetadata = applySessions.mock.calls.flatMap((call) => call[0].map((session: any) => session.metadata));
+        expect(importedMetadata.map((metadata: any) => [metadata.codexThreadId, metadata.path])).toEqual([
+            ['thread-workspace', '/Users/tester/workspace/happy'],
+            ['thread-other-clone', '/tmp/other-happy'],
+        ]);
+    });
+
+    it('prefers an explicit Codex workspace root over the raw thread cwd', async () => {
+        machineRPC.mockResolvedValue({
+            type: 'success',
+            threads: [
+                {
+                    id: 'thread-explicit-root',
+                    cwd: '/Users/tester/workspace/happy/environments/data/envs/nimble-glacier/project',
+                    workspaceRoot: '/Users/tester/workspace/happy/',
+                    preview: 'explicit root',
+                    updatedAt: 1700000009000,
+                    gitInfo: { originUrl: 'https://github.com/chent1024/happy.git' },
+                },
+            ],
+            nextCursor: null,
+            backwardsCursor: null,
+        });
+        request.mockImplementation(async () => ({
+            ok: true,
+            status: 200,
+            json: async () => ({
+                session: {
+                    id: 'happy-explicit-root',
+                    seq: 1,
+                    metadataVersion: 0,
+                    agentState: null,
+                    agentStateVersion: 0,
+                    active: false,
+                },
+            }),
+        }));
+
+        const { syncCodexSessions } = await import('./ops');
+        const result = await syncCodexSessions('machine-1');
+
+        expect(result.type).toBe('success');
+        expect(applySessions).toHaveBeenCalledWith([
+            expect.objectContaining({
+                metadata: expect.objectContaining({
+                    codexThreadId: 'thread-explicit-root',
+                    path: '/Users/tester/workspace/happy',
+                }),
+            }),
+        ]);
+    });
+
     it('skips Codex threads older than three days', async () => {
         machineRPC.mockResolvedValue({
             type: 'success',
