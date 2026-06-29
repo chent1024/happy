@@ -89,3 +89,48 @@ export function validateServerUrl(url: string): { valid: boolean; error?: string
         return { valid: false, error: 'Invalid URL format' };
     }
 }
+
+export type HappyServerValidationError =
+    | 'serverReturnedError'
+    | 'notValidHappyServer'
+    | 'failedToConnectToServer';
+
+export async function validateHappyServerEndpoint(
+    url: string,
+    fetchImpl: typeof fetch = fetch,
+): Promise<{ valid: boolean; error?: HappyServerValidationError }> {
+    try {
+        const response = await fetchImpl(`${normalizeServerUrl(url)}/health`, {
+            method: 'GET',
+            headers: {
+                Accept: 'application/json',
+            },
+        });
+
+        if (!response.ok) {
+            return { valid: false, error: 'serverReturnedError' };
+        }
+
+        const text = await response.text();
+        let data: unknown;
+
+        try {
+            data = JSON.parse(text) as unknown;
+        } catch {
+            return { valid: false, error: 'notValidHappyServer' };
+        }
+
+        if (
+            !data ||
+            typeof data !== 'object' ||
+            (data as { status?: unknown }).status !== 'ok' ||
+            (data as { service?: unknown }).service !== 'happy-server'
+        ) {
+            return { valid: false, error: 'notValidHappyServer' };
+        }
+
+        return { valid: true };
+    } catch {
+        return { valid: false, error: 'failedToConnectToServer' };
+    }
+}

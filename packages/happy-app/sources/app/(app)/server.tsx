@@ -9,8 +9,20 @@ import { RoundButton } from '@/components/RoundButton';
 import { Modal } from '@/modal';
 import { layout } from '@/components/layout';
 import { t } from '@/text';
-import { getServerUrl, setServerUrl, validateServerUrl, getServerInfo } from '@/sync/serverConfig';
+import { getServerUrl, setServerUrl, validateHappyServerEndpoint, validateServerUrl, getServerInfo, HappyServerValidationError } from '@/sync/serverConfig';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+
+function getServerValidationMessage(error: HappyServerValidationError | undefined): string {
+    switch (error) {
+        case 'serverReturnedError':
+            return t('server.serverReturnedError');
+        case 'notValidHappyServer':
+            return t('server.notValidHappyServer');
+        case 'failedToConnectToServer':
+        default:
+            return t('server.failedToConnectToServer');
+    }
+}
 
 const stylesheet = StyleSheet.create((theme) => ({
     keyboardAvoidingView: {
@@ -85,32 +97,18 @@ export default function ServerConfigScreen() {
     const [isValidating, setIsValidating] = useState(false);
 
     const validateServer = async (url: string): Promise<boolean> => {
+        setIsValidating(true);
+        setError(null);
+
         try {
-            setIsValidating(true);
-            setError(null);
-            
-            const response = await fetch(url, {
-                method: 'GET',
-                headers: {
-                    'Accept': 'text/plain'
-                }
-            });
-            
-            if (!response.ok) {
-                setError(t('server.serverReturnedError'));
+            const result = await validateHappyServerEndpoint(url);
+
+            if (!result.valid) {
+                setError(getServerValidationMessage(result.error));
                 return false;
             }
-            
-            const text = await response.text();
-            if (!text.includes('Welcome to Happy Server!')) {
-                setError(t('server.notValidHappyServer'));
-                return false;
-            }
-            
+
             return true;
-        } catch (err) {
-            setError(t('server.failedToConnectToServer'));
-            return false;
         } finally {
             setIsValidating(false);
         }
