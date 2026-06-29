@@ -49,6 +49,14 @@ import { useUnistyles } from 'react-native-unistyles';
 import type { ModelMode, PermissionMode } from '@/components/PermissionModeSelector';
 import { resolveAgentDefaultConfig } from '@/sync/agentDefaults';
 import { performAgentGoalAction } from './agentGoalActionHandler';
+import {
+    formatRateLimitResetTime,
+    formatRateLimitWindowName,
+    getRateLimitRemainingPercent,
+    getVisibleRateLimitWindows,
+    pickHeaderRateLimitWindow,
+    pickTightestRateLimitWindow,
+} from './codexRateLimitDisplay';
 import { CodexRateLimitsModal, type CodexRateLimitDetail } from './CodexRateLimitsModal';
 
 export const SessionView = React.memo((props: { id: string }) => {
@@ -793,58 +801,6 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
     )
 }
 
-type CodexAccountRateLimitsViewState = NonNullable<NonNullable<Session['agentState']>['codexAccountRateLimits']>;
-type CodexRateLimitWindowViewState = NonNullable<CodexAccountRateLimitsViewState['primary']>;
-
-function getRateLimitRemainingPercent(window: CodexRateLimitWindowViewState): number {
-    const remaining = typeof window.remainingPercent === 'number'
-        ? window.remainingPercent
-        : 100 - window.usedPercent;
-    return Math.max(0, Math.min(100, Math.round(remaining)));
-}
-
-function formatRateLimitWindowName(window: CodexRateLimitWindowViewState): string {
-    const mins = window.windowDurationMins;
-    if (!mins) {
-        return '额度';
-    }
-    if (mins === 300) {
-        return '5h';
-    }
-    if (mins >= 1440) {
-        return `${Math.round(mins / 1440)}d`;
-    }
-    if (mins >= 60) {
-        return `${Math.round(mins / 60)}h`;
-    }
-    return `${mins}m`;
-}
-
-function formatRateLimitResetTime(window: CodexRateLimitWindowViewState): string {
-    if (!window.resetsAt) {
-        return '重置时间未知';
-    }
-    const timestampMs = window.resetsAt < 10_000_000_000 ? window.resetsAt * 1000 : window.resetsAt;
-    return `重置 ${new Date(timestampMs).toLocaleString(undefined, {
-        month: 'numeric',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-    })}`;
-}
-
-function getVisibleRateLimitWindows(limits: CodexAccountRateLimitsViewState): CodexRateLimitWindowViewState[] {
-    return [limits.primary, limits.secondary].filter((window): window is CodexRateLimitWindowViewState => !!window);
-}
-
-function pickTightestRateLimitWindow(limits: CodexAccountRateLimitsViewState): CodexRateLimitWindowViewState | null {
-    const windows = getVisibleRateLimitWindows(limits);
-    if (windows.length === 0) {
-        return null;
-    }
-    return windows.sort((a, b) => getRateLimitRemainingPercent(a) - getRateLimitRemainingPercent(b))[0] ?? null;
-}
-
 function getRateLimitAccent(theme: ReturnType<typeof useUnistyles>['theme']) {
     return {
         color: theme.colors.textSecondary,
@@ -860,13 +816,14 @@ function SessionHeaderStatusCapsule(props: { session: Session }) {
         return <SessionHeaderDetailsButton session={props.session} />;
     }
 
-    const tightestWindow = pickTightestRateLimitWindow(limits);
-    if (!tightestWindow) {
+    const headerWindow = pickHeaderRateLimitWindow(limits);
+    if (!headerWindow) {
         return <SessionHeaderDetailsButton session={props.session} />;
     }
 
-    const remainingPercent = getRateLimitRemainingPercent(tightestWindow);
-    const windowName = formatRateLimitWindowName(tightestWindow);
+    const tightestWindow = pickTightestRateLimitWindow(limits);
+    const remainingPercent = getRateLimitRemainingPercent(headerWindow);
+    const windowName = formatRateLimitWindowName(headerWindow);
     const accent = getRateLimitAccent(theme);
 
     const showDetails = () => {
@@ -896,7 +853,8 @@ function SessionHeaderStatusCapsule(props: { session: Session }) {
         <View
             style={{
                 height: 32,
-                minWidth: 86,
+                minWidth: 88,
+                maxWidth: 132,
                 borderRadius: 16,
                 flexDirection: 'row',
                 alignItems: 'center',
@@ -910,10 +868,11 @@ function SessionHeaderStatusCapsule(props: { session: Session }) {
                 onPress={showDetails}
                 hitSlop={{ top: 5, bottom: 5, left: 4, right: 0 }}
                 style={({ pressed }) => ({
-                    width: 55,
+                    minWidth: 58,
+                    maxWidth: 102,
                     height: 32,
-                    paddingLeft: 8,
-                    paddingRight: 5,
+                    paddingLeft: 10,
+                    paddingRight: 8,
                     alignItems: 'center',
                     justifyContent: 'center',
                     opacity: pressed ? 0.62 : 1,
@@ -926,6 +885,7 @@ function SessionHeaderStatusCapsule(props: { session: Session }) {
                         fontSize: 12,
                         lineHeight: 16,
                         fontWeight: '600',
+                        flexShrink: 0,
                     }}
                 >
                     {windowName} {remainingPercent}%

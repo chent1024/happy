@@ -29,6 +29,7 @@ import { isMutableTool } from "@/components/tools/knownTools";
 import { DecryptedArtifact } from "./artifactTypes";
 import { FeedItem } from "./feedTypes";
 import { buildDuplicateImportedCodexSessionIds, getSessionListSortTime, inheritImportedCodexSessionTitles, isProjectGroupSession } from "./sessionListVisibility";
+import { mergeMessagesByCreatedAtDesc } from "./messageMerge";
 
 // Debounce timer for realtimeMode changes
 let realtimeModeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -514,17 +515,15 @@ export const storage = create<StorageState>()((set, get) => {
 
                     // Always update the session messages, even if no new messages were created
                     // This ensures the reducer state is updated with the new AgentState
-                    const mergedMessagesMap = { ...existingSessionMessages.messagesMap };
-                    processedMessages.forEach(message => {
-                        mergedMessagesMap[message.id] = message;
-                    });
-
-                    const messagesArray = Object.values(mergedMessagesMap)
-                        .sort((a, b) => b.createdAt - a.createdAt);
+                    const mergedMessages = mergeMessagesByCreatedAtDesc(
+                        existingSessionMessages.messages,
+                        existingSessionMessages.messagesMap,
+                        processedMessages,
+                    );
 
                     updatedSessionMessages[session.id] = {
-                        messages: messagesArray,
-                        messagesMap: mergedMessagesMap,
+                        messages: mergedMessages.messages,
+                        messagesMap: mergedMessages.messagesMap,
                         reducerState: existingSessionMessages.reducerState, // The reducer modifies state in-place, so this has the updates
                         isLoaded: existingSessionMessages.isLoaded,
                         hasMoreOlder: existingSessionMessages.hasMoreOlder,
@@ -642,15 +641,11 @@ export const storage = create<StorageState>()((set, get) => {
                     hasReadyEvent = true;
                 }
 
-                // Merge messages
-                const mergedMessagesMap = { ...existingSession.messagesMap };
-                processedMessages.forEach(message => {
-                    mergedMessagesMap[message.id] = message;
-                });
-
-                // Convert to array and sort by createdAt
-                const messagesArray = Object.values(mergedMessagesMap)
-                    .sort((a, b) => b.createdAt - a.createdAt);
+                const mergedMessages = mergeMessagesByCreatedAtDesc(
+                    existingSession.messages,
+                    existingSession.messagesMap,
+                    processedMessages,
+                );
 
                 // Update session with todos and latestUsage
                 // IMPORTANT: We extract latestUsage from the mutable reducerState and copy it to the Session object
@@ -681,8 +676,8 @@ export const storage = create<StorageState>()((set, get) => {
                         ...state.sessionMessages,
                         [sessionId]: {
                             ...existingSession,
-                            messages: messagesArray,
-                            messagesMap: mergedMessagesMap,
+                            messages: mergedMessages.messages,
+                            messagesMap: mergedMessages.messagesMap,
                             reducerState: existingSession.reducerState, // Explicitly include the mutated reducer state
                             isLoaded: true
                         }

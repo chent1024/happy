@@ -69,6 +69,7 @@ const SEQ_BACKWARD_INITIAL_SENTINEL = 2_147_483_647;
 // at most ~one frame later than today (e.g. the local echo of a just-sent
 // message), which is well worth removing the per-token re-render storms.
 const MESSAGE_COALESCE_MS = 24;
+const BACKGROUND_OLDER_PREFETCH_PAGE_LIMIT = 1;
 
 type V3PostSessionMessagesResponse = {
     messages: Array<{
@@ -1603,16 +1604,15 @@ class Sync {
 
     private prefetchOlderMessagesInBackground = async (sessionId: string) => {
         const SLEEP_BETWEEN_PAGES_MS = 250;
-        // While loadOlderMessages handles the actual work, this loop is what
-        // keeps it going without user input. We keep stepping until either:
-        //   - the server says there is no more older history, or
-        //   - the session is no longer present in the store (user navigated
-        //     away and the session was unloaded), or
-        //   - we hit seq = 1 (the very first message), or
-        //   - the encryption key is gone (logged out).
-        // The loop yields between pages to keep the UI thread responsive
-        // and to spread out server load.
-        while (true) {
+        // Keep initial history hydration bounded. Loading every older page in
+        // the background makes long sessions gradually slower after opening,
+        // because each page still expands the JS store and chat derivations.
+        // Users can continue paging older history explicitly by scrolling up.
+        for (let pagesLoaded = 0; pagesLoaded < BACKGROUND_OLDER_PREFETCH_PAGE_LIMIT; pagesLoaded++) {
+            const session = storage.getState().sessions[sessionId];
+            if (!session || session.thinking) {
+                return;
+            }
             const sessionMessages = storage.getState().sessionMessages[sessionId];
             if (!sessionMessages || !sessionMessages.hasMoreOlder) {
                 return;
