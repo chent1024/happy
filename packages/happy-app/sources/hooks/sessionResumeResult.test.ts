@@ -36,6 +36,22 @@ describe('session resume result helpers', () => {
         })).toBe('replace');
     });
 
+    it('replaces the source session route when resume creates a new session', () => {
+        expect(getResumeNavigationAction({
+            pathname: '/session/imported-session',
+            currentSessionId: 'imported-session',
+            resumedSessionId: 'spawned-session',
+        })).toBe('replace');
+    });
+
+    it('replaces nested source session routes when resume creates a new session', () => {
+        expect(getResumeNavigationAction({
+            pathname: '/session/imported-session/info',
+            currentSessionId: 'imported-session',
+            resumedSessionId: 'spawned-session',
+        })).toBe('replace');
+    });
+
     it('pushes when resume is triggered away from the resumed session', () => {
         expect(getResumeNavigationAction({
             pathname: '/machine/machine-1',

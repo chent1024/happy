@@ -11,16 +11,16 @@ export function getResumeNavigationAction(options: {
     currentSessionId: string;
     resumedSessionId: string;
 }): ResumeNavigationAction {
+    const sourcePath = sessionPath(options.currentSessionId);
     const targetPath = sessionPath(options.resumedSessionId);
     const pathname = options.pathname ?? '';
 
-    if (options.currentSessionId === options.resumedSessionId) {
-        if (pathname === targetPath) {
-            return 'none';
-        }
-        if (pathname.startsWith(`${targetPath}/`)) {
-            return 'replace';
-        }
+    if (pathname === targetPath && options.currentSessionId === options.resumedSessionId) {
+        return 'none';
+    }
+
+    if (pathname === sourcePath || pathname.startsWith(`${sourcePath}/`)) {
+        return 'replace';
     }
 
     return 'push';
