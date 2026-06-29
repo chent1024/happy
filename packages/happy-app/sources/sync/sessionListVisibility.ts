@@ -8,6 +8,10 @@ export function isImportedCodexSession(session: Pick<Session, 'active' | 'metada
         && session.metadata.codexThreadId.length > 0;
 }
 
+function isNonProjectImportedCodexSession(session: Pick<Session, 'active' | 'metadata'>): boolean {
+    return isImportedCodexSession(session) && session.metadata?.codexProject === false;
+}
+
 function codexThreadKey(session: Pick<Session, 'metadata'>): string | null {
     const machineId = session.metadata?.machineId;
     const threadId = session.metadata?.codexThreadId;
@@ -50,7 +54,9 @@ export function buildDuplicateImportedCodexSessionIds(
     const failedResumeChildIds = new Set<string>();
 
     for (const session of Object.values(sessions)) {
-        if (isImportedCodexSession(session)) {
+        if (isNonProjectImportedCodexSession(session)) {
+            failedResumeChildIds.add(session.id);
+        } else if (isImportedCodexSession(session)) {
             importedIds.add(session.id);
         } else if (isFailedImportedCodexResumeChild(session)) {
             failedResumeChildIds.add(session.id);
@@ -155,7 +161,21 @@ export function inheritImportedCodexSessionTitles(
 }
 
 export function isProjectGroupSession(session: Pick<Session, 'active' | 'metadata'>): boolean {
-    return session.active || isImportedCodexSession(session);
+    return session.active || (isImportedCodexSession(session) && !isNonProjectImportedCodexSession(session));
+}
+
+export function getSessionProjectGroupPath(session: {
+    path?: string | null;
+    flavor?: string | null;
+}): string {
+    const rawPath = session.path ?? '';
+    if (session.flavor !== 'codex') {
+        return rawPath;
+    }
+
+    const normalizedPath = rawPath.replace(/\/+$/g, '');
+    const match = normalizedPath.match(/^(.*)\/environments\/data\/envs\/[^/]+\/project$/);
+    return match?.[1] || rawPath;
 }
 
 export function getSessionListSortTime(

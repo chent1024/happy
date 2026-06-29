@@ -13,6 +13,7 @@ import { Modal } from '@/modal';
 import { formatPathRelativeToHome, getSessionName, getSessionSubtitle } from '@/utils/sessionUtils';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { sync } from '@/sync/sync';
+import { getSessionProjectGroupPath, isProjectGroupSession } from '@/sync/sessionListVisibility';
 import { useUnistyles, StyleSheet } from 'react-native-unistyles';
 import { t } from '@/text';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
@@ -100,8 +101,11 @@ export default function MachineDetailScreen() {
     const recentPaths = useMemo(() => {
         const paths = new Set<string>();
         machineSessions.forEach(session => {
-            if (session.metadata?.path) {
-                paths.add(session.metadata.path);
+            if (session.metadata?.path && isProjectGroupSession(session)) {
+                paths.add(getSessionProjectGroupPath({
+                    flavor: session.metadata.flavor ?? null,
+                    path: session.metadata.path,
+                }));
             }
         });
         return Array.from(paths).sort();

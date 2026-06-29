@@ -358,6 +358,10 @@ function codexThreadGitOrigin(thread: CodexThreadListItem): string | null {
     return firstNonEmpty(thread.gitInfo?.originUrl);
 }
 
+function codexThreadHasProjectIdentity(thread: CodexThreadListItem): boolean {
+    return Boolean(codexThreadExplicitProjectPath(thread) || codexThreadGitOrigin(thread));
+}
+
 function findCodexProjectPathForThread(
     thread: CodexThreadListItem,
     candidatePathsByOrigin: Map<string, string[]>,
@@ -370,7 +374,7 @@ function findCodexProjectPathForThread(
     const threadPath = codexThreadPath(thread);
     const origin = codexThreadGitOrigin(thread);
     if (!threadPath || !origin) {
-        return threadPath;
+        return null;
     }
 
     const candidates = candidatePathsByOrigin.get(origin) ?? [];
@@ -438,15 +442,27 @@ function selectCodexThreadsForSync(
     threads: CodexThreadListItem[],
     perProjectLimit = CODEX_SYNC_MAX_THREADS_PER_PROJECT,
     now = Date.now(),
-): { selected: CodexThreadListItem[]; skippedByProjectLimit: number; skippedByAge: number } {
+    existingImportedThreadIds = new Set<string>(),
+): { selected: CodexThreadListItem[]; skippedByProjectLimit: number; skippedByAge: number; skippedByNonProject: number } {
     const selected: CodexThreadListItem[] = [];
     const perProjectCounts = new Map<string, number>();
     let skippedByProjectLimit = 0;
     let skippedByAge = 0;
+    let skippedByNonProject = 0;
 
     const sortedThreads = withCodexProjectPaths(threads)
         .sort((a, b) => codexThreadUpdatedAt(b) - codexThreadUpdatedAt(a));
     for (const thread of sortedThreads) {
+        if (thread.id && existingImportedThreadIds.has(thread.id)) {
+            selected.push(thread);
+            continue;
+        }
+
+        if (!codexThreadHasProjectIdentity(thread)) {
+            skippedByNonProject++;
+            continue;
+        }
+
         const updatedAt = codexThreadUpdatedAt(thread);
         if (updatedAt <= 0 || now - updatedAt > CODEX_SYNC_MAX_THREAD_AGE_MS) {
             skippedByAge++;
@@ -464,7 +480,7 @@ function selectCodexThreadsForSync(
         selected.push(thread);
     }
 
-    return { selected, skippedByProjectLimit, skippedByAge };
+    return { selected, skippedByProjectLimit, skippedByAge, skippedByNonProject };
 }
 
 export function buildCodexImportedSessionMetadata(
@@ -488,6 +504,7 @@ export function buildCodexImportedSessionMetadata(
         homeDir: machineMetadata?.homeDir,
         happyHomeDir: machineMetadata?.happyHomeDir,
         codexThreadId: thread.id,
+        codexProject: codexThreadHasProjectIdentity(thread),
         flavor: 'codex',
         version: thread.cliVersion ?? undefined,
         lifecycleState: 'imported',
@@ -501,6 +518,21 @@ function findImportedCodexThread(machineId: string, codexThreadId: string): Sess
         && session.metadata?.flavor === 'codex'
         && session.metadata?.codexThreadId === codexThreadId
     )) ?? null;
+}
+
+function getImportedCodexThreadIds(machineId: string): Set<string> {
+    const importedThreadIds = new Set<string>();
+    for (const session of Object.values(storage.getState().sessions)) {
+        if (
+            session.metadata?.machineId === machineId
+            && session.metadata?.flavor === 'codex'
+            && typeof session.metadata?.codexThreadId === 'string'
+            && (session.metadata.lifecycleState === undefined || session.metadata.lifecycleState === 'imported')
+        ) {
+            importedThreadIds.add(session.metadata.codexThreadId);
+        }
+    }
+    return importedThreadIds;
 }
 
 async function applyImportedCodexSessionLocally(response: Response, metadata: Metadata): Promise<void> {
@@ -778,8 +810,13 @@ export async function syncCodexSessions(machineId: string): Promise<CodexSession
         let imported = 0;
         let refreshed = 0;
         let skipped = 0;
-        const { selected, skippedByProjectLimit, skippedByAge } = selectCodexThreadsForSync(listResult.threads);
-        skipped += skippedByProjectLimit + skippedByAge;
+        const { selected, skippedByProjectLimit, skippedByAge, skippedByNonProject } = selectCodexThreadsForSync(
+            listResult.threads,
+            CODEX_SYNC_MAX_THREADS_PER_PROJECT,
+            Date.now(),
+            getImportedCodexThreadIds(machineId),
+        );
+        skipped += skippedByProjectLimit + skippedByAge + skippedByNonProject;
 
         for (const thread of selected) {
             if (!thread.id) {

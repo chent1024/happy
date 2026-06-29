@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getSessionListSortTime, inheritImportedCodexSessionTitles, isDuplicateImportedCodexSession, isImportedCodexSession, isProjectGroupSession } from './sessionListVisibility';
+import { getSessionListSortTime, getSessionProjectGroupPath, inheritImportedCodexSessionTitles, isDuplicateImportedCodexSession, isImportedCodexSession, isProjectGroupSession } from './sessionListVisibility';
 
 describe('session list visibility', () => {
     it('identifies inactive imported Codex threads for project-group display', () => {
@@ -210,6 +210,37 @@ describe('session list visibility', () => {
         };
 
         expect(isDuplicateImportedCodexSession(imported, { imported, otherMachine })).toBe(false);
+    });
+
+    it('hides imported Codex placeholders that are not tied to a project', () => {
+        const imported = {
+            id: 'imported',
+            active: false,
+            metadata: {
+                machineId: 'machine-1',
+                flavor: 'codex',
+                lifecycleState: 'imported',
+                codexThreadId: 'thread-1',
+                codexProject: false,
+            } as any,
+        };
+
+        expect(isDuplicateImportedCodexSession(imported, { imported })).toBe(true);
+        expect(isProjectGroupSession(imported)).toBe(false);
+    });
+
+    it('groups Codex environment sessions under their parent project path', () => {
+        expect(getSessionProjectGroupPath({
+            flavor: 'codex',
+            path: '/Users/tester/workspace/happy/environments/data/envs/zesty-glacier/project',
+        })).toBe('/Users/tester/workspace/happy');
+    });
+
+    it('keeps non-Codex project paths unchanged when grouping sessions', () => {
+        expect(getSessionProjectGroupPath({
+            flavor: 'claude',
+            path: '/Users/tester/workspace/happy/environments/data/envs/zesty-glacier/project',
+        })).toBe('/Users/tester/workspace/happy/environments/data/envs/zesty-glacier/project');
     });
 
     it('inherits imported Codex titles into resumed Happy sessions by parent id', () => {

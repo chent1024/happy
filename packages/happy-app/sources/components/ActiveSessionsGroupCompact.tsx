@@ -17,6 +17,7 @@ import { HappyError } from '@/utils/errors';
 import { SessionActionsAnchor, SessionActionsPopover } from './SessionActionsPopover';
 import { useSessionActionAlert } from '@/hooks/useSessionQuickActions';
 import { sessionArchiveWithStop } from '@/sync/ops';
+import { getSessionProjectGroupPath } from '@/sync/sessionListVisibility';
 import { isWorktreePath, getRepoPath, getWorktreeName } from '@/utils/worktree';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useRouter } from 'expo-router';
@@ -80,10 +81,12 @@ const ProjectInitialAvatar = React.memo(({ name, size }: { name: string; size: n
 // Section header: avatar | path + branch + tree icon + line changes | + button
 const SectionHeader = React.memo(({
     session,
+    projectPath,
     displayPath,
     onToggle,
 }: {
     session: SessionRowData;
+    projectPath: string;
     displayPath: string;
     onToggle: () => void;
 }) => {
@@ -92,14 +95,13 @@ const SectionHeader = React.memo(({
     const router = useRouter();
     const draft = useNewSessionDraft();
 
-    const sessionPath = session.path || '';
-    const isWorktree = isWorktreePath(sessionPath);
-    const repoPath = isWorktree ? getRepoPath(sessionPath) : sessionPath;
+    const isWorktree = isWorktreePath(projectPath);
+    const repoPath = isWorktree ? getRepoPath(projectPath) : projectPath;
     const repoDisplayPath = isWorktree
         ? formatPathRelativeToHome(repoPath, session.homeDir ?? undefined)
         : displayPath;
     const repoFolderName = repoPath.split(/[/\\]/).filter(Boolean).pop() || repoDisplayPath;
-    const worktreeName = isWorktree ? getWorktreeName(sessionPath) : null;
+    const worktreeName = isWorktree ? getWorktreeName(projectPath) : null;
 
     const gitInfo = useSectionGitInfo(session.id);
     const branchName = worktreeName || gitInfo.branch;
@@ -114,9 +116,9 @@ const SectionHeader = React.memo(({
         const pathToSet = formatPathRelativeToHome(repoPath, session.homeDir ?? undefined);
         draft.setPath(pathToSet);
         draft.setSessionType(isWorktree ? 'worktree' : 'simple');
-        draft.setWorktreeKey(isWorktree ? sessionPath : null);
+        draft.setWorktreeKey(isWorktree ? projectPath : null);
         router.navigate('/new');
-    }, [session.machineId, session.homeDir, repoPath, isWorktree, sessionPath, draft, router]);
+    }, [session.machineId, session.homeDir, repoPath, isWorktree, projectPath, draft, router]);
 
     const [isHovered, setIsHovered] = React.useState(false);
 
@@ -237,7 +239,7 @@ export function ActiveSessionsGroupCompact({ sessions, selectedSessionId, collap
                 byMachine.set(machineId, machineGroup);
             }
 
-            const projectPath = session.path || '';
+            const projectPath = getSessionProjectGroupPath(session);
             let projectGroup = machineGroup.projects.get(projectPath);
             if (!projectGroup) {
                 const displayPath = formatPathRelativeToHome(projectPath, session.homeDir ?? undefined);
@@ -338,6 +340,7 @@ export function ActiveSessionsGroupCompact({ sessions, selectedSessionId, collap
                                 <View key={projectPath} style={styles.projectCard}>
                                     <SectionHeader
                                         session={firstSession}
+                                        projectPath={projectPath}
                                         displayPath={projectGroup.displayPath}
                                         onToggle={() => handleToggleProject(projectKey)}
                                     />

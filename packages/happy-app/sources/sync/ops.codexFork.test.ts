@@ -327,8 +327,8 @@ describe('codex fork ops', () => {
         machineRPC.mockResolvedValue({
             type: 'success',
             threads: [
-                { id: 'thread-existing', cwd: '/tmp/project', preview: 'old', updatedAt: 1700000010 },
-                { id: 'thread-new', cwd: '/tmp/project', preview: 'new', updatedAt: 1700000005 },
+                { id: 'thread-existing', cwd: '/tmp/project', preview: 'old', updatedAt: 1700000010, gitInfo: { originUrl: 'https://example.com/project.git' } },
+                { id: 'thread-new', cwd: '/tmp/project', preview: 'new', updatedAt: 1700000005, gitInfo: { originUrl: 'https://example.com/project.git' } },
             ],
             nextCursor: null,
             backwardsCursor: null,
@@ -560,8 +560,8 @@ describe('codex fork ops', () => {
         machineRPC.mockResolvedValue({
             type: 'success',
             threads: [
-                { id: 'thread-recent', cwd: '/tmp/project', preview: 'recent', updatedAt: 1700000000000 },
-                { id: 'thread-old', cwd: '/tmp/project', preview: 'old', updatedAt: 1700000010000 - 4 * 24 * 60 * 60 * 1000 },
+                { id: 'thread-recent', cwd: '/tmp/project', preview: 'recent', updatedAt: 1700000000000, gitInfo: { originUrl: 'https://example.com/project.git' } },
+                { id: 'thread-old', cwd: '/tmp/project', preview: 'old', updatedAt: 1700000010000 - 4 * 24 * 60 * 60 * 1000, gitInfo: { originUrl: 'https://example.com/project.git' } },
             ],
             nextCursor: null,
             backwardsCursor: null,
@@ -606,7 +606,7 @@ describe('codex fork ops', () => {
         };
         machineRPC.mockResolvedValue({
             type: 'success',
-            threads: [{ id: 'thread-existing', cwd: '/tmp/project', preview: 'old', updatedAt: 1700000005 }],
+            threads: [{ id: 'thread-existing', cwd: '/tmp/project', preview: 'old', updatedAt: 1700000005, gitInfo: { originUrl: 'https://example.com/project.git' } }],
             nextCursor: null,
             backwardsCursor: null,
         });
@@ -718,10 +718,11 @@ describe('codex fork ops', () => {
             cwd: '/tmp/project-a',
             preview: `Project A ${index + 1}`,
             updatedAt: 1700000000000 + index,
+            gitInfo: { originUrl: 'https://example.com/project-a.git' },
         }));
         const projectBThreads = [
-            { id: 'project-b-older', cwd: '/tmp/project-b', preview: 'Project B older', updatedAt: 1700000000100 },
-            { id: 'project-b-newer', cwd: '/tmp/project-b', preview: 'Project B newer', updatedAt: 1700000000200 },
+            { id: 'project-b-older', cwd: '/tmp/project-b', preview: 'Project B older', updatedAt: 1700000000100, gitInfo: { originUrl: 'https://example.com/project-b.git' } },
+            { id: 'project-b-newer', cwd: '/tmp/project-b', preview: 'Project B newer', updatedAt: 1700000000200, gitInfo: { originUrl: 'https://example.com/project-b.git' } },
         ];
         machineRPC.mockResolvedValue({
             type: 'success',
@@ -766,6 +767,304 @@ describe('codex fork ops', () => {
             'codex:machine-1:project-a-4',
             'codex:machine-1:project-a-3',
         ]);
+    });
+
+    it('skips new Codex history threads that are not tied to a project', async () => {
+        machineRPC.mockResolvedValue({
+            type: 'success',
+            threads: [
+                {
+                    id: 'thread-project',
+                    cwd: '/Users/tester/workspace/happy',
+                    preview: 'Project',
+                    updatedAt: 1700000009000,
+                    gitInfo: { originUrl: 'https://github.com/chent1024/happy.git' },
+                },
+                {
+                    id: 'thread-scratch',
+                    cwd: '/Users/tester/Documents/Codex/2026-06-29/nam',
+                    preview: 'Scratch',
+                    updatedAt: 1700000008000,
+                    gitInfo: null,
+                },
+            ],
+            nextCursor: null,
+            backwardsCursor: null,
+        });
+        request.mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => ({
+                session: {
+                    id: 'happy-project',
+                    seq: 1,
+                    metadataVersion: 0,
+                    agentState: null,
+                    agentStateVersion: 0,
+                    active: false,
+                },
+            }),
+        });
+
+        const { syncCodexSessions } = await import('./ops');
+        const result = await syncCodexSessions('machine-1');
+
+        expect(result).toEqual({
+            type: 'success',
+            fetched: 2,
+            imported: 1,
+            refreshed: 0,
+            skipped: 1,
+        });
+        expect(request).toHaveBeenCalledTimes(1);
+        expect(JSON.parse(request.mock.calls[0][1].body).tag).toBe('codex:machine-1:thread-project');
+        expect(applySessions).toHaveBeenCalledWith([
+            expect.objectContaining({
+                metadata: expect.objectContaining({
+                    codexThreadId: 'thread-project',
+                    codexProject: true,
+                }),
+            }),
+        ]);
+    });
+
+    it('refreshes existing non-project Codex imports with a hidden project marker', async () => {
+        storageState.sessions = {
+            existing: {
+                id: 'happy-scratch',
+                seq: 7,
+                createdAt: 1700,
+                updatedAt: 1700,
+                active: false,
+                activeAt: 1700,
+                metadata: {
+                    machineId: 'machine-1',
+                    path: '/Users/tester/Documents/Codex/2026-06-29/nam',
+                    flavor: 'codex',
+                    lifecycleState: 'imported',
+                    codexThreadId: 'thread-scratch',
+                },
+                metadataVersion: 0,
+                agentState: null,
+                agentStateVersion: 0,
+                thinking: false,
+                thinkingAt: 0,
+                presence: 1700,
+            },
+        };
+        machineRPC.mockResolvedValue({
+            type: 'success',
+            threads: [
+                {
+                    id: 'thread-scratch',
+                    cwd: '/Users/tester/Documents/Codex/2026-06-29/nam',
+                    preview: 'Scratch',
+                    updatedAt: 1700000008000,
+                    gitInfo: null,
+                },
+            ],
+            nextCursor: null,
+            backwardsCursor: null,
+        });
+        request.mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => ({
+                session: {
+                    id: 'happy-scratch',
+                    seq: 7,
+                    metadataVersion: 0,
+                    agentState: null,
+                    agentStateVersion: 0,
+                    active: false,
+                },
+            }),
+        });
+
+        const { syncCodexSessions } = await import('./ops');
+        const result = await syncCodexSessions('machine-1');
+
+        expect(result).toEqual({
+            type: 'success',
+            fetched: 1,
+            imported: 0,
+            refreshed: 1,
+            skipped: 0,
+        });
+        expect(request).toHaveBeenCalledTimes(1);
+        expect(applySessions).toHaveBeenCalledWith([
+            expect.objectContaining({
+                id: 'happy-scratch',
+                metadata: expect.objectContaining({
+                    codexThreadId: 'thread-scratch',
+                    codexProject: false,
+                }),
+            }),
+        ]);
+    });
+
+    it('refreshes existing imported Codex threads even when they exceed the per-project import window', async () => {
+        storageState.sessions = {
+            existing: {
+                id: 'happy-existing-env',
+                seq: 7,
+                createdAt: 1700,
+                updatedAt: 1700,
+                active: false,
+                activeAt: 1700,
+                metadata: {
+                    machineId: 'machine-1',
+                    path: '/Users/tester/workspace/happy/environments/data/envs/old-env/project',
+                    flavor: 'codex',
+                    codexThreadId: 'project-a-existing-env',
+                },
+                metadataVersion: 0,
+                agentState: null,
+                agentStateVersion: 0,
+                thinking: false,
+                thinkingAt: 0,
+                presence: 1700,
+            },
+        };
+        const recentThreads = Array.from({ length: 15 }, (_, index) => ({
+            id: `project-a-recent-${index + 1}`,
+            cwd: '/Users/tester/workspace/happy',
+            preview: `Project A recent ${index + 1}`,
+            updatedAt: 1700000000000 + index,
+            gitInfo: { originUrl: 'https://github.com/chent1024/happy.git' },
+        }));
+        machineRPC.mockResolvedValue({
+            type: 'success',
+            threads: [
+                ...recentThreads,
+                {
+                    id: 'project-a-existing-env',
+                    cwd: '/Users/tester/workspace/happy/environments/data/envs/old-env/project',
+                    preview: 'Existing env',
+                    updatedAt: 1699999999000,
+                    gitInfo: { originUrl: 'https://github.com/chent1024/happy.git' },
+                },
+            ],
+            nextCursor: null,
+            backwardsCursor: null,
+        });
+        request.mockImplementation(async (_url: string, init: RequestInit) => {
+            const body = JSON.parse(String(init.body));
+            const threadId = String(body.tag).split(':').pop();
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    session: {
+                        id: threadId === 'project-a-existing-env' ? 'happy-existing-env' : `happy-${threadId}`,
+                        seq: 7,
+                        metadataVersion: 0,
+                        agentState: null,
+                        agentStateVersion: 0,
+                        active: false,
+                    },
+                }),
+            };
+        });
+
+        const { syncCodexSessions } = await import('./ops');
+        const result = await syncCodexSessions('machine-1');
+
+        expect(result).toEqual({
+            type: 'success',
+            fetched: 16,
+            imported: 15,
+            refreshed: 1,
+            skipped: 0,
+        });
+        expect(request.mock.calls.map((call) => JSON.parse(call[1].body).tag)).toContain(
+            'codex:machine-1:project-a-existing-env',
+        );
+        expect(applySessions).toHaveBeenLastCalledWith([
+            expect.objectContaining({
+                id: 'happy-existing-env',
+                metadata: expect.objectContaining({
+                    codexThreadId: 'project-a-existing-env',
+                    path: '/Users/tester/workspace/happy',
+                }),
+            }),
+        ]);
+    });
+
+    it('does not backfill running Codex sessions beyond the per-project import window', async () => {
+        storageState.sessions = {
+            running: {
+                id: 'happy-running',
+                seq: 7,
+                createdAt: 1700,
+                updatedAt: 1700,
+                active: true,
+                activeAt: 1700,
+                metadata: {
+                    machineId: 'machine-1',
+                    path: '/Users/tester/workspace/happy',
+                    flavor: 'codex',
+                    codexThreadId: 'project-a-running',
+                    lifecycleState: 'running',
+                },
+                metadataVersion: 0,
+                agentState: null,
+                agentStateVersion: 0,
+                thinking: false,
+                thinkingAt: 0,
+                presence: 'online',
+            },
+        };
+        const recentThreads = Array.from({ length: 15 }, (_, index) => ({
+            id: `project-a-recent-${index + 1}`,
+            cwd: '/Users/tester/workspace/happy',
+            preview: `Project A recent ${index + 1}`,
+            updatedAt: 1700000000000 + index,
+            gitInfo: { originUrl: 'https://github.com/chent1024/happy.git' },
+        }));
+        machineRPC.mockResolvedValue({
+            type: 'success',
+            threads: [
+                ...recentThreads,
+                {
+                    id: 'project-a-running',
+                    cwd: '/Users/tester/workspace/happy',
+                    preview: 'Running',
+                    updatedAt: 1699999999000,
+                    gitInfo: { originUrl: 'https://github.com/chent1024/happy.git' },
+                },
+            ],
+            nextCursor: null,
+            backwardsCursor: null,
+        });
+        request.mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => ({
+                session: {
+                    id: 'happy-imported',
+                    seq: 7,
+                    metadataVersion: 0,
+                    agentState: null,
+                    agentStateVersion: 0,
+                    active: false,
+                },
+            }),
+        });
+
+        const { syncCodexSessions } = await import('./ops');
+        const result = await syncCodexSessions('machine-1');
+
+        expect(result).toEqual({
+            type: 'success',
+            fetched: 16,
+            imported: 15,
+            refreshed: 0,
+            skipped: 1,
+        });
+        expect(request.mock.calls.map((call) => JSON.parse(call[1].body).tag)).not.toContain(
+            'codex:machine-1:project-a-running',
+        );
     });
 
     it('returns a readable Codex sync error when the daemon reports an empty RPC error', async () => {
