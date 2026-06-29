@@ -1067,6 +1067,61 @@ describe('codex fork ops', () => {
         );
     });
 
+    it('does not re-import manually archived Codex threads', async () => {
+        storageState.sessions = {
+            archived: {
+                id: 'happy-archived',
+                seq: 7,
+                createdAt: 1700,
+                updatedAt: 1700,
+                active: false,
+                activeAt: 1700,
+                metadata: {
+                    machineId: 'machine-1',
+                    path: '/Users/tester/project',
+                    flavor: 'codex',
+                    lifecycleState: 'archived',
+                    codexThreadId: 'thread-archived',
+                    archivedBy: 'user',
+                    archiveReason: 'manual-archive',
+                },
+                metadataVersion: 1,
+                agentState: null,
+                agentStateVersion: 0,
+                thinking: false,
+                thinkingAt: 0,
+                presence: 1700,
+            },
+        };
+        machineRPC.mockResolvedValue({
+            type: 'success',
+            threads: [
+                {
+                    id: 'thread-archived',
+                    cwd: '/Users/tester/project',
+                    codexProjectPath: '/Users/tester/project',
+                    updatedAt: 1700000005,
+                    name: 'Archived thread',
+                },
+            ],
+            nextCursor: null,
+            backwardsCursor: null,
+        });
+
+        const { syncCodexSessions } = await import('./ops');
+        const result = await syncCodexSessions('machine-1');
+
+        expect(result).toEqual({
+            type: 'success',
+            fetched: 1,
+            imported: 0,
+            refreshed: 0,
+            skipped: 1,
+        });
+        expect(request).not.toHaveBeenCalled();
+        expect(refreshSessions).not.toHaveBeenCalled();
+    });
+
     it('returns a readable Codex sync error when the daemon reports an empty RPC error', async () => {
         machineRPC.mockRejectedValue(new Error(''));
 

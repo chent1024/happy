@@ -293,6 +293,8 @@ export type CodexAccountRateLimitsRefreshResult =
 const CODEX_SYNC_MAX_THREADS_PER_PROJECT = 15;
 const CODEX_SYNC_MAX_THREAD_AGE_MS = 3 * 24 * 60 * 60 * 1000;
 const CODEX_SECONDS_TIMESTAMP_THRESHOLD = 10_000_000_000;
+const CODEX_IMPORTED_ARCHIVED_BY_USER = 'user';
+const CODEX_IMPORTED_ARCHIVE_REASON = 'manual-archive';
 
 export interface ResumeSessionOptions {
     machineId: string;
@@ -443,16 +445,23 @@ function selectCodexThreadsForSync(
     perProjectLimit = CODEX_SYNC_MAX_THREADS_PER_PROJECT,
     now = Date.now(),
     existingImportedThreadIds = new Set<string>(),
-): { selected: CodexThreadListItem[]; skippedByProjectLimit: number; skippedByAge: number; skippedByNonProject: number } {
+    archivedThreadIds = new Set<string>(),
+): { selected: CodexThreadListItem[]; skippedByProjectLimit: number; skippedByAge: number; skippedByNonProject: number; skippedByArchived: number } {
     const selected: CodexThreadListItem[] = [];
     const perProjectCounts = new Map<string, number>();
     let skippedByProjectLimit = 0;
     let skippedByAge = 0;
     let skippedByNonProject = 0;
+    let skippedByArchived = 0;
 
     const sortedThreads = withCodexProjectPaths(threads)
         .sort((a, b) => codexThreadUpdatedAt(b) - codexThreadUpdatedAt(a));
     for (const thread of sortedThreads) {
+        if (thread.id && archivedThreadIds.has(thread.id)) {
+            skippedByArchived++;
+            continue;
+        }
+
         if (thread.id && existingImportedThreadIds.has(thread.id)) {
             selected.push(thread);
             continue;
@@ -480,7 +489,7 @@ function selectCodexThreadsForSync(
         selected.push(thread);
     }
 
-    return { selected, skippedByProjectLimit, skippedByAge, skippedByNonProject };
+    return { selected, skippedByProjectLimit, skippedByAge, skippedByNonProject, skippedByArchived };
 }
 
 export function buildCodexImportedSessionMetadata(
@@ -533,6 +542,137 @@ function getImportedCodexThreadIds(machineId: string): Set<string> {
         }
     }
     return importedThreadIds;
+}
+
+function getArchivedCodexThreadIds(machineId: string): Set<string> {
+    const archivedThreadIds = new Set<string>();
+    for (const session of Object.values(storage.getState().sessions)) {
+        if (
+            !session.active
+            && session.metadata?.machineId === machineId
+            && session.metadata?.flavor === 'codex'
+            && session.metadata.lifecycleState === 'archived'
+            && typeof session.metadata.codexThreadId === 'string'
+            && session.metadata.codexThreadId.length > 0
+        ) {
+            archivedThreadIds.add(session.metadata.codexThreadId);
+        }
+    }
+    return archivedThreadIds;
+}
+
+function isImportedCodexMetadataForManualArchive(metadata: Metadata | null | undefined): metadata is Metadata & { codexThreadId: string } {
+    return Boolean(
+        metadata?.flavor === 'codex'
+        && metadata.lifecycleState === 'imported'
+        && typeof metadata.codexThreadId === 'string'
+        && metadata.codexThreadId.length > 0,
+    );
+}
+
+function isImportedCodexSessionForManualArchive(session: Session | undefined): session is Session & { metadata: Metadata & { codexThreadId: string } } {
+    return Boolean(
+        session
+        && !session.active
+        && isImportedCodexMetadataForManualArchive(session.metadata),
+    );
+}
+
+function isArchivedCodexMetadata(metadata: Metadata | null | undefined): metadata is Metadata & { codexThreadId: string } {
+    return Boolean(
+        metadata?.flavor === 'codex'
+        && metadata.lifecycleState === 'archived'
+        && typeof metadata.codexThreadId === 'string'
+        && metadata.codexThreadId.length > 0,
+    );
+}
+
+function buildManuallyArchivedCodexMetadata(metadata: Metadata & { codexThreadId: string }, archivedAt: number): Metadata {
+    return {
+        ...metadata,
+        lifecycleState: 'archived',
+        lifecycleStateSince: archivedAt,
+        archivedBy: CODEX_IMPORTED_ARCHIVED_BY_USER,
+        archiveReason: CODEX_IMPORTED_ARCHIVE_REASON,
+    };
+}
+
+function applyArchivedCodexSessionMetadata(sessionId: string, metadata: Metadata, metadataVersion: number): void {
+    const session = storage.getState().sessions[sessionId];
+    if (!session) {
+        return;
+    }
+
+    storage.getState().applySessions([{
+        ...session,
+        metadata,
+        metadataVersion,
+    }]);
+}
+
+async function markImportedCodexSessionArchived(sessionId: string): Promise<{ success: boolean; message?: string }> {
+    let session = storage.getState().sessions[sessionId];
+    if (!isImportedCodexSessionForManualArchive(session)) {
+        return { success: true };
+    }
+
+    let sessionEncryption = sync.encryption.getSessionEncryption(sessionId);
+    if (!sessionEncryption) {
+        await sync.refreshSessions();
+        session = storage.getState().sessions[sessionId];
+        if (!isImportedCodexSessionForManualArchive(session)) {
+            return { success: true };
+        }
+        sessionEncryption = sync.encryption.getSessionEncryption(sessionId);
+    }
+    if (!sessionEncryption) {
+        return { success: false, message: 'Session encryption not found for imported Codex archive' };
+    }
+
+    let currentVersion = session.metadataVersion;
+    let currentMetadata: Metadata | null = session.metadata;
+    const archivedAt = Date.now();
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+        if (isArchivedCodexMetadata(currentMetadata)) {
+            applyArchivedCodexSessionMetadata(sessionId, currentMetadata, currentVersion);
+            return { success: true };
+        }
+        if (!isImportedCodexMetadataForManualArchive(currentMetadata)) {
+            return { success: true };
+        }
+
+        const archivedMetadata = buildManuallyArchivedCodexMetadata(currentMetadata, archivedAt);
+        const encryptedMetadata = await sessionEncryption.encryptMetadata(archivedMetadata);
+        const result = await apiSocket.emitWithAck<{
+            result: 'success' | 'version-mismatch' | 'error';
+            version?: number;
+            metadata?: string;
+            message?: string;
+        }>('update-metadata', {
+            sid: sessionId,
+            metadata: encryptedMetadata,
+            expectedVersion: currentVersion,
+        });
+
+        if (result.result === 'success') {
+            applyArchivedCodexSessionMetadata(sessionId, archivedMetadata, result.version ?? currentVersion + 1);
+            return { success: true };
+        }
+
+        if (result.result === 'version-mismatch' && typeof result.version === 'number' && typeof result.metadata === 'string') {
+            currentVersion = result.version;
+            currentMetadata = await sessionEncryption.decryptMetadata(result.version, result.metadata);
+            if (!currentMetadata) {
+                return { success: false, message: 'Failed to decrypt latest session metadata' };
+            }
+            continue;
+        }
+
+        return { success: false, message: result.message ?? 'Failed to update imported Codex archive metadata' };
+    }
+
+    return { success: false, message: 'Failed to update imported Codex archive metadata after retries' };
 }
 
 async function applyImportedCodexSessionLocally(response: Response, metadata: Metadata): Promise<void> {
@@ -591,6 +731,18 @@ async function createImportedCodexSession(machineId: string, thread: CodexThread
 
     if (!response.ok) {
         throw new Error(`Failed to import Codex session ${thread.id}: ${response.status}`);
+    }
+
+    const payload = typeof response.clone === 'function' ? response.clone() : response;
+    if (typeof payload.json === 'function') {
+        try {
+            const body = await payload.json() as ImportedSessionCreateResponse;
+            if (body.session?.id) {
+                await sync.encryption.initializeSessions(new Map([[body.session.id, dataEncryptionKey]]));
+            }
+        } catch {
+            // The local apply path below handles malformed responses.
+        }
     }
 
     await applyImportedCodexSessionLocally(response, metadata);
@@ -810,13 +962,14 @@ export async function syncCodexSessions(machineId: string): Promise<CodexSession
         let imported = 0;
         let refreshed = 0;
         let skipped = 0;
-        const { selected, skippedByProjectLimit, skippedByAge, skippedByNonProject } = selectCodexThreadsForSync(
+        const { selected, skippedByProjectLimit, skippedByAge, skippedByNonProject, skippedByArchived } = selectCodexThreadsForSync(
             listResult.threads,
             CODEX_SYNC_MAX_THREADS_PER_PROJECT,
             Date.now(),
             getImportedCodexThreadIds(machineId),
+            getArchivedCodexThreadIds(machineId),
         );
-        skipped += skippedByProjectLimit + skippedByAge + skippedByNonProject;
+        skipped += skippedByProjectLimit + skippedByAge + skippedByNonProject + skippedByArchived;
 
         for (const thread of selected) {
             if (!thread.id) {
@@ -1434,6 +1587,16 @@ export async function sessionArchiveWithStop(options: {
     machineId?: string | null;
     requireStop?: boolean;
 }): Promise<{ success: boolean; message?: string }> {
+    if (isImportedCodexSessionForManualArchive(storage.getState().sessions[options.sessionId])) {
+        const result = await sessionArchive(options.sessionId);
+        let importedCodexArchiveResult: { success: boolean; message?: string } | null = null;
+        if (result.success) {
+            importedCodexArchiveResult = await markImportedCodexSessionArchived(options.sessionId);
+        }
+        await sync.refreshSessions();
+        return importedCodexArchiveResult?.success === false ? importedCodexArchiveResult : result;
+    }
+
     const stopFailures: string[] = [];
     let stopped = false;
     const killResult = await sessionKill(options.sessionId);
@@ -1460,8 +1623,12 @@ export async function sessionArchiveWithStop(options: {
     }
 
     const result = await sessionArchive(options.sessionId);
+    let importedCodexArchiveResult: { success: boolean; message?: string } | null = null;
+    if (result.success) {
+        importedCodexArchiveResult = await markImportedCodexSessionArchived(options.sessionId);
+    }
     await sync.refreshSessions();
-    return result;
+    return importedCodexArchiveResult?.success === false ? importedCodexArchiveResult : result;
 }
 
 /**

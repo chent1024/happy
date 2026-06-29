@@ -23,6 +23,7 @@ import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useRouter } from 'expo-router';
 import { compareSessionsByRecency, getSessionRecencyTime } from '@/utils/sessionRecency';
 import { formatShortRelativeTime } from '@/utils/shortRelativeTime';
+import { compareProjectGroupsByStablePath } from '@/utils/projectGroupSorting';
 
 const STATUS_CONFIG: Record<SessionState, { color: string; dotColor: string; isPulsing: boolean; isConnected: boolean }> = {
     disconnected: { color: '#999', dotColor: '#999', isPulsing: false, isConnected: false },
@@ -315,11 +316,7 @@ export function ActiveSessionsGroupCompact({ sessions, selectedSessionId, collap
     return (
         <View style={styles.container}>
             {machineGroups.map(machineGroup => {
-                const sortedProjects = Array.from(machineGroup.projects.entries()).sort(([, a], [, b]) => {
-                    const aUpdatedAt = a.sessions[0]?.updatedAt ?? 0;
-                    const bUpdatedAt = b.sessions[0]?.updatedAt ?? 0;
-                    return bUpdatedAt - aUpdatedAt || a.displayPath.localeCompare(b.displayPath);
-                });
+                const sortedProjects = Array.from(machineGroup.projects.entries()).sort(compareProjectGroupsByStablePath);
 
                 return (
                     <React.Fragment key={machineGroup.machineId}>

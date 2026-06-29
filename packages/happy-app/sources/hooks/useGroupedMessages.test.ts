@@ -50,6 +50,19 @@ function namedToolMessage(id: string, name: string, createdAt: number): ToolCall
     };
 }
 
+function runningToolMessage(id: string, createdAt: number): ToolCallMessage {
+    const message = toolMessage(id, createdAt);
+    return {
+        ...message,
+        tool: {
+            ...message.tool,
+            state: 'running',
+            completedAt: null,
+            result: undefined,
+        },
+    };
+}
+
 describe('useGroupedMessages', () => {
     it('stores grouped tools in chronological render order', () => {
         const messages: Message[] = [
@@ -157,6 +170,37 @@ describe('useGroupedMessages', () => {
             'agent-progress',
             'tool-earliest',
         ]);
+    });
+
+    it('keeps a collapsed work group running when it contains a running tool', () => {
+        const messages: Message[] = [
+            {
+                kind: 'agent-text',
+                id: 'agent-final',
+                localId: null,
+                createdAt: 5,
+                text: 'done for now',
+            },
+            runningToolMessage('tool-running', 4),
+            toolMessage('tool-completed', 2),
+            {
+                kind: 'user-text',
+                id: 'user',
+                localId: null,
+                createdAt: 1,
+                text: 'run tools',
+            },
+        ];
+
+        const workGroup = groupMessagesForDisplay(messages, true)
+            .find((item) => item.type === 'agent-work-group');
+
+        if (workGroup?.type !== 'agent-work-group') {
+            throw new Error('Expected an agent work group');
+        }
+        expect(workGroup.hasRunning).toBe(true);
+        expect(workGroup.startedAt).toBe(2);
+        expect(workGroup.completedAt).toBeNull();
     });
 
     it('does not collapse the current turn while the agent is still working', () => {

@@ -1,29 +1,39 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { machineRPC, sessionRPC, request, refreshSessions } = vi.hoisted(() => ({
+const { machineRPC, sessionRPC, request, emitWithAck, refreshSessions, storageState, encryptMetadata, decryptMetadata, getSessionEncryption, applySessions } = vi.hoisted(() => ({
     machineRPC: vi.fn(),
     sessionRPC: vi.fn(),
     request: vi.fn(),
+    emitWithAck: vi.fn(),
     refreshSessions: vi.fn(),
+    storageState: {
+        sessions: {} as Record<string, any>,
+        machines: {} as Record<string, any>,
+        settings: {},
+        applySessions: vi.fn(),
+    },
+    encryptMetadata: vi.fn(),
+    decryptMetadata: vi.fn(),
+    getSessionEncryption: vi.fn(),
+    applySessions: vi.fn(),
 }));
 
 vi.mock('./apiSocket', () => ({
-    apiSocket: { machineRPC, sessionRPC, request },
+    apiSocket: { machineRPC, sessionRPC, request, emitWithAck },
 }));
 
 vi.mock('./sync', () => ({
     sync: {
         refreshSessions,
+        encryption: {
+            getSessionEncryption,
+        },
     },
 }));
 
 vi.mock('./storage', () => ({
     storage: {
-        getState: () => ({
-            sessions: {},
-            machines: {},
-            settings: {},
-        }),
+        getState: () => storageState,
     },
 }));
 
@@ -42,7 +52,22 @@ describe('session lifecycle ops', () => {
         machineRPC.mockReset();
         sessionRPC.mockReset();
         request.mockReset();
+        emitWithAck.mockReset();
         refreshSessions.mockReset();
+        encryptMetadata.mockReset();
+        decryptMetadata.mockReset();
+        getSessionEncryption.mockReset();
+        applySessions.mockReset();
+        storageState.sessions = {};
+        storageState.machines = {};
+        storageState.settings = {};
+        storageState.applySessions = applySessions;
+        encryptMetadata.mockResolvedValue('encrypted-archived-metadata');
+        decryptMetadata.mockResolvedValue(null);
+        getSessionEncryption.mockReturnValue({
+            encryptMetadata,
+            decryptMetadata,
+        });
     });
 
     it('restarts a session through the machine daemon RPC', async () => {
@@ -110,6 +135,173 @@ describe('session lifecycle ops', () => {
         expect(machineRPC).toHaveBeenCalledWith('machine-1', 'stop-session', { sessionId: 'session-1' });
         expect(request).toHaveBeenCalledWith('/v1/sessions/session-1/archive', { method: 'POST' });
         expect(refreshSessions).toHaveBeenCalledTimes(1);
+    });
+
+    it('marks imported Codex sessions archived in metadata before refreshing', async () => {
+        storageState.sessions = {
+            'session-1': {
+                id: 'session-1',
+                seq: 1,
+                createdAt: 1000,
+                updatedAt: 1000,
+                active: false,
+                activeAt: 1000,
+                metadata: {
+                    path: '/tmp/project',
+                    host: 'codex.app',
+                    machineId: 'machine-1',
+                    flavor: 'codex',
+                    lifecycleState: 'imported',
+                    codexThreadId: 'thread-1',
+                },
+                metadataVersion: 2,
+                agentState: null,
+                agentStateVersion: 0,
+                thinking: false,
+                thinkingAt: 0,
+                presence: 1000,
+            },
+        };
+        sessionRPC.mockResolvedValue({ success: false, message: 'already stopped' });
+        request.mockResolvedValue({ ok: true });
+        emitWithAck.mockResolvedValue({
+            result: 'success',
+            version: 3,
+            metadata: 'encrypted-archived-metadata',
+        });
+
+        const { sessionArchiveWithStop } = await import('./ops');
+        const result = await sessionArchiveWithStop({
+            sessionId: 'session-1',
+            machineId: 'machine-1',
+        });
+
+        expect(result).toEqual({ success: true });
+        expect(encryptMetadata).toHaveBeenCalledWith(expect.objectContaining({
+            lifecycleState: 'archived',
+            archivedBy: 'user',
+            archiveReason: 'manual-archive',
+            codexThreadId: 'thread-1',
+        }));
+        expect(emitWithAck).toHaveBeenCalledWith('update-metadata', {
+            sid: 'session-1',
+            metadata: 'encrypted-archived-metadata',
+            expectedVersion: 2,
+        });
+        expect(applySessions).toHaveBeenCalledWith([
+            expect.objectContaining({
+                id: 'session-1',
+                metadataVersion: 3,
+                metadata: expect.objectContaining({
+                    lifecycleState: 'archived',
+                    archivedBy: 'user',
+                    archiveReason: 'manual-archive',
+                }),
+            }),
+        ]);
+        expect(refreshSessions).toHaveBeenCalledTimes(1);
+    });
+
+    it('archives imported Codex sessions without trying to stop a missing worker', async () => {
+        storageState.sessions = {
+            'session-1': {
+                id: 'session-1',
+                seq: 1,
+                createdAt: 1000,
+                updatedAt: 1000,
+                active: false,
+                activeAt: 1000,
+                metadata: {
+                    path: '/tmp/project',
+                    host: 'codex.app',
+                    machineId: 'machine-1',
+                    flavor: 'codex',
+                    lifecycleState: 'imported',
+                    codexThreadId: 'thread-1',
+                },
+                metadataVersion: 2,
+                agentState: null,
+                agentStateVersion: 0,
+                thinking: false,
+                thinkingAt: 0,
+                presence: 1000,
+            },
+        };
+        request.mockResolvedValue({ ok: true });
+        emitWithAck.mockResolvedValue({
+            result: 'success',
+            version: 3,
+            metadata: 'encrypted-archived-metadata',
+        });
+
+        const { sessionArchiveWithStop } = await import('./ops');
+        const result = await sessionArchiveWithStop({
+            sessionId: 'session-1',
+            machineId: 'machine-1',
+            requireStop: true,
+        });
+
+        expect(result).toEqual({ success: true });
+        expect(sessionRPC).not.toHaveBeenCalled();
+        expect(machineRPC).not.toHaveBeenCalled();
+        expect(request).toHaveBeenCalledWith('/v1/sessions/session-1/archive', { method: 'POST' });
+        expect(emitWithAck).toHaveBeenCalledWith('update-metadata', expect.objectContaining({
+            sid: 'session-1',
+            expectedVersion: 2,
+        }));
+    });
+
+    it('refreshes sessions before archiving imported Codex metadata when encryption is not initialized', async () => {
+        storageState.sessions = {
+            'session-1': {
+                id: 'session-1',
+                seq: 1,
+                createdAt: 1000,
+                updatedAt: 1000,
+                active: false,
+                activeAt: 1000,
+                metadata: {
+                    path: '/tmp/project',
+                    host: 'codex.app',
+                    machineId: 'machine-1',
+                    flavor: 'codex',
+                    lifecycleState: 'imported',
+                    codexThreadId: 'thread-1',
+                },
+                metadataVersion: 2,
+                agentState: null,
+                agentStateVersion: 0,
+                thinking: false,
+                thinkingAt: 0,
+                presence: 1000,
+            },
+        };
+        getSessionEncryption
+            .mockReturnValueOnce(null)
+            .mockReturnValue({
+                encryptMetadata,
+                decryptMetadata,
+            });
+        sessionRPC.mockResolvedValue({ success: false, message: 'already stopped' });
+        request.mockResolvedValue({ ok: true });
+        emitWithAck.mockResolvedValue({
+            result: 'success',
+            version: 3,
+            metadata: 'encrypted-archived-metadata',
+        });
+
+        const { sessionArchiveWithStop } = await import('./ops');
+        const result = await sessionArchiveWithStop({
+            sessionId: 'session-1',
+            machineId: 'machine-1',
+        });
+
+        expect(result).toEqual({ success: true });
+        expect(refreshSessions).toHaveBeenCalledTimes(2);
+        expect(emitWithAck).toHaveBeenCalledWith('update-metadata', expect.objectContaining({
+            sid: 'session-1',
+            expectedVersion: 2,
+        }));
     });
 
     it('does not archive when the process is still reachable but cannot be stopped', async () => {

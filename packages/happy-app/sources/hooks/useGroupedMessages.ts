@@ -299,6 +299,7 @@ function collectAgentWorkGroups(messages: Message[], turnOf: number[], collapseC
             const runMessages = runIndexes.map((index) => messages[index]);
             const startedAt = Math.min(...runMessages.map((msg) => msg.createdAt));
             const hasRunning = runMessages.some((msg) => msg.kind === 'tool-call' && msg.tool.state === 'running');
+            const completedAt = hasRunning ? null : boundaryCreatedAt;
 
             groups.push({
                 hiddenIndexes: runIndexes,
@@ -310,7 +311,7 @@ function collectAgentWorkGroups(messages: Message[], turnOf: number[], collapseC
                     hasRunning,
                     hasPendingPermission: hasPendingPermission(runMessages),
                     startedAt,
-                    completedAt: boundaryCreatedAt,
+                    completedAt,
                 },
             });
         };
