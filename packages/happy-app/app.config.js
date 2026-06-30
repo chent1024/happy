@@ -58,6 +58,21 @@ function loadBuildMetadata() {
 }
 
 const buildMetadata = loadBuildMetadata();
+const MAX_ANDROID_VERSION_CODE = 2100000000;
+
+function loadAndroidVersionCode() {
+    const rawVersionCode =
+        process.env.HAPPY_ANDROID_VERSION_CODE ||
+        process.env.EAS_BUILD_VERSION_CODE ||
+        process.env.HAPPY_BUILD_NUMBER;
+    if (rawVersionCode && /^\d+$/.test(rawVersionCode)) {
+        return Math.min(Number(rawVersionCode), MAX_ANDROID_VERSION_CODE);
+    }
+
+    return Math.min(Math.floor(Date.now() / 1000), MAX_ANDROID_VERSION_CODE);
+}
+
+const androidVersionCode = loadAndroidVersionCode();
 
 function withDevelopmentPersonalTeamEntitlements(config) {
     if (variant !== 'development') {
@@ -104,6 +119,7 @@ export default {
             ...(variant === 'production' ? { associatedDomains: ["applinks:app.happy.engineering"] } : {})
         },
         android: {
+            versionCode: androidVersionCode,
             adaptiveIcon: {
                 foregroundImage: "./sources/assets/images/icon-adaptive.png",
                 monochromeImage: "./sources/assets/images/icon-monochrome.png",
