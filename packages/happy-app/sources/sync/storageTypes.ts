@@ -35,6 +35,7 @@ export const MetadataSchema = z.object({
     machineId: z.string().optional(),
     claudeSessionId: z.string().optional(), // Claude Code session ID
     codexThreadId: z.string().optional(), // Codex app-server thread ID
+    codexBackfilledThreadId: z.string().optional(), // Codex thread whose history was replayed into this Happy session
     codexProject: z.boolean().optional(), // False for Codex history that is not tied to a project/workspace
     tools: z.array(z.string()).optional(),
     slashCommands: z.array(z.string()).optional(),

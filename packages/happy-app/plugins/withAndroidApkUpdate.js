@@ -40,6 +40,11 @@ function ensureProvider(application, packageName) {
     application.provider = providers;
 }
 
+function allowCleartextApkUpdateDownloads(application) {
+    application.$ = application.$ ?? {};
+    application.$['android:usesCleartextTraffic'] = 'true';
+}
+
 function removeExpoUpdatesMetadata(application) {
     application['meta-data'] = (application['meta-data'] ?? []).filter((metadata) => {
         const name = metadata.$?.['android:name'];
@@ -315,6 +320,7 @@ module.exports = function withAndroidApkUpdate(config) {
             throw new Error('withAndroidApkUpdate could not find Android application node');
         }
         removeExpoUpdatesMetadata(application);
+        allowCleartextApkUpdateDownloads(application);
         ensureProvider(application, packageName);
 
         return config;

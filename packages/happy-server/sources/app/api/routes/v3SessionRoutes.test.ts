@@ -130,6 +130,9 @@ const {
             rows = rows.filter((message) => message.seq > args.where.seq.gt);
         }
         if (typeof args?.where?.seq?.lt === "number") {
+            if (args.where.seq.lt > 2_147_483_647) {
+                throw new Error("seq.lt exceeds int4 range");
+            }
             rows = rows.filter((message) => message.seq < args.where.seq.lt);
         }
         if (Array.isArray(args?.where?.localId?.in)) {

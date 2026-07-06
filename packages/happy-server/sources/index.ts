@@ -1,6 +1,6 @@
 import "reflect-metadata";
 
-import { db } from "./storage/db";
+import { closeDbStorage, db } from "./storage/db";
 import { initEncrypt } from "./modules/encrypt";
 import { initGithub } from "./modules/github";
 import { loadFiles } from "./storage/files";
@@ -26,7 +26,11 @@ export async function startServer(opts: StartServerOptions): Promise<{ port: num
 
     await db.$connect();
     onShutdown("db", async () => {
-        await db.$disconnect();
+        try {
+            await db.$disconnect();
+        } finally {
+            await closeDbStorage();
+        }
     });
     onShutdown("activity-cache", async () => {
         activityCache.shutdown();

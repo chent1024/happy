@@ -5,23 +5,25 @@ const baseSession = {
     id: 'session',
     name: 'Session',
     updatedAt: 0,
+    recencyAt: 0,
 };
 
 describe('session recency helpers', () => {
-    it('uses the latest available activity timestamp', () => {
+    it('uses the stable recency timestamp instead of row updatedAt', () => {
         expect(getSessionRecencyTime({
-            updatedAt: 10,
+            recencyAt: 20,
+            updatedAt: 1_000_000,
             activeAt: 30,
-            createdAt: 20,
-        })).toBe(30);
+            createdAt: 40,
+        })).toBe(20);
     });
 
     it('sorts sessions newest first with stable fallback ordering', () => {
         const sessions = [
             { ...baseSession, id: 'older', name: 'Older', updatedAt: 10 },
-            { ...baseSession, id: 'tie-b', name: 'Tie', updatedAt: 30 },
-            { ...baseSession, id: 'newest', name: 'Newest', updatedAt: 40 },
-            { ...baseSession, id: 'tie-a', name: 'Tie', updatedAt: 30 },
+            { ...baseSession, id: 'tie-b', name: 'Tie', recencyAt: 30, updatedAt: 3000 },
+            { ...baseSession, id: 'newest', name: 'Newest', recencyAt: 40, updatedAt: 1000 },
+            { ...baseSession, id: 'tie-a', name: 'Tie', recencyAt: 30, updatedAt: 4000 },
         ];
 
         expect(sessions.sort(compareSessionsByRecency).map(session => session.id)).toEqual([

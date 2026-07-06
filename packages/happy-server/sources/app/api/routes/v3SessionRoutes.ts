@@ -38,6 +38,7 @@ const BACKWARD_MESSAGES_EXTENDED_INTERVAL_MS = 2000;
 const BACKWARD_MESSAGES_EXTENDED_AFTER_PAGES = 3;
 const BACKWARD_MESSAGES_THROTTLE_RESET_MS = 10_000;
 const BACKWARD_MESSAGES_MAX_LIMIT = 50;
+const SESSION_MESSAGE_SEQ_MAX = 2_147_483_647;
 const MAX_BACKWARD_THROTTLE_KEYS = 10_000;
 const FORWARD_EMPTY_CACHE_TTL_MS = 750;
 const MAX_FORWARD_EMPTY_CACHE_KEYS = 10_000;
@@ -200,6 +201,9 @@ export function v3SessionRoutes(app: Fastify) {
             ? Math.min(limit, BACKWARD_MESSAGES_MAX_LIMIT)
             : limit;
         const effectiveAfterSeq = after_seq ?? 0;
+        const effectiveBeforeSeq = before_seq !== undefined
+            ? Math.min(before_seq, SESSION_MESSAGE_SEQ_MAX)
+            : undefined;
         const cachedForwardEmpty = !isBackward
             ? readForwardEmptyCache(userId, sessionId, effectiveAfterSeq, effectiveLimit)
             : null;
@@ -231,7 +235,7 @@ export function v3SessionRoutes(app: Fastify) {
         }
 
         const where = isBackward
-            ? { sessionId, seq: { lt: before_seq } }
+            ? { sessionId, seq: { lt: effectiveBeforeSeq } }
             : { sessionId, seq: { gt: effectiveAfterSeq } };
         const orderBy = isBackward
             ? { seq: 'desc' as const }

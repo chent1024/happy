@@ -172,7 +172,7 @@ describe('useGroupedMessages', () => {
         ]);
     });
 
-    it('keeps a collapsed work group running when it contains a running tool', () => {
+    it('does not keep a completed work group loading when a stale tool remains running', () => {
         const messages: Message[] = [
             {
                 kind: 'agent-text',
@@ -198,9 +198,15 @@ describe('useGroupedMessages', () => {
         if (workGroup?.type !== 'agent-work-group') {
             throw new Error('Expected an agent work group');
         }
-        expect(workGroup.hasRunning).toBe(true);
+        expect(workGroup.hasRunning).toBe(false);
         expect(workGroup.startedAt).toBe(2);
-        expect(workGroup.completedAt).toBeNull();
+        expect(workGroup.completedAt).toBe(5);
+        const staleTool = workGroup.messages.find((message) => message.id === 'tool-running');
+        expect(staleTool?.kind).toBe('tool-call');
+        if (staleTool?.kind === 'tool-call') {
+            expect(staleTool.tool.state).toBe('completed');
+            expect(staleTool.tool.completedAt).toBe(5);
+        }
     });
 
     it('does not collapse the current turn while the agent is still working', () => {

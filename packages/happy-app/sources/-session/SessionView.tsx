@@ -823,7 +823,6 @@ function SessionHeaderStatusCapsule(props: { session: Session }) {
 
     const tightestWindow = pickTightestRateLimitWindow(limits);
     const remainingPercent = getRateLimitRemainingPercent(headerWindow);
-    const windowName = formatRateLimitWindowName(headerWindow);
     const accent = getRateLimitAccent(theme);
 
     const showDetails = () => {
@@ -853,8 +852,8 @@ function SessionHeaderStatusCapsule(props: { session: Session }) {
         <View
             style={{
                 height: 32,
-                minWidth: 88,
-                maxWidth: 132,
+                minWidth: 72,
+                maxWidth: 116,
                 borderRadius: 16,
                 flexDirection: 'row',
                 alignItems: 'center',
@@ -868,8 +867,8 @@ function SessionHeaderStatusCapsule(props: { session: Session }) {
                 onPress={showDetails}
                 hitSlop={{ top: 5, bottom: 5, left: 4, right: 0 }}
                 style={({ pressed }) => ({
-                    minWidth: 58,
-                    maxWidth: 102,
+                    minWidth: 42,
+                    maxWidth: 86,
                     height: 32,
                     paddingLeft: 10,
                     paddingRight: 8,
@@ -888,7 +887,17 @@ function SessionHeaderStatusCapsule(props: { session: Session }) {
                         flexShrink: 0,
                     }}
                 >
-                    {windowName} {remainingPercent}%
+                    {remainingPercent}
+                    <Text
+                        style={{
+                            color: accent.color,
+                            fontSize: 9,
+                            lineHeight: 12,
+                            fontWeight: '600',
+                        }}
+                    >
+                        %
+                    </Text>
                 </Text>
             </Pressable>
             <View

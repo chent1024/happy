@@ -179,12 +179,40 @@ export function getSessionProjectGroupPath(session: {
 }
 
 export function getSessionListSortTime(
-    session: Pick<Session, 'active' | 'metadata' | 'createdAt' | 'updatedAt'>,
+    session: Pick<Session, 'active' | 'metadata' | 'createdAt' | 'updatedAt' | 'activeAt'> & Partial<Pick<Session, 'thinking' | 'agentState'>>,
     sortByActivity: boolean,
 ): number {
-    if (sortByActivity || isImportedCodexSession(session)) {
-        return session.updatedAt;
+    if (isImportedCodexSession(session)) {
+        return session.metadata?.summary?.updatedAt ?? session.activeAt ?? session.createdAt;
+    }
+
+    if (sortByActivity) {
+        return getSessionRecencySortTime(session);
     }
 
     return session.createdAt;
+}
+
+export function getSessionRecencySortTime(
+    session: Pick<Session, 'active' | 'metadata' | 'createdAt' | 'updatedAt' | 'activeAt'> & Partial<Pick<Session, 'thinking' | 'agentState'>>,
+): number {
+    if (isImportedCodexSession(session)) {
+        return session.metadata?.summary?.updatedAt ?? session.activeAt ?? session.createdAt;
+    }
+
+    const stableActivityAt = Math.max(
+        session.metadata?.summary?.updatedAt ?? 0,
+        session.updatedAt ?? 0,
+        session.createdAt ?? 0,
+    );
+    const activeAt = session.activeAt ?? 0;
+    const hasPendingRequests = Boolean(
+        session.agentState?.requests && Object.keys(session.agentState.requests).length > 0,
+    );
+
+    if (session.thinking || hasPendingRequests) {
+        return Math.max(activeAt, stableActivityAt);
+    }
+
+    return stableActivityAt || activeAt || session.createdAt;
 }

@@ -28,7 +28,7 @@ import { sync } from "./sync";
 import { isMutableTool } from "@/components/tools/knownTools";
 import { DecryptedArtifact } from "./artifactTypes";
 import { FeedItem } from "./feedTypes";
-import { buildDuplicateImportedCodexSessionIds, getSessionListSortTime, inheritImportedCodexSessionTitles, isProjectGroupSession } from "./sessionListVisibility";
+import { buildDuplicateImportedCodexSessionIds, getSessionListSortTime, getSessionRecencySortTime, inheritImportedCodexSessionTitles, isProjectGroupSession } from "./sessionListVisibility";
 import { mergeMessagesByCreatedAtDesc } from "./messageMerge";
 
 // Debounce timer for realtimeMode changes
@@ -85,6 +85,7 @@ export interface SessionRowData {
     // and activeAt updates on every heartbeat, causing needless deep-equal diffs
     activeAt?: number;
     createdAt?: number;
+    recencyAt: number;
     updatedAt: number;
     hasDraft: boolean;
     active: boolean;
@@ -119,6 +120,7 @@ function buildSessionRowData(session: Session, unreadSessionIds?: Set<string>): 
         flavor: session.metadata?.flavor ?? null,
         state,
         ...(!session.active && { activeAt: session.activeAt, createdAt: session.createdAt }),
+        recencyAt: getSessionRowRecencyTime(session),
         updatedAt: session.updatedAt,
         hasDraft: !!session.draft,
         active: session.active,
@@ -129,6 +131,10 @@ function buildSessionRowData(session: Session, unreadSessionIds?: Set<string>): 
         totalTodosCount: session.todos?.length ?? 0,
         hasUnread: unreadSessionIds?.has(session.id) ?? false,
     };
+}
+
+function getSessionRowRecencyTime(session: Session): number {
+    return getSessionRecencySortTime(session);
 }
 
 // Unified list item type for SessionsList component

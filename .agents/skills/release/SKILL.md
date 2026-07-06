@@ -248,8 +248,9 @@ options in order of popularity:
 
 1. **OTA update (preview)** — push JS bundle to preview channel. Most common release type.
 2. **OTA update (production)** — push JS bundle to production channel. Do this after preview OTA is validated.
-3. **Native dev build** — when native code changes. Points to dev server with bundled app.
-4. **Full native release** — build all profiles (dev + preview + production) to prep for a new native release.
+3. **Android local update APK** — build a release APK and publish Codex-style `latest.json` on port 8766 for direct in-app update testing.
+4. **Native dev build** — when native code changes. Points to dev server with bundled app.
+5. **Full native release** — build all profiles (dev + preview + production) to prep for a new native release.
 
 #### OTA Updates
 
@@ -268,6 +269,66 @@ underlying `eas update` directly with `--message`:
   ```
 
 #### Native Builds
+
+##### Android local update APK
+
+Use this path when the user asks to "打 release APK", "验证更新", "用 latest.json
+模式", "本地安卓升级", or wants a directly downloadable APK for the in-app
+Android updater. This is a local/internal update path, not a Play Store/EAS
+release.
+
+Build from the repo root so the same commands work regardless of current package
+directory:
+
+```bash
+export HAPPY_ANDROID_UPDATE_BUILD_DATE="$(TZ=Asia/Shanghai date '+%Y-%m-%dT%H:%M:%S+08:00')"
+APP_ENV=production corepack pnpm --filter happy-app exec expo prebuild --platform android --clean --no-install
+cd packages/happy-app/android
+APP_ENV=production ./gradlew :app:assembleRelease
+cd ../../..
+corepack pnpm android:update-server -- --apk packages/happy-app/android/app/build/outputs/apk/release/app-release.apk
+```
+
+Keep `HAPPY_ANDROID_UPDATE_BUILD_DATE` exported for all three commands. The app
+embeds it as the current build timestamp, and `latest.json` uses the same value;
+otherwise same-version local APKs can fail to prompt or can keep prompting after
+install.
+
+The update server command copies the APK to `/tmp/happy-apk/app-release.apk`,
+writes `/tmp/happy-apk/latest.json`, and serves both on `http://<tailscale-ip>:8766`.
+The mobile app derives this URL from the current Happy server host by replacing
+the port with `8766` and reading `/latest.json`.
+
+Verify before reporting success:
+
+```bash
+rg -n "usesCleartextTraffic|package=|versionName|versionCode" \
+  packages/happy-app/android/app/build/intermediates/merged_manifests/release/processReleaseManifest/AndroidManifest.xml
+$ANDROID_HOME/build-tools/36.0.0/apksigner verify --verbose \
+  packages/happy-app/android/app/build/outputs/apk/release/app-release.apk
+curl -fsS http://<tailscale-ip>:8766/latest.json
+curl -fsSI http://<tailscale-ip>:8766/app-release.apk
+curl -fsS -r 0-15 http://<tailscale-ip>:8766/app-release.apk | xxd -p
+shasum -a 256 \
+  packages/happy-app/android/app/build/outputs/apk/release/app-release.apk \
+  /tmp/happy-apk/app-release.apk
+adb devices -l
+```
+
+Expected checks:
+- Merged release manifest has `android:usesCleartextTraffic="true"`.
+- `apksigner` prints `Verifies` and v2 signing is true.
+- `latest.json` contains `version`, `displayVersion`, `buildDate`,
+  `publishedAt`, `apkUrl`, and `size`.
+- APK HEAD returns `Content-Length`; Range request returns ZIP bytes beginning
+  with `504b`.
+- SHA256 for the build output and `/tmp/happy-apk/app-release.apk` match.
+- If no Android device is connected, say device-side install/update was not
+  verified.
+
+Port warning: this local service takes over TCP `8766`. If Codex's local Android
+update server was running on the same machine, it will be replaced by Happy's
+server. Mention the current manifest URL in the final response.
 
 - **Dev build** — development profile, used when native code changes (points to dev server)
   ```bash

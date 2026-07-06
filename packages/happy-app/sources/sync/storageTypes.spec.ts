@@ -21,6 +21,18 @@ describe('MetadataSchema', () => {
         expect(metadata.archivedBy).toBe('cli');
         expect(metadata.archiveReason).toBe('User terminated');
     });
+
+    it('preserves Codex backfill metadata used by message paging', () => {
+        const metadata = MetadataSchema.parse({
+            path: '/tmp/project',
+            host: 'local-machine',
+            flavor: 'codex',
+            codexThreadId: 'thread-1',
+            codexBackfilledThreadId: 'thread-1',
+        });
+
+        expect(metadata.codexBackfilledThreadId).toBe('thread-1');
+    });
 });
 
 describe('AgentGoalStatusSchema', () => {

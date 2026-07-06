@@ -47,6 +47,8 @@ function loadBuildMetadata() {
         git(['rev-parse', 'HEAD']);
     const commitTimestamp =
         process.env.HAPPY_BUILD_COMMIT_TIMESTAMP ||
+        process.env.HAPPY_ANDROID_UPDATE_BUILD_DATE ||
+        process.env.HAPPY_APP_BUILD_TIMESTAMP ||
         (commitSha
             ? git(['show', '-s', '--format=%cI', commitSha])
             : git(['show', '-s', '--format=%cI', 'HEAD']));

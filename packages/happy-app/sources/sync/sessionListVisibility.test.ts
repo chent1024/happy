@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getSessionListSortTime, getSessionProjectGroupPath, inheritImportedCodexSessionTitles, isDuplicateImportedCodexSession, isImportedCodexSession, isProjectGroupSession } from './sessionListVisibility';
+import { getSessionListSortTime, getSessionProjectGroupPath, getSessionRecencySortTime, inheritImportedCodexSessionTitles, isDuplicateImportedCodexSession, isImportedCodexSession, isProjectGroupSession } from './sessionListVisibility';
 
 describe('session list visibility', () => {
     it('identifies inactive imported Codex threads for project-group display', () => {
@@ -60,27 +60,90 @@ describe('session list visibility', () => {
         })).toBe(false);
     });
 
-    it('sorts imported Codex threads by updatedAt under the default creation-time setting', () => {
+    it('sorts imported Codex threads by summary time under the default creation-time setting', () => {
         const importedCodex = {
             active: false,
             createdAt: 1,
-            updatedAt: 10,
+            activeAt: 5,
+            updatedAt: 10_000,
             metadata: {
                 flavor: 'codex',
                 lifecycleState: 'imported',
                 codexThreadId: 'thread-1',
+                summary: { text: 'Imported thread', updatedAt: 10 },
             } as any,
         };
         const regularSession = {
             active: false,
             createdAt: 2,
-            updatedAt: 20,
+            activeAt: 3,
+            updatedAt: 20_000,
             metadata: null,
         };
 
         expect(getSessionListSortTime(importedCodex, false)).toBe(10);
         expect(getSessionListSortTime(regularSession, false)).toBe(2);
-        expect(getSessionListSortTime(regularSession, true)).toBe(20);
+        expect(getSessionListSortTime(regularSession, true)).toBe(20_000);
+    });
+
+    it('keeps completed active sessions sorted by stable content time instead of keep-alive time', () => {
+        expect(getSessionRecencySortTime({
+            active: true,
+            activeAt: 1_000_000,
+            updatedAt: 10,
+            createdAt: 1,
+            thinking: false,
+            agentState: null,
+            metadata: null,
+        })).toBe(10);
+    });
+
+    it('uses keep-alive recency while the session is actively working', () => {
+        expect(getSessionRecencySortTime({
+            active: true,
+            activeAt: 1_000_000,
+            updatedAt: 10,
+            createdAt: 1,
+            thinking: true,
+            agentState: null,
+            metadata: null,
+        })).toBe(1_000_000);
+    });
+
+    it('uses keep-alive recency while the session is waiting for permission', () => {
+        expect(getSessionRecencySortTime({
+            active: true,
+            activeAt: 1_000_000,
+            updatedAt: 10,
+            createdAt: 1,
+            thinking: false,
+            agentState: {
+                requests: {
+                    request1: {
+                        tool: 'Edit',
+                        arguments: {},
+                        createdAt: 1_000_000,
+                    },
+                },
+            } as any,
+            metadata: null,
+        })).toBe(1_000_000);
+    });
+
+    it('uses Codex summary time for resumed active Codex sessions when keep-alive is newer', () => {
+        expect(getSessionRecencySortTime({
+            active: true,
+            activeAt: 1_000_000,
+            updatedAt: 10,
+            createdAt: 1,
+            thinking: false,
+            agentState: null,
+            metadata: {
+                flavor: 'codex',
+                lifecycleState: 'running',
+                summary: { text: 'Completed task', updatedAt: 20 },
+            } as any,
+        })).toBe(20);
     });
 
     it('hides imported Codex placeholders once a real Happy session exists for the same thread', () => {

@@ -296,10 +296,9 @@ function collectAgentWorkGroups(messages: Message[], turnOf: number[], collapseC
             const runIndexes = run;
             run = [];
             const oldestIdx = Math.max(...runIndexes);
-            const runMessages = runIndexes.map((index) => messages[index]);
-            const startedAt = Math.min(...runMessages.map((msg) => msg.createdAt));
-            const hasRunning = runMessages.some((msg) => msg.kind === 'tool-call' && msg.tool.state === 'running');
-            const completedAt = hasRunning ? null : boundaryCreatedAt;
+            const rawRunMessages = runIndexes.map((index) => messages[index]);
+            const startedAt = Math.min(...rawRunMessages.map((msg) => msg.createdAt));
+            const runMessages = rawRunMessages.map((msg) => completeStaleRunningToolForDisplay(msg, boundaryCreatedAt));
 
             groups.push({
                 hiddenIndexes: runIndexes,
@@ -308,10 +307,10 @@ function collectAgentWorkGroups(messages: Message[], turnOf: number[], collapseC
                     type: 'agent-work-group',
                     id: `work-${messages[oldestIdx].id}`,
                     messages: runMessages,
-                    hasRunning,
+                    hasRunning: false,
                     hasPendingPermission: hasPendingPermission(runMessages),
                     startedAt,
-                    completedAt,
+                    completedAt: boundaryCreatedAt,
                 },
             });
         };
@@ -328,6 +327,21 @@ function collectAgentWorkGroups(messages: Message[], turnOf: number[], collapseC
     }
 
     return groups;
+}
+
+function completeStaleRunningToolForDisplay(msg: Message, completedAt: number): Message {
+    if (msg.kind !== 'tool-call' || msg.tool.state !== 'running') {
+        return msg;
+    }
+
+    return {
+        ...msg,
+        tool: {
+            ...msg.tool,
+            state: 'completed',
+            completedAt,
+        },
+    };
 }
 
 /** Returns true for messages that render as null and should be excluded entirely */

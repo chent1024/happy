@@ -49,6 +49,17 @@ import {
     getEnsureSessionLiveFailureMessage,
     shouldRetryEnsureSessionLiveForSend,
 } from './sessionWorkerLive';
+import {
+    buildNativeUpdateManifestUrl,
+    isNativeUpdateManifestNewer,
+    normalizeNativeUpdateManifest,
+    type NativeUpdateManifest,
+} from './nativeUpdateManifest';
+import {
+    getInitialMessagePageLimit,
+    shouldPrefetchOlderMessages,
+} from './messagePagingPolicy';
+import { getIncomingMessageSeqAction } from './messageSeqGate';
 
 type V3GetSessionMessagesResponse = {
     messages: ApiMessage[];
@@ -1422,6 +1433,48 @@ class Sync {
             const version = Constants.expoConfig?.version!;
             const appId = (Platform.OS === 'ios' ? Constants.expoConfig?.ios?.bundleIdentifier! : Constants.expoConfig?.android?.package!);
 
+            if (Platform.OS === 'android') {
+                const manifestUrl = buildNativeUpdateManifestUrl(serverUrl);
+                if (!manifestUrl) {
+                    storage.getState().applyNativeUpdateStatus({ available: false });
+                    return;
+                }
+
+                const response = await fetch(`${manifestUrl}?t=${Date.now()}`, {
+                    method: 'GET',
+                    headers: {
+                        Accept: 'application/json',
+                    },
+                    cache: 'no-store',
+                });
+
+                if (!response.ok) {
+                    console.log(`[fetchNativeUpdate] Android manifest request failed: ${response.status}`);
+                    storage.getState().applyNativeUpdateStatus({ available: false });
+                    return;
+                }
+
+                const manifest = normalizeNativeUpdateManifest(
+                    await response.json() as NativeUpdateManifest,
+                    manifestUrl,
+                );
+                const currentBuildDate = typeof Constants.expoConfig?.extra?.app?.buildCommitTimestamp === 'string'
+                    ? Constants.expoConfig.extra.app.buildCommitTimestamp
+                    : undefined;
+
+                if (manifest && isNativeUpdateManifestNewer(manifest, version, currentBuildDate)) {
+                    storage.getState().applyNativeUpdateStatus({
+                        available: true,
+                        updateUrl: manifest.apkUrl,
+                    });
+                } else {
+                    storage.getState().applyNativeUpdateStatus({
+                        available: false,
+                    });
+                }
+                return;
+            }
+
             const response = await fetch(`${serverUrl}/v1/version`, {
                 method: 'POST',
                 headers: {
@@ -1444,10 +1497,13 @@ class Sync {
             console.log('[fetchNativeUpdate] Data:', data);
 
             // Apply update status to storage
-            if (data.update_required && data.update_url) {
+            const updateUrl = typeof data.updateUrl === 'string'
+                ? data.updateUrl
+                : (typeof data.update_url === 'string' ? data.update_url : null);
+            if (updateUrl) {
                 storage.getState().applyNativeUpdateStatus({
                     available: true,
-                    updateUrl: data.update_url
+                    updateUrl
                 });
             } else {
                 storage.getState().applyNativeUpdateStatus({
@@ -1581,7 +1637,12 @@ class Sync {
                 // from displaying anything for sessions with thousands of
                 // messages. The user's reported pain point was "opening a long
                 // session feels frozen" — this is the fix.
-                await this.fetchInitialLatestPage(sessionId, encryption);
+                const metadata = storage.getState().sessions[sessionId]?.metadata ?? null;
+                await this.fetchInitialLatestPage(
+                    sessionId,
+                    encryption,
+                    getInitialMessagePageLimit(metadata),
+                );
             } else {
                 // Forward incremental sync. Used after reconnect, invalidate,
                 // or any subsequent visit. Only pulls messages newer than what
@@ -1592,7 +1653,8 @@ class Sync {
             storage.getState().applyMessagesLoaded(sessionId);
             log.log(`💬 fetchMessages completed for session ${sessionId}`);
 
-            if (isInitialLoad) {
+            const metadataAfterLoad = storage.getState().sessions[sessionId]?.metadata ?? null;
+            if (isInitialLoad && shouldPrefetchOlderMessages(metadataAfterLoad)) {
                 // Fire-and-forget. The chat is interactive at this point;
                 // background pages stream in without blocking either the
                 // surrounding lock or the UI. loadOlderMessages takes the
@@ -1639,10 +1701,11 @@ class Sync {
 
     private fetchInitialLatestPage = async (
         sessionId: string,
-        encryption: ReturnType<Encryption['getSessionEncryption']> & {}
+        encryption: ReturnType<Encryption['getSessionEncryption']> & {},
+        limit: number,
     ) => {
         const response = await apiSocket.request(
-            `/v3/sessions/${sessionId}/messages?before_seq=${SEQ_BACKWARD_INITIAL_SENTINEL}&limit=100`
+            `/v3/sessions/${sessionId}/messages?before_seq=${SEQ_BACKWARD_INITIAL_SENTINEL}&limit=${limit}`
         );
         if (!response.ok) {
             throw new Error(`Failed to fetch initial page for ${sessionId}: ${response.status}`);
@@ -1834,6 +1897,13 @@ class Sync {
         console.log(`🔄 Sync: Validated update type: ${updateData.body.t}`);
 
         if (updateData.body.t === 'new-message') {
+            const currentLastSeq = this.sessionLastSeq.get(updateData.body.sid);
+            const incomingSeq = updateData.body.message.seq;
+            const seqAction = getIncomingMessageSeqAction(currentLastSeq, incomingSeq);
+            if (seqAction === 'ignore') {
+                log.log(`💬 Ignoring stale message update for ${updateData.body.sid}: seq=${incomingSeq}, lastSeq=${currentLastSeq}`);
+                return;
+            }
 
             // Get encryption — may not be ready if sessions are still syncing
             let encryption = this.encryption.getSessionEncryption(updateData.body.sid);
@@ -1878,9 +1948,7 @@ class Sync {
                     }
 
                     // Fast-path only on consecutive seq values, otherwise fetch from server.
-                    const currentLastSeq = this.sessionLastSeq.get(updateData.body.sid);
-                    const incomingSeq = updateData.body.message.seq;
-                    if (lastMessage && currentLastSeq !== undefined && incomingSeq === currentLastSeq + 1) {
+                    if (lastMessage && seqAction === 'append') {
                         this.enqueueMessages(updateData.body.sid, [lastMessage]);
                         this.sessionLastSeq.set(updateData.body.sid, incomingSeq);
                         let hasMutableTool = false;
@@ -1895,9 +1963,6 @@ class Sync {
                     }
                 }
             }
-
-            // Ping session
-            this.onSessionVisible(updateData.body.sid);
 
         } else if (updateData.body.t === 'new-session') {
             log.log('🆕 New session update received');

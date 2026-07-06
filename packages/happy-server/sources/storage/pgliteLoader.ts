@@ -1,6 +1,7 @@
 import { PGlite } from "@electric-sql/pglite";
 import * as fs from "fs";
 import * as path from "path";
+import { acquirePGliteDirectoryLock, PGliteDirectoryLock } from "./pgliteLock";
 
 type WebAssemblyModuleCtor = new (bytes: Buffer) => WebAssembly.Module;
 
@@ -34,9 +35,34 @@ function findWasmFiles(): { wasmModule: WebAssembly.Module; fsBundle: Blob } | n
 }
 
 export function createPGlite(dataDir: string): PGlite {
+    const lock = acquirePGliteDirectoryLock(dataDir);
     const wasmOpts = findWasmFiles();
-    if (wasmOpts) {
-        return new PGlite({ dataDir, ...wasmOpts });
+    let pg: PGlite;
+    try {
+        if (wasmOpts) {
+            pg = new PGlite({ dataDir, ...wasmOpts });
+        } else {
+            pg = new PGlite(dataDir);
+        }
+    } catch (error) {
+        lock.release();
+        throw error;
     }
-    return new PGlite(dataDir);
+    pgliteLocks.set(pg, lock);
+    return pg;
+}
+
+const pgliteLocks = new WeakMap<PGlite, PGliteDirectoryLock>();
+
+export async function closePGlite(pg: PGlite | null | undefined): Promise<void> {
+    if (!pg) {
+        return;
+    }
+    const lock = pgliteLocks.get(pg);
+    try {
+        await pg.close();
+    } finally {
+        lock?.release();
+        pgliteLocks.delete(pg);
+    }
 }

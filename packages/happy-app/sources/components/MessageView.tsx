@@ -12,6 +12,7 @@ import { sync } from '@/sync/sync';
 import { Option } from './markdown/MarkdownView';
 import { layout } from "./layout";
 import { parseLocalCommandMessage, isUserSlashCommandEcho } from './parseLocalCommandMessage';
+import { parseCodexResumeEvent } from '@/utils/codexResumeEvent';
 
 
 export const MessageView = React.memo((props: {
@@ -208,6 +209,19 @@ function AgentEventBlock(props: {
     );
   }
   if (props.event.type === 'message') {
+    const codexResume = parseCodexResumeEvent(props.event.message);
+    if (codexResume) {
+      return (
+        <View style={styles.codexResumeEventContainer}>
+          <View style={styles.codexResumeEventChip}>
+            <Ionicons name="code-slash-outline" size={14} color={styles.codexResumeEventText.color} />
+            <Text style={styles.codexResumeEventText}>Codex thread resumed</Text>
+            <Text style={styles.codexResumeEventId}>{codexResume.shortThreadId}</Text>
+          </View>
+        </View>
+      );
+    }
+
     return (
       <View style={styles.agentEventContainer}>
         <Text style={styles.agentEventText}>{props.event.message}</Text>
@@ -335,6 +349,32 @@ const styles = StyleSheet.create((theme) => ({
   agentEventText: {
     color: theme.colors.agentEventText,
     fontSize: 14,
+  },
+  codexResumeEventContainer: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    alignItems: 'flex-start',
+  },
+  codexResumeEventChip: {
+    maxWidth: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: theme.colors.surfaceHighest,
+  },
+  codexResumeEventText: {
+    color: theme.colors.agentEventText,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  codexResumeEventId: {
+    color: theme.colors.agentEventText,
+    fontSize: 12,
+    fontFamily: 'monospace',
+    opacity: 0.72,
   },
   toolContainer: {
     marginHorizontal: 8,

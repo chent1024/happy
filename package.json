@@ -26,7 +26,8 @@
         "dev:tailscale": "node ./scripts/dev-tailscale.cjs",
         "dev:tailscale:setup": "node ./scripts/dev-tailscale.cjs setup",
         "dev:tailscale:status": "node ./scripts/dev-tailscale.cjs status",
-        "dev:tailscale:stop": "node ./scripts/dev-tailscale.cjs stop"
+        "dev:tailscale:stop": "node ./scripts/dev-tailscale.cjs stop",
+        "android:update-server": "node ./scripts/publish-android-update-apk.cjs"
     },
     "workspaces": {
         "packages": [

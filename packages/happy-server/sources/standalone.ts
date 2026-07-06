@@ -19,7 +19,7 @@ crypto.subtle.importKey = function (format: any, keyData: any, algorithm: any, e
 
 import * as fs from "fs";
 import * as path from "path";
-import { createPGlite } from "./storage/pgliteLoader";
+import { closePGlite, createPGlite } from "./storage/pgliteLoader";
 
 const dataDir = process.env.DATA_DIR || "./data";
 const pgliteDir = process.env.PGLITE_DIR || path.join(dataDir, "pglite");
@@ -30,82 +30,83 @@ export async function runMigrations(opts: { pgliteDir: string; migrationsDir?: s
     fs.mkdirSync(targetPgliteDir, { recursive: true });
 
     const pg = createPGlite(targetPgliteDir);
-
-    // Create migrations tracking table
-    await pg.exec(`
-        CREATE TABLE IF NOT EXISTS "_prisma_migrations" (
-            "id" TEXT PRIMARY KEY,
-            "migration_name" TEXT NOT NULL UNIQUE,
-            "finished_at" TIMESTAMPTZ,
-            "started_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
-            "applied_steps_count" INTEGER NOT NULL DEFAULT 0,
-            "logs" TEXT
-        );
-    `);
-
-    // Find migrations directory - explicit arg wins; fall back to defaults.
-    let migrationsDirResolved = "";
-    const candidates: string[] = [];
-    if (opts.migrationsDir) candidates.push(opts.migrationsDir);
-    candidates.push(
-        path.join(process.cwd(), "prisma", "migrations"),
-        path.join(process.cwd(), "packages", "happy-server", "prisma", "migrations"),
-        path.join(path.dirname(process.execPath), "prisma", "migrations"),
-    );
-    for (const candidate of candidates) {
-        if (fs.existsSync(candidate)) {
-            migrationsDirResolved = candidate;
-            break;
-        }
-    }
-    if (!migrationsDirResolved) {
-        throw new Error(`Could not find prisma/migrations directory. Tried: ${candidates.join(", ")}`);
-    }
-
-    // Get all migration directories sorted
-    const dirs = fs.readdirSync(migrationsDirResolved)
-        .filter(d => fs.statSync(path.join(migrationsDirResolved, d)).isDirectory())
-        .sort();
-
-    // Get already applied migrations
-    const applied = await pg.query<{ migration_name: string }>(
-        `SELECT "migration_name" FROM "_prisma_migrations" WHERE "finished_at" IS NOT NULL`
-    );
-    const appliedSet = new Set(applied.rows.map(r => r.migration_name));
-
-    let appliedCount = 0;
-    for (const dir of dirs) {
-        if (appliedSet.has(dir)) {
-            continue;
-        }
-
-        const sqlFile = path.join(migrationsDirResolved, dir, "migration.sql");
-        if (!fs.existsSync(sqlFile)) {
-            continue;
-        }
-
-        console.log(`  Applying ${dir}...`);
-        const sql = fs.readFileSync(sqlFile, "utf-8");
-
-        try {
-            await pg.exec(sql);
-            await pg.query(
-                `INSERT INTO "_prisma_migrations" ("id", "migration_name", "finished_at", "applied_steps_count") VALUES ($1, $2, now(), 1)`,
-                [crypto.randomUUID(), dir]
+    try {
+        // Create migrations tracking table
+        await pg.exec(`
+            CREATE TABLE IF NOT EXISTS "_prisma_migrations" (
+                "id" TEXT PRIMARY KEY,
+                "migration_name" TEXT NOT NULL UNIQUE,
+                "finished_at" TIMESTAMPTZ,
+                "started_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+                "applied_steps_count" INTEGER NOT NULL DEFAULT 0,
+                "logs" TEXT
             );
-            appliedCount++;
-        } catch (e: any) {
-            throw new Error(`Failed to apply ${dir}: ${e.message}`);
+        `);
+
+        // Find migrations directory - explicit arg wins; fall back to defaults.
+        let migrationsDirResolved = "";
+        const candidates: string[] = [];
+        if (opts.migrationsDir) candidates.push(opts.migrationsDir);
+        candidates.push(
+            path.join(process.cwd(), "prisma", "migrations"),
+            path.join(process.cwd(), "packages", "happy-server", "prisma", "migrations"),
+            path.join(path.dirname(process.execPath), "prisma", "migrations"),
+        );
+        for (const candidate of candidates) {
+            if (fs.existsSync(candidate)) {
+                migrationsDirResolved = candidate;
+                break;
+            }
         }
-    }
+        if (!migrationsDirResolved) {
+            throw new Error(`Could not find prisma/migrations directory. Tried: ${candidates.join(", ")}`);
+        }
 
-    if (appliedCount === 0) {
-        console.log("No new migrations to apply.");
-    } else {
-        console.log(`Applied ${appliedCount} migration(s).`);
-    }
+        // Get all migration directories sorted
+        const dirs = fs.readdirSync(migrationsDirResolved)
+            .filter(d => fs.statSync(path.join(migrationsDirResolved, d)).isDirectory())
+            .sort();
 
-    await pg.close();
+        // Get already applied migrations
+        const applied = await pg.query<{ migration_name: string }>(
+            `SELECT "migration_name" FROM "_prisma_migrations" WHERE "finished_at" IS NOT NULL`
+        );
+        const appliedSet = new Set(applied.rows.map(r => r.migration_name));
+
+        let appliedCount = 0;
+        for (const dir of dirs) {
+            if (appliedSet.has(dir)) {
+                continue;
+            }
+
+            const sqlFile = path.join(migrationsDirResolved, dir, "migration.sql");
+            if (!fs.existsSync(sqlFile)) {
+                continue;
+            }
+
+            console.log(`  Applying ${dir}...`);
+            const sql = fs.readFileSync(sqlFile, "utf-8");
+
+            try {
+                await pg.exec(sql);
+                await pg.query(
+                    `INSERT INTO "_prisma_migrations" ("id", "migration_name", "finished_at", "applied_steps_count") VALUES ($1, $2, now(), 1)`,
+                    [crypto.randomUUID(), dir]
+                );
+                appliedCount++;
+            } catch (e: any) {
+                throw new Error(`Failed to apply ${dir}: ${e.message}`);
+            }
+        }
+
+        if (appliedCount === 0) {
+            console.log("No new migrations to apply.");
+        } else {
+            console.log(`Applied ${appliedCount} migration(s).`);
+        }
+    } finally {
+        await closePGlite(pg);
+    }
 }
 
 async function serve() {
