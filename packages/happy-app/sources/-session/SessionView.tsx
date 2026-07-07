@@ -852,7 +852,7 @@ function SessionHeaderStatusCapsule(props: { session: Session }) {
         <View
             style={{
                 height: 32,
-                width: 92,
+                width: 78,
                 borderRadius: 16,
                 flexDirection: 'row',
                 alignItems: 'center',
@@ -867,10 +867,10 @@ function SessionHeaderStatusCapsule(props: { session: Session }) {
                 onPress={showDetails}
                 hitSlop={{ top: 5, bottom: 5, left: 4, right: 0 }}
                 style={({ pressed }) => ({
-                    width: 58,
+                    width: 43,
                     height: 32,
-                    paddingLeft: 10,
-                    paddingRight: 8,
+                    paddingLeft: 7,
+                    paddingRight: 5,
                     alignItems: 'center',
                     justifyContent: 'center',
                     opacity: pressed ? 0.62 : 1,
@@ -884,7 +884,7 @@ function SessionHeaderStatusCapsule(props: { session: Session }) {
                         lineHeight: 16,
                         fontWeight: '600',
                         flexShrink: 0,
-                        minWidth: 32,
+                        minWidth: 26,
                         textAlign: 'center',
                     }}
                 >
@@ -915,7 +915,7 @@ function SessionHeaderStatusCapsule(props: { session: Session }) {
                 onPress={() => router.push(`/session/${props.session.id}/info`)}
                 hitSlop={{ top: 5, bottom: 5, left: 0, right: 4 }}
                 style={({ pressed }) => ({
-                    width: 30,
+                    width: 34,
                     height: 32,
                     alignItems: 'center',
                     justifyContent: 'center',

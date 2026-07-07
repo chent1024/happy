@@ -141,10 +141,10 @@ function RenderListBlock(props: { items: { depth: number, spans: MarkdownSpan[] 
     return (
         <View style={{ flexDirection: 'column', marginBottom: 8, gap: 6 }}>
             {props.items.map((item, index) => (
-                <View key={index} style={{ flexDirection: 'row', alignItems: 'flex-start', paddingLeft: item.depth * 16 }}>
-                    <Text useDefaultTypography={false} selectable={false} style={[listStyle, { marginRight: 8, marginTop: 1 }]}>{BULLETS[Math.min(item.depth, BULLETS.length - 1)]}</Text>
-                    <Text useDefaultTypography={false} selectable={props.selectable} style={[listStyle, { flex: 1 }]}><RenderSpans spans={item.spans} baseStyle={listStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} /></Text>
-                </View>
+                <Text key={index} useDefaultTypography={false} selectable={props.selectable} style={[listStyle, { paddingLeft: item.depth * 16 }]}>
+                    {BULLETS[Math.min(item.depth, BULLETS.length - 1)]}{' '}
+                    <RenderSpans spans={item.spans} baseStyle={listStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} />
+                </Text>
             ))}
         </View>
     );
@@ -155,10 +155,10 @@ function RenderNumberedListBlock(props: { items: { number: number, depth: number
     return (
         <View style={{ flexDirection: 'column', marginBottom: 8, gap: 6 }}>
             {props.items.map((item, index) => (
-                <View key={index} style={{ flexDirection: 'row', alignItems: 'flex-start', paddingLeft: item.depth * 16 }}>
-                    <Text useDefaultTypography={false} selectable={false} style={[listStyle, { marginRight: 8, marginTop: 1 }]}>{item.number}.</Text>
-                    <Text useDefaultTypography={false} selectable={props.selectable} style={[listStyle, { flex: 1 }]}><RenderSpans spans={item.spans} baseStyle={listStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} /></Text>
-                </View>
+                <Text key={index} useDefaultTypography={false} selectable={props.selectable} style={[listStyle, { paddingLeft: item.depth * 16 }]}>
+                    {item.number}.{' '}
+                    <RenderSpans spans={item.spans} baseStyle={listStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} />
+                </Text>
             ))}
         </View>
     );
