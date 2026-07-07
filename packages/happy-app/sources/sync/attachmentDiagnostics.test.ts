@@ -8,6 +8,7 @@ import {
     errorMessageFromUnknown,
     formatAttachmentDiagnosticForLog,
     getAttachmentDiagnostic,
+    isAttachmentTooLargeDiagnostic,
     sanitizeAttachmentUrlHost,
 } from './attachmentDiagnostics';
 
@@ -568,6 +569,31 @@ describe('attachment diagnostic serialization', () => {
             reason: 'missing-blob-key',
         });
         expect(diagnostic).not.toHaveProperty('target');
+    });
+});
+
+describe('isAttachmentTooLargeDiagnostic', () => {
+    it('matches upload-side 413 responses', () => {
+        expect(isAttachmentTooLargeDiagnostic({
+            leg: 'request-upload',
+            status: 413,
+        })).toBe(true);
+        expect(isAttachmentTooLargeDiagnostic({
+            leg: 'blob-upload',
+            status: 413,
+        })).toBe(true);
+    });
+
+    it('does not match non-upload failures', () => {
+        expect(isAttachmentTooLargeDiagnostic({
+            leg: 'blob-download',
+            status: 413,
+        })).toBe(false);
+        expect(isAttachmentTooLargeDiagnostic({
+            leg: 'request-upload',
+            status: 500,
+        })).toBe(false);
+        expect(isAttachmentTooLargeDiagnostic(null)).toBe(false);
     });
 });
 

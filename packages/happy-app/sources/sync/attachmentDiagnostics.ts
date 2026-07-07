@@ -137,6 +137,11 @@ export function getAttachmentDiagnostic(error: unknown): AttachmentDiagnostic | 
     return null;
 }
 
+export function isAttachmentTooLargeDiagnostic(diagnostic: AttachmentDiagnostic | null | undefined): boolean {
+    return diagnostic?.status === 413
+        && (diagnostic.leg === 'request-upload' || diagnostic.leg === 'blob-upload');
+}
+
 export function formatAttachmentDiagnosticForLog(
     diagnostic: AttachmentDiagnostic,
     runtime: AttachmentDiagnosticRuntimeContext = {},

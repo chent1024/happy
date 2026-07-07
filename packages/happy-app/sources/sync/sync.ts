@@ -11,6 +11,7 @@ import {
     errorMessageFromUnknown,
     formatAttachmentDiagnosticForLog,
     getAttachmentDiagnostic,
+    isAttachmentTooLargeDiagnostic,
 } from './attachmentDiagnostics';
 import { ApiEphemeralUpdateSchema, ApiMessage, ApiUpdateContainerSchema } from './apiTypes';
 import type { ApiEphemeralActivityUpdate } from './apiTypes';
@@ -482,16 +483,17 @@ class Sync {
     private async uploadAttachmentsForSession(
         sessionId: string,
         attachments: AttachmentPreview[],
-    ): Promise<{ uploaded: UploadedAttachment[]; failed: number }> {
-        if (!this.credentials) return { uploaded: [], failed: attachments.length };
+    ): Promise<{ uploaded: UploadedAttachment[]; failed: number; tooLarge: AttachmentPreview[] }> {
+        if (!this.credentials) return { uploaded: [], failed: attachments.length, tooLarge: [] };
 
         const blobKey = this.encryption.getSessionBlobKey(sessionId);
         if (!blobKey) {
             console.error(`[attachments] No blob key for session ${sessionId}`);
-            return { uploaded: [], failed: attachments.length };
+            return { uploaded: [], failed: attachments.length, tooLarge: [] };
         }
 
         const uploaded: UploadedAttachment[] = [];
+        const tooLarge: AttachmentPreview[] = [];
         let failed = 0;
 
         for (const attachment of attachments) {
@@ -519,6 +521,9 @@ class Sync {
                 });
             } catch (err) {
                 const diagnostic = getAttachmentDiagnostic(err);
+                if (isAttachmentTooLargeDiagnostic(diagnostic)) {
+                    tooLarge.push(attachment);
+                }
                 if (diagnostic) {
                     console.error('[attachments] Failed to upload image attachment:', formatAttachmentDiagnosticForLog(diagnostic, {
                         platform: Platform.OS,
@@ -538,7 +543,7 @@ class Sync {
             }
         }
 
-        return { uploaded, failed };
+        return { uploaded, failed, tooLarge };
     }
 
     async sendMessage(sessionId: string, text: string, options?: SendMessageOptions) {
@@ -591,12 +596,21 @@ class Sync {
 
         // Upload attachments and queue file events before the text message.
         if (effectiveAttachments && effectiveAttachments.length > 0) {
-            const { uploaded, failed } = await this.uploadAttachmentsForSession(sessionId, effectiveAttachments);
+            const { uploaded, failed, tooLarge } = await this.uploadAttachmentsForSession(sessionId, effectiveAttachments);
 
-            if (failed > 0) {
+            for (const attachment of tooLarge) {
+                Modal.alert(
+                    t('imageUpload.fileTooLargeTitle'),
+                    t('imageUpload.fileTooLargeMessage', { name: attachment.name, maxMb: 10 }),
+                    [{ text: t('common.ok'), style: 'cancel' }],
+                );
+            }
+
+            const otherFailed = failed - tooLarge.length;
+            if (otherFailed > 0) {
                 Modal.alert(
                     t('imageUpload.uploadFailedTitle'),
-                    t('imageUpload.uploadFailedMessage', { count: failed }),
+                    t('imageUpload.uploadFailedMessage', { count: otherFailed }),
                     [{ text: t('common.ok'), style: 'cancel' }],
                 );
             }

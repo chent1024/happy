@@ -6,8 +6,8 @@
  *
  * Note: fileSize from expo-image-picker is optional — some platforms do not
  * provide it (returns undefined → size=0). Such files pass the client-side
- * size check; the server enforces the limit on upload. Phase 5 should handle
- * 413 responses gracefully.
+ * size check; the server still enforces the limit on upload, and the send
+ * pipeline maps 413 responses back to the file-too-large prompt.
  */
 import { useState, useCallback, useRef, useEffect } from 'react';
 import * as ImagePicker from 'expo-image-picker';
