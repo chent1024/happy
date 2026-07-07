@@ -27,6 +27,12 @@ import { Theme } from '@/theme';
 import { t } from '@/text';
 import { Metadata } from '@/sync/storageTypes';
 import { buildAgentInputModeSummary } from './agentInputModeSummary';
+import {
+    canOpenAgentInputSettings,
+    canPressAgentInputSendButton,
+    isAgentInputSandboxEnabled,
+    resolveAgentInputFlavor,
+} from './agentInputState';
 
 interface AgentInputProps {
     // `initialValue` seeds the uncontrolled textarea once; keystrokes never
@@ -576,20 +582,26 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     // never blocks the next character from landing in the textarea.
     const [hasText, setHasText] = React.useState(() => props.initialValue.trim().length > 0);
     const hasImages = (props.selectedImages?.length ?? 0) > 0;
-    const canPressSendButton = !props.isSending
-        && !props.isSendDisabled
-        && (isSendBlocked ? (hasText || hasImages) : (hasText || hasImages || !!props.onMicPress));
+    const canPressSendButton = canPressAgentInputSendButton({
+        isSending: props.isSending,
+        isSendDisabled: props.isSendDisabled,
+        isSendBlocked,
+        hasText,
+        hasImages,
+        hasMicAction: !!props.onMicPress,
+    });
 
     // Check if this is a Codex, Gemini, or OpenClaw session
     // Use metadata.flavor for existing sessions, agentType prop for new sessions
-    const isCodex = props.metadata?.flavor === 'codex' || props.agentType === 'codex';
-    const isGemini = props.metadata?.flavor === 'gemini' || props.agentType === 'gemini';
-    const isOpenClaw = props.metadata?.flavor === 'openclaw' || props.agentType === 'openclaw';
-    const canOpenSettings = Boolean(
-        props.onPermissionModeChange
-        || props.onModelModeChange
-        || props.onEffortLevelChange
-    );
+    const agentFlavor = resolveAgentInputFlavor(props.metadata, props.agentType);
+    const isCodex = agentFlavor === 'codex';
+    const isGemini = agentFlavor === 'gemini';
+    const isOpenClaw = agentFlavor === 'openclaw';
+    const canOpenSettings = canOpenAgentInputSettings({
+        hasPermissionModeChange: !!props.onPermissionModeChange,
+        hasModelModeChange: !!props.onModelModeChange,
+        hasEffortLevelChange: !!props.onEffortLevelChange,
+    });
     const displayPermissionMode = React.useMemo(() => (
         props.permissionMode ? hackMode(props.permissionMode) : null
     ), [props.permissionMode]);
@@ -599,16 +611,9 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     ), [props.availableModes]);
     const availableModels = props.availableModels ?? [];
     const availableEffortLevels = props.availableEffortLevels ?? [];
-    const isSandboxEnabled = React.useMemo(() => {
-        const sandbox = props.metadata?.sandbox as unknown;
-        if (!sandbox) {
-            return false;
-        }
-        if (typeof sandbox === 'object' && sandbox !== null && 'enabled' in sandbox) {
-            return Boolean((sandbox as { enabled?: unknown }).enabled);
-        }
-        return true;
-    }, [props.metadata?.sandbox]);
+    const isSandboxEnabled = React.useMemo(() => (
+        isAgentInputSandboxEnabled(props.metadata)
+    ), [props.metadata]);
     const isSandboxedYoloMode = isSandboxEnabled && (
         permissionModeKey === 'bypassPermissions' || permissionModeKey === 'yolo'
     );
