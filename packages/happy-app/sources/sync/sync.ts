@@ -1625,6 +1625,7 @@ class Sync {
 
             const knownLastSeq = this.sessionLastSeq.get(sessionId);
             const isInitialLoad = knownLastSeq === undefined;
+            const metadata = storage.getState().sessions[sessionId]?.metadata ?? null;
             if (isInitialLoad) {
                 // Initial load. Pull only the most recent page so the user can
                 // start chatting immediately. Older history streams in lazily
@@ -1637,17 +1638,24 @@ class Sync {
                 // from displaying anything for sessions with thousands of
                 // messages. The user's reported pain point was "opening a long
                 // session feels frozen" — this is the fix.
-                const metadata = storage.getState().sessions[sessionId]?.metadata ?? null;
                 await this.fetchInitialLatestPage(
                     sessionId,
                     encryption,
                     getInitialMessagePageLimit(metadata),
                 );
             } else {
-                // Forward incremental sync. Used after reconnect, invalidate,
-                // or any subsequent visit. Only pulls messages newer than what
-                // we already have, so it's bounded and fast in normal use.
-                await this.fetchForwardSince(sessionId, encryption, knownLastSeq);
+                // Reconcile with the latest page on every visible-session
+                // refresh. A prior app run may have cached an old cursor (for
+                // example after a failed latest-page request), and using only
+                // after_seq from that cursor can leave the chat visually stuck
+                // on old history. The latest-page request is bounded and
+                // restores the visible tail immediately; older gaps can still
+                // be filled by before_seq paging.
+                await this.fetchInitialLatestPage(
+                    sessionId,
+                    encryption,
+                    getInitialMessagePageLimit(metadata),
+                );
             }
 
             storage.getState().applyMessagesLoaded(sessionId);
@@ -1717,7 +1725,7 @@ class Sync {
 
         // Anchor both ends so future incremental forward sync resumes from
         // maxSeq, and loadOlderMessages can page backward from minSeq.
-        let maxSeq = 0;
+        let maxSeq = this.sessionLastSeq.get(sessionId) ?? 0;
         let minSeq = Number.POSITIVE_INFINITY;
         for (const message of messages) {
             if (message.seq > maxSeq) maxSeq = message.seq;
@@ -1730,37 +1738,6 @@ class Sync {
         storage.getState().applyOlderMessagesPagination(sessionId, {
             hasMore: !!data.hasMore && messages.length > 0
         });
-    }
-
-    private fetchForwardSince = async (
-        sessionId: string,
-        encryption: ReturnType<Encryption['getSessionEncryption']> & {},
-        fromSeq: number
-    ) => {
-        let afterSeq = fromSeq;
-        while (true) {
-            const response = await apiSocket.request(`/v3/sessions/${sessionId}/messages?after_seq=${afterSeq}&limit=100`);
-            if (!response.ok) {
-                throw new Error(`Failed to forward-sync ${sessionId}: ${response.status}`);
-            }
-            const data = await response.json() as V3GetSessionMessagesResponse;
-            const messages = Array.isArray(data.messages) ? data.messages : [];
-
-            await this.applyFetchedMessages(sessionId, encryption, messages);
-
-            let maxSeq = afterSeq;
-            for (const message of messages) {
-                if (message.seq > maxSeq) maxSeq = message.seq;
-            }
-            this.sessionLastSeq.set(sessionId, maxSeq);
-
-            if (!data.hasMore) break;
-            if (maxSeq === afterSeq) {
-                log.log(`💬 fetchForwardSince: pagination stalled for ${sessionId}, stopping to avoid infinite loop`);
-                break;
-            }
-            afterSeq = maxSeq;
-        }
     }
 
     private applyFetchedMessages = async (

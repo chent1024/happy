@@ -852,13 +852,13 @@ function SessionHeaderStatusCapsule(props: { session: Session }) {
         <View
             style={{
                 height: 32,
-                minWidth: 72,
-                maxWidth: 116,
+                width: 92,
                 borderRadius: 16,
                 flexDirection: 'row',
                 alignItems: 'center',
                 overflow: 'hidden',
                 backgroundColor: accent.backgroundColor,
+                flexShrink: 0,
             }}
         >
             <Pressable
@@ -867,8 +867,7 @@ function SessionHeaderStatusCapsule(props: { session: Session }) {
                 onPress={showDetails}
                 hitSlop={{ top: 5, bottom: 5, left: 4, right: 0 }}
                 style={({ pressed }) => ({
-                    minWidth: 42,
-                    maxWidth: 86,
+                    width: 58,
                     height: 32,
                     paddingLeft: 10,
                     paddingRight: 8,
@@ -885,6 +884,8 @@ function SessionHeaderStatusCapsule(props: { session: Session }) {
                         lineHeight: 16,
                         fontWeight: '600',
                         flexShrink: 0,
+                        minWidth: 32,
+                        textAlign: 'center',
                     }}
                 >
                     {remainingPercent}
