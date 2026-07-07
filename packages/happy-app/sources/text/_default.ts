@@ -22,6 +22,11 @@ export const en = {
         settings: 'Settings',
     },
 
+    sessionList: {
+        recent: 'Recent',
+        projects: 'Projects',
+    },
+
     inbox: {
         // Inbox screen
         emptyTitle: 'Empty Inbox',

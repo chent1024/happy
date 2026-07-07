@@ -4,6 +4,8 @@ const FALLBACK_APK_NAME = 'app-release.apk';
 export type NativeUpdateManifest = {
     version?: string;
     displayVersion?: string;
+    versionCode?: number | string;
+    buildNumber?: number | string;
     buildDate?: string;
     publishedAt?: string;
     apkUrl?: string;
@@ -115,10 +117,21 @@ function compareDates(left?: string, right?: string): number {
     return leftTime === rightTime ? 0 : (leftTime > rightTime ? 1 : -1);
 }
 
+function parseBuildNumber(value?: number | string): number | null {
+    if (typeof value === 'number') {
+        return Number.isFinite(value) ? value : null;
+    }
+    if (typeof value !== 'string' || !/^\d+$/.test(value)) {
+        return null;
+    }
+    return Number.parseInt(value, 10);
+}
+
 export function isNativeUpdateManifestNewer(
     manifest: NativeUpdateManifest,
     currentVersion: string,
     currentBuildDate?: string,
+    currentBuildNumber?: number | string,
 ): boolean {
     if (manifest.version) {
         const versionComparison = compareVersions(manifest.version, currentVersion);
@@ -128,6 +141,12 @@ export function isNativeUpdateManifestNewer(
         if (versionComparison < 0) {
             return false;
         }
+    }
+
+    const manifestBuildNumber = parseBuildNumber(manifest.versionCode ?? manifest.buildNumber);
+    const installedBuildNumber = parseBuildNumber(currentBuildNumber);
+    if (manifestBuildNumber !== null && installedBuildNumber !== null) {
+        return manifestBuildNumber > installedBuildNumber;
     }
 
     return compareDates(manifest.buildDate || manifest.publishedAt, currentBuildDate) > 0;

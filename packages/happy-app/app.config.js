@@ -62,19 +62,22 @@ function loadBuildMetadata() {
 const buildMetadata = loadBuildMetadata();
 const MAX_ANDROID_VERSION_CODE = 2100000000;
 
-function loadAndroidVersionCode() {
-    const rawVersionCode =
+function loadNativeBuildNumber() {
+    const rawBuildNumber =
+        process.env.HAPPY_NATIVE_BUILD_NUMBER ||
         process.env.HAPPY_ANDROID_VERSION_CODE ||
         process.env.EAS_BUILD_VERSION_CODE ||
         process.env.HAPPY_BUILD_NUMBER;
-    if (rawVersionCode && /^\d+$/.test(rawVersionCode)) {
-        return Math.min(Number(rawVersionCode), MAX_ANDROID_VERSION_CODE);
+    if (rawBuildNumber && /^\d+$/.test(rawBuildNumber)) {
+        return Number(rawBuildNumber);
     }
 
-    return Math.min(Math.floor(Date.now() / 1000), MAX_ANDROID_VERSION_CODE);
+    return Math.floor(Date.now() / 1000);
 }
 
-const androidVersionCode = loadAndroidVersionCode();
+const nativeBuildNumber = loadNativeBuildNumber();
+const androidVersionCode = Math.min(nativeBuildNumber, MAX_ANDROID_VERSION_CODE);
+const iosBuildNumber = String(nativeBuildNumber);
 
 function withDevelopmentPersonalTeamEntitlements(config) {
     if (variant !== 'development') {
@@ -99,6 +102,7 @@ export default {
         userInterfaceStyle: "automatic",
         ios: {
             supportsTablet: true,
+            buildNumber: iosBuildNumber,
             bundleIdentifier: iosBundleId,
             config: {
                 usesNonExemptEncryption: false

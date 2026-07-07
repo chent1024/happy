@@ -24,6 +24,11 @@ export const zhHant: TranslationStructure = {
         settings: '設定',
     },
 
+    sessionList: {
+        recent: '最近會話',
+        projects: '專案',
+    },
+
     inbox: {
         // Inbox screen
         emptyTitle: '收件匣是空的',

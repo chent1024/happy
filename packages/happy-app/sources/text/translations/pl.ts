@@ -33,6 +33,11 @@ export const pl: TranslationStructure = {
         settings: 'Ustawienia',
     },
 
+    sessionList: {
+        recent: 'Recent',
+        projects: 'Projects',
+    },
+
     inbox: {
         // Inbox screen
         emptyTitle: 'Pusta skrzynka',

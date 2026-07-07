@@ -22,6 +22,11 @@ export const pt: TranslationStructure = {
         settings: 'Configurações',
     },
 
+    sessionList: {
+        recent: 'Recent',
+        projects: 'Projects',
+    },
+
     inbox: {
         // Inbox screen
         emptyTitle: 'Caixa de entrada vazia',

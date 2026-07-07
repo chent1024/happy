@@ -24,6 +24,11 @@ export const zhHans: TranslationStructure = {
         settings: '设置',
     },
 
+    sessionList: {
+        recent: '最近会话',
+        projects: '项目',
+    },
+
     inbox: {
         // Inbox screen
         emptyTitle: '收件箱为空',

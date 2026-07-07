@@ -2,13 +2,10 @@ import React from 'react';
 import { View, Pressable, FlatList, Platform } from 'react-native';
 import { Text } from '@/components/StyledText';
 import { usePathname } from 'expo-router';
-import { SessionListViewItem, SessionRowData } from '@/sync/storage';
-import { Ionicons } from '@expo/vector-icons';
-import { type SessionState, formatLastSeen, getVibingMessage } from '@/utils/sessionUtils';
-import { Avatar } from './Avatar';
+import { SessionListViewItem, SessionRowData, useSessionListViewData } from '@/sync/storage';
+import { type SessionState } from '@/utils/sessionUtils';
 import { ActiveSessionsGroupCompact } from './ActiveSessionsGroupCompact';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useVisibleSessionListViewData } from '@/hooks/useVisibleSessionListViewData';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from './StatusDot';
 import { StyleSheet } from 'react-native-unistyles';
@@ -19,8 +16,57 @@ import { layout } from './layout';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { SessionActionsAnchor, SessionActionsPopover } from './SessionActionsPopover';
 import { useSessionActionAlert } from '@/hooks/useSessionQuickActions';
-import { useSettingMutable } from '@/sync/storage';
+import { formatShortRelativeTime } from '@/utils/shortRelativeTime';
+import { getSessionProjectGroupPath } from '@/sync/sessionListVisibility';
 import { t } from '@/text';
+
+const RECENT_SESSION_COUNT = 6;
+
+type SessionsListDisplayItem =
+    | { type: 'section-header'; section: 'recent' | 'projects' }
+    | { type: 'recent-sessions'; sessions: SessionRowData[] }
+    | { type: 'projects'; sessions: SessionRowData[] };
+
+function sessionSubtitle(session: SessionRowData): string {
+    if (!session.path) {
+        return session.subtitle;
+    }
+    const projectPath = getSessionProjectGroupPath(session);
+    return projectPath.split(/[/\\]/).filter(Boolean).pop() || session.subtitle;
+}
+
+function buildDisplayData(data: SessionListViewItem[]): SessionsListDisplayItem[] {
+    const sessionsById = new Map<string, SessionRowData>();
+    const projectSessions: SessionRowData[] = [];
+
+    for (const item of data) {
+        if (item.type === 'active-sessions') {
+            for (const session of item.sessions) {
+                sessionsById.set(session.id, session);
+                projectSessions.push(session);
+            }
+        } else if (item.type === 'session') {
+            sessionsById.set(item.session.id, item.session);
+        }
+    }
+
+    const recentSessions = Array.from(sessionsById.values())
+        .sort((a, b) => b.recencyAt - a.recencyAt)
+        .slice(0, RECENT_SESSION_COUNT);
+
+    const displayData: SessionsListDisplayItem[] = [];
+    if (recentSessions.length > 0) {
+        displayData.push({ type: 'section-header', section: 'recent' });
+        displayData.push({ type: 'recent-sessions', sessions: recentSessions });
+    }
+
+    if (projectSessions.length > 0) {
+        displayData.push({ type: 'section-header', section: 'projects' });
+        displayData.push({ type: 'projects', sessions: projectSessions });
+    }
+
+    return displayData;
+}
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -47,155 +93,62 @@ const stylesheet = StyleSheet.create((theme) => ({
         letterSpacing: 0.1,
         ...Typography.default('semiBold'),
     },
-    projectGroup: {
-        paddingHorizontal: 16,
-        paddingVertical: 10,
+    recentList: {
+        marginHorizontal: 16,
+        borderRadius: 14,
+        overflow: 'hidden',
         backgroundColor: theme.colors.surface,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
     },
-    projectGroupTitle: {
-        fontSize: 13,
-        fontWeight: '600',
-        color: theme.colors.text,
-        ...Typography.default('semiBold'),
-    },
-    projectGroupSubtitle: {
-        fontSize: 11,
-        color: theme.colors.textSecondary,
-        marginTop: 2,
-        ...Typography.default(),
-    },
-    sessionItem: {
-        height: 88,
+    recentSessionRow: {
+        minHeight: 56,
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 16,
+        paddingHorizontal: 14,
         backgroundColor: theme.colors.surface,
     },
-    sessionItemContainer: {
-        marginHorizontal: 16,
-        marginBottom: 1,
-        overflow: 'hidden',
+    recentSessionRowWithBorder: {
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: theme.colors.divider,
     },
-    sessionItemFirst: {
-        borderTopLeftRadius: 12,
-        borderTopRightRadius: 12,
-    },
-    sessionItemLast: {
-        borderBottomLeftRadius: 12,
-        borderBottomRightRadius: 12,
-    },
-    sessionItemSingle: {
-        borderRadius: 12,
-    },
-    sessionItemContainerFirst: {
-        borderTopLeftRadius: 12,
-        borderTopRightRadius: 12,
-    },
-    sessionItemContainerLast: {
-        borderBottomLeftRadius: 12,
-        borderBottomRightRadius: 12,
-        marginBottom: 12,
-    },
-    sessionItemContainerSingle: {
-        borderRadius: 12,
-        marginBottom: 12,
-    },
-    sessionItemSelected: {
+    recentSessionRowSelected: {
         backgroundColor: theme.colors.surfaceSelected,
     },
-    sessionContent: {
+    recentStatusSlot: {
+        width: 12,
+        alignItems: 'center',
+        marginRight: 10,
+    },
+    recentSessionContent: {
         flex: 1,
-        marginLeft: 16,
-        justifyContent: 'center',
+        minWidth: 0,
+        paddingVertical: 8,
     },
-    sessionContentWithoutAvatar: {
-        marginLeft: 0,
-    },
-    sessionTitleRow: {
+    recentSessionTopRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: 2,
     },
-    sessionTitle: {
+    recentSessionTitle: {
+        flex: 1,
         fontSize: 15,
-        fontWeight: '500',
-        flex: 1,
-        ...Typography.default('semiBold'),
-    },
-    sessionTitleConnected: {
+        lineHeight: 20,
         color: theme.colors.text,
-    },
-    sessionTitleDisconnected: {
-        color: theme.colors.textSecondary,
-    },
-    sessionSubtitleRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-        marginBottom: 4,
-    },
-    sessionSubtitle: {
-        fontSize: 13,
-        color: theme.colors.textSecondary,
-        flexShrink: 1,
-        ...Typography.default(),
-    },
-    statusRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    statusDotContainer: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: 16,
-        marginTop: 2,
-        marginRight: 4,
-    },
-    statusText: {
-        fontSize: 12,
-        fontWeight: '500',
-        lineHeight: 16,
-        ...Typography.default(),
-    },
-    avatarContainer: {
-        position: 'relative',
-        width: 48,
-        height: 48,
-    },
-    draftIconContainer: {
-        position: 'absolute',
-        bottom: -2,
-        right: -2,
-        width: 18,
-        height: 18,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    draftIconOverlay: {
-        color: theme.colors.textSecondary,
-    },
-    artifactsSection: {
-        paddingHorizontal: 16,
-        paddingBottom: 12,
-        backgroundColor: theme.colors.groupped.background,
-    },
-    archiveToggle: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 24,
-        paddingVertical: 16,
-    },
-    archiveToggleLine: {
-        flex: 1,
-        height: StyleSheet.hairlineWidth,
-        backgroundColor: theme.colors.groupped.sectionTitle,
-        opacity: 0.3,
-    },
-    archiveToggleText: {
-        fontSize: 12,
-        color: theme.colors.textSecondary,
-        paddingHorizontal: 12,
         ...Typography.default('semiBold'),
+    },
+    recentSessionTime: {
+        marginLeft: 10,
+        fontSize: 12,
+        lineHeight: 16,
+        color: theme.colors.textSecondary,
+        ...Typography.default(),
+    },
+    recentSessionSubtitle: {
+        marginTop: 1,
+        fontSize: 12,
+        lineHeight: 16,
+        color: theme.colors.textSecondary,
+        ...Typography.default(),
     },
 }));
 
@@ -206,13 +159,9 @@ interface SessionsListProps {
 export function SessionsList({ activeSessionsCollapsed = false }: SessionsListProps) {
     const styles = stylesheet;
     const safeArea = useSafeAreaInsets();
-    const data = useVisibleSessionListViewData();
+    const data = useSessionListViewData();
     const pathname = usePathname();
     const isTablet = useIsTablet();
-    const [hideInactiveSessions, setHideInactiveSessions] = useSettingMutable('hideInactiveSessions');
-    const toggleArchived = React.useCallback(() => {
-        setHideInactiveSessions(!hideInactiveSessions);
-    }, [hideInactiveSessions, setHideInactiveSessions]);
     // Selection is derived once from pathname so the data array stays stable
     // across navigations. This keeps FlatList virtualization intact: only
     // the previously- and newly-selected rows re-render, instead of the
@@ -230,39 +179,28 @@ export function SessionsList({ activeSessionsCollapsed = false }: SessionsListPr
         }
     }, [data && data.length > 0]);
 
-    const keyExtractor = React.useCallback((item: SessionListViewItem, index: number) => {
+    const displayData = React.useMemo(() => data ? buildDisplayData(data) : [], [data]);
+
+    const keyExtractor = React.useCallback((item: SessionsListDisplayItem, index: number) => {
         switch (item.type) {
-            case 'header': return `header-${item.title}-${index}`;
-            case 'active-sessions': return 'active-sessions';
-            case 'archive-toggle': return 'archive-toggle';
-            case 'project-group': return `project-group-${item.machine.id}-${item.displayPath}-${index}`;
-            case 'session': return `session-${item.session.id}`;
+            case 'section-header': return `section-header-${item.section}-${index}`;
+            case 'recent-sessions': return 'recent-sessions';
+            case 'projects': return 'projects';
         }
     }, []);
 
-    const renderItem = React.useCallback(({ item, index }: { item: SessionListViewItem, index: number }) => {
+    const renderItem = React.useCallback(({ item, index }: { item: SessionsListDisplayItem, index: number }) => {
         switch (item.type) {
-            case 'header':
+            case 'section-header':
                 return (
                     <View style={styles.headerSection}>
                         <Text style={styles.headerText}>
-                            {item.title}
+                            {item.section === 'recent' ? t('sessionList.recent') : t('sessionList.projects')}
                         </Text>
                     </View>
                 );
 
-            case 'archive-toggle':
-                return (
-                    <Pressable style={styles.archiveToggle} onPress={toggleArchived}>
-                        <View style={styles.archiveToggleLine} />
-                        <Text style={styles.archiveToggleText}>
-                            {item.hidden ? t('sidebar.showArchived') : t('sidebar.hideArchived')}
-                        </Text>
-                        <View style={styles.archiveToggleLine} />
-                    </Pressable>
-                );
-
-            case 'active-sessions':
+            case 'projects':
                 return (
                     <ActiveSessionsGroupCompact
                         sessions={item.sessions}
@@ -271,42 +209,21 @@ export function SessionsList({ activeSessionsCollapsed = false }: SessionsListPr
                     />
                 );
 
-            case 'project-group':
+            case 'recent-sessions':
                 return (
-                    <View style={styles.projectGroup}>
-                        <Text style={styles.projectGroupTitle}>
-                            {item.displayPath}
-                        </Text>
-                        <Text style={styles.projectGroupSubtitle}>
-                            {item.machine.metadata?.displayName || item.machine.metadata?.host || item.machine.id}
-                        </Text>
+                    <View style={styles.recentList}>
+                        {item.sessions.map((session, sessionIndex) => (
+                            <RecentSessionRow
+                                key={session.id}
+                                session={session}
+                                selected={session.id === selectedSessionId}
+                                showBorder={sessionIndex < item.sessions.length - 1}
+                            />
+                        ))}
                     </View>
                 );
-
-            case 'session':
-                // Determine card styling based on position within date group.
-                // `data` is only non-null when FlatList renders (guarded below),
-                // but it's typed nullable here since renderItem is now defined
-                // above the early return — guard the lookups accordingly.
-                const prevItem = data && index > 0 ? data[index - 1] : null;
-                const nextItem = data && index < data.length - 1 ? data[index + 1] : null;
-
-                const isFirst = prevItem?.type === 'header';
-                const isLast = nextItem?.type === 'header' || nextItem == null || nextItem?.type === 'active-sessions';
-                const isSingle = isFirst && isLast;
-                const selected = item.session.id === selectedSessionId;
-
-                return (
-                    <SessionItem
-                        session={item.session}
-                        selected={selected}
-                        isFirst={isFirst}
-                        isLast={isLast}
-                        isSingle={isSingle}
-                    />
-                );
         }
-    }, [selectedSessionId, data, toggleArchived, activeSessionsCollapsed]);
+    }, [selectedSessionId, activeSessionsCollapsed]);
 
 
     // Remove this section as we'll use FlatList for all items now
@@ -335,7 +252,7 @@ export function SessionsList({ activeSessionsCollapsed = false }: SessionsListPr
         <View style={styles.container}>
             <View style={styles.contentContainer}>
                 <FlatList
-                    data={data}
+                    data={displayData}
                     renderItem={renderItem}
                     keyExtractor={keyExtractor}
                     extraData={`${selectedSessionId ?? ''}:${activeSessionsCollapsed ? 'collapsed' : 'expanded'}`}
@@ -343,7 +260,7 @@ export function SessionsList({ activeSessionsCollapsed = false }: SessionsListPr
                     ListHeaderComponent={HeaderComponent}
                     windowSize={5}
                     maxToRenderPerBatch={8}
-                    initialNumToRender={12}
+                    initialNumToRender={10}
                 />
             </View>
         </View>
@@ -357,12 +274,10 @@ const STATUS_CONFIG: Record<SessionState, { color: string; dotColor: string; isP
     permission_required: { color: '#FF9500', dotColor: '#FF9500', isPulsing: true, isConnected: true },
 };
 
-const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }: {
+const RecentSessionRow = React.memo(({ session, selected, showBorder }: {
     session: SessionRowData;
     selected?: boolean;
-    isFirst?: boolean;
-    isLast?: boolean;
-    isSingle?: boolean;
+    showBorder?: boolean;
 }) => {
     const styles = stylesheet;
     const navigateToSession = useNavigateToSession();
@@ -372,21 +287,8 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }
     const status = session.hasUnread
         ? { ...baseStatus, color: '#007AFF', dotColor: '#007AFF', isPulsing: false, isConnected: baseStatus.isConnected }
         : baseStatus;
-
-    const vibingMessage = React.useMemo(() => {
-        return getVibingMessage();
-    }, [session.state]);
-
-    const statusText = session.hasUnread
-        ? t('status.unread')
-        : session.state === 'thinking'
-            ? vibingMessage
-            : session.state === 'disconnected'
-                ? t('status.lastSeen', { time: formatLastSeen(session.activeAt!, false) })
-                : session.state === 'permission_required'
-                    ? t('status.permissionRequired')
-                    : t('status.online');
-    const showAvatar = session.active;
+    const shortTimeText = formatShortRelativeTime(session.recencyAt);
+    const subtitle = sessionSubtitle(session);
 
     const handlePress = React.useCallback(() => {
         navigateToSession(session.id);
@@ -410,83 +312,41 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }
     };
 
     return (
-        <View style={[
-            styles.sessionItemContainer,
-            isSingle ? styles.sessionItemContainerSingle :
-                isFirst ? styles.sessionItemContainerFirst :
-                    isLast ? styles.sessionItemContainerLast : {}
-        ]}>
-        <Pressable
-            style={[
-                styles.sessionItem,
-                selected && styles.sessionItemSelected,
-                isSingle ? styles.sessionItemSingle :
-                    isFirst ? styles.sessionItemFirst :
-                        isLast ? styles.sessionItemLast : {}
-            ]}
-            onPress={handlePress}
-            {...menuProps}
-        >
-            {showAvatar && (
-                <View style={styles.avatarContainer}>
-                    <Avatar id={session.avatarId} size={48} monochrome={!status.isConnected} flavor={session.flavor} />
-                    {session.hasDraft && (
-                        <View style={styles.draftIconContainer}>
-                            <Ionicons
-                                name="create-outline"
-                                size={12}
-                                style={styles.draftIconOverlay}
-                            />
-                        </View>
-                    )}
+        <>
+            <Pressable
+                style={[
+                    styles.recentSessionRow,
+                    showBorder && styles.recentSessionRowWithBorder,
+                    selected && styles.recentSessionRowSelected,
+                ]}
+                onPress={handlePress}
+                {...menuProps}
+            >
+                <View style={styles.recentStatusSlot}>
+                    <StatusDot color={status.dotColor} isPulsing={status.isPulsing} size={7} />
                 </View>
-            )}
-            <View style={[
-                styles.sessionContent,
-                !showAvatar && styles.sessionContentWithoutAvatar,
-            ]}>
-                <View style={styles.sessionTitleRow}>
-                    <Text style={[
-                        styles.sessionTitle,
-                        status.isConnected ? styles.sessionTitleConnected : styles.sessionTitleDisconnected
-                    ]} numberOfLines={1}>
-                        {session.name}
-                    </Text>
-                </View>
-
-                {session.path ? (
-                    <View style={styles.sessionSubtitleRow}>
-                        <Text style={styles.sessionSubtitle} numberOfLines={1}>
-                            {session.path.split(/[/\\]/).filter(Boolean).pop()}
+                <View style={styles.recentSessionContent}>
+                    <View style={styles.recentSessionTopRow}>
+                        <Text style={styles.recentSessionTitle} numberOfLines={1}>
+                            {session.name}
+                        </Text>
+                        <Text style={styles.recentSessionTime} numberOfLines={1}>
+                            {shortTimeText}
                         </Text>
                     </View>
-                ) : (
-                    <Text style={styles.sessionSubtitle} numberOfLines={1}>
-                        {session.subtitle}
-                    </Text>
-                )}
-
-                <View style={styles.statusRow}>
-                    <View style={styles.statusDotContainer}>
-                        <StatusDot color={status.dotColor} isPulsing={status.isPulsing} />
-                    </View>
-                    <Text style={[
-                        styles.statusText,
-                        { color: status.color }
-                    ]}>
-                        {statusText}
+                    <Text style={styles.recentSessionSubtitle} numberOfLines={1}>
+                        {subtitle}
                     </Text>
                 </View>
-            </View>
-        </Pressable>
-        {Platform.OS === 'web' && (
-            <SessionActionsPopover
-                anchor={actionsAnchor}
-                onClose={() => setActionsAnchor(null)}
-                sessionId={session.id}
-                visible={!!actionsAnchor}
-            />
-        )}
-        </View>
+            </Pressable>
+            {Platform.OS === 'web' && (
+                <SessionActionsPopover
+                    anchor={actionsAnchor}
+                    onClose={() => setActionsAnchor(null)}
+                    sessionId={session.id}
+                    visible={!!actionsAnchor}
+                />
+            )}
+        </>
     );
 });

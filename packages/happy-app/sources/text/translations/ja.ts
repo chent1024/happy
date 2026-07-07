@@ -25,6 +25,11 @@ export const ja: TranslationStructure = {
         settings: '設定',
     },
 
+    sessionList: {
+        recent: 'Recent',
+        projects: 'Projects',
+    },
+
     inbox: {
         // Inbox screen
         emptyTitle: '受信トレイは空です',

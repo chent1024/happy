@@ -22,6 +22,11 @@ export const ca: TranslationStructure = {
         settings: 'Configuració',
     },
 
+    sessionList: {
+        recent: 'Recent',
+        projects: 'Projects',
+    },
+
     inbox: {
         // Inbox screen
         emptyTitle: 'Safata buida',

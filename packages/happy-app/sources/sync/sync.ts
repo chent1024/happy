@@ -1,4 +1,5 @@
 import Constants from 'expo-constants';
+import * as Application from 'expo-application';
 import { apiSocket, getCurrentAppState, getHappyClientId } from '@/sync/apiSocket';
 import { notifyUnreadMessage } from '@/sync/webTabTitle';
 import { AuthCredentials } from '@/auth/tokenStorage';
@@ -1461,8 +1462,11 @@ class Sync {
                 const currentBuildDate = typeof Constants.expoConfig?.extra?.app?.buildCommitTimestamp === 'string'
                     ? Constants.expoConfig.extra.app.buildCommitTimestamp
                     : undefined;
+                const currentBuildNumber =
+                    Application.nativeBuildVersion ||
+                    Constants.expoConfig?.android?.versionCode?.toString();
 
-                if (manifest && isNativeUpdateManifestNewer(manifest, version, currentBuildDate)) {
+                if (manifest && isNativeUpdateManifestNewer(manifest, version, currentBuildDate, currentBuildNumber)) {
                     storage.getState().applyNativeUpdateStatus({
                         available: true,
                         updateUrl: manifest.apkUrl,

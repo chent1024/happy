@@ -61,25 +61,7 @@ function useSectionGitInfo(sessionId: string) {
     }, [gitStatus]);
 }
 
-function getProjectInitial(name: string) {
-    const match = name.trim().match(/[A-Za-z0-9]/u);
-    return match ? match[0].toLocaleUpperCase() : '?';
-}
-
-const ProjectInitialAvatar = React.memo(({ name, size }: { name: string; size: number }) => {
-    const styles = stylesheet;
-    const initial = React.useMemo(() => getProjectInitial(name), [name]);
-
-    return (
-        <View style={[styles.projectInitialAvatar, { width: size, height: size, borderRadius: size / 2 }]}>
-            <Text style={styles.projectInitialText} numberOfLines={1}>
-                {initial}
-            </Text>
-        </View>
-    );
-});
-
-// Section header: avatar | path + branch + tree icon + line changes | + button
+// Section header: path + branch + tree icon + line changes | + button
 const SectionHeader = React.memo(({
     session,
     projectPath,
@@ -134,11 +116,6 @@ const SectionHeader = React.memo(({
             accessibilityRole="button"
             accessibilityLabel="折叠或展开项目会话"
         >
-            {/* Avatar — vertically centered */}
-            <View style={styles.sectionHeaderAvatar}>
-                <ProjectInitialAvatar name={repoFolderName} size={24} />
-            </View>
-
             {/* Path + branch */}
             <View style={styles.sectionHeaderContent}>
                 <Text style={styles.sectionHeaderPath} numberOfLines={1}>
@@ -181,28 +158,6 @@ const SectionHeader = React.memo(({
     );
 });
 
-// Full-width separator between machine groups: ——— 🖥 name ———
-const MachineSeparator = React.memo(({ machineName, machineId }: { machineName: string; machineId: string }) => {
-    const styles = stylesheet;
-    const { theme } = useUnistyles();
-    const router = useRouter();
-
-    const handlePress = React.useCallback(() => {
-        router.navigate(`/machine/${machineId}` as any);
-    }, [router, machineId]);
-
-    return (
-        <Pressable onPress={handlePress} style={styles.machineSeparator} hitSlop={{ top: 8, bottom: 8 }}>
-            <View style={styles.machineSeparatorLine} />
-            <Ionicons name="desktop-outline" size={11} color={theme.colors.textSecondary} style={{ marginHorizontal: 6 }} />
-            <Text style={styles.machineSeparatorText} numberOfLines={1}>
-                {machineName}
-            </Text>
-            <View style={styles.machineSeparatorLine} />
-        </Pressable>
-    );
-});
-
 export function ActiveSessionsGroupCompact({ sessions, selectedSessionId, collapsed = false }: ActiveSessionsGroupProps) {
     const styles = stylesheet;
     const machines = useAllMachines();
@@ -215,8 +170,9 @@ export function ActiveSessionsGroupCompact({ sessions, selectedSessionId, collap
         return map;
     }, [machines]);
 
-    // Group sessions by machine, then by project within each machine
-    const { machineGroups, hasMultipleMachines } = React.useMemo(() => {
+    // Keep machine boundaries internally so sessions from different machines do
+    // not collapse into one project card, but do not render machine separators.
+    const { machineGroups } = React.useMemo(() => {
         const unknownText = t('status.unknown');
         const byMachine = new Map<string, {
             machineId: string;
@@ -261,7 +217,7 @@ export function ActiveSessionsGroupCompact({ sessions, selectedSessionId, collap
             a.machineName.localeCompare(b.machineName)
         );
 
-        return { machineGroups: sorted, hasMultipleMachines: byMachine.size > 1 };
+        return { machineGroups: sorted };
     }, [sessions, machinesMap]);
 
     const projectKeys = React.useMemo(() => {
@@ -320,12 +276,6 @@ export function ActiveSessionsGroupCompact({ sessions, selectedSessionId, collap
 
                 return (
                     <React.Fragment key={machineGroup.machineId}>
-                        {hasMultipleMachines && (
-                            <MachineSeparator
-                                machineName={machineGroup.machineName}
-                                machineId={machineGroup.machineId}
-                            />
-                        )}
                         {sortedProjects.map(([projectPath, projectGroup]) => {
                             const firstSession = projectGroup.sessions[0];
                             if (!firstSession) return null;
@@ -551,21 +501,6 @@ const stylesheet = StyleSheet.create((theme) => ({
         flexDirection: 'row',
         alignItems: 'center',
     },
-    sectionHeaderAvatar: {
-        marginRight: 10,
-    },
-    projectInitialAvatar: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: theme.colors.text,
-    },
-    projectInitialText: {
-        ...Typography.default('semiBold'),
-        color: theme.colors.groupped.background,
-        fontSize: 12,
-        lineHeight: 16,
-        fontWeight: '700',
-    },
     sectionHeaderContent: {
         flex: 1,
         justifyContent: 'center',
@@ -619,25 +554,6 @@ const stylesheet = StyleSheet.create((theme) => ({
         backgroundColor: theme.colors.groupped.background,
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: theme.colors.divider,
-    },
-    // Machine separator styles
-    machineSeparator: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: Platform.select({ ios: 32, default: 24 }),
-        paddingTop: 8,
-        paddingBottom: 0,
-    },
-    machineSeparatorLine: {
-        flex: 1,
-        height: StyleSheet.hairlineWidth,
-        backgroundColor: theme.colors.divider,
-    },
-    machineSeparatorText: {
-        fontSize: 11,
-        color: theme.colors.textSecondary,
-        ...Typography.default('regular'),
-        marginRight: 4,
     },
     // Project card styles
     projectCard: {

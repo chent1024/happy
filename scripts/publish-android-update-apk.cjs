@@ -114,6 +114,28 @@ function readAppVersion() {
     return match[1];
 }
 
+function readAndroidVersionCode() {
+    const buildGradlePath = path.join(appDir, 'android/app/build.gradle');
+    if (fs.existsSync(buildGradlePath)) {
+        const buildGradle = fs.readFileSync(buildGradlePath, 'utf8');
+        const match = buildGradle.match(/\bversionCode\s+(\d+)/);
+        if (match) {
+            return Number(match[1]);
+        }
+    }
+
+    const rawBuildNumber =
+        process.env.HAPPY_NATIVE_BUILD_NUMBER ||
+        process.env.HAPPY_ANDROID_VERSION_CODE ||
+        process.env.EAS_BUILD_VERSION_CODE ||
+        process.env.HAPPY_BUILD_NUMBER;
+    if (rawBuildNumber && /^\d+$/.test(rawBuildNumber)) {
+        return Number(rawBuildNumber);
+    }
+
+    throw new Error('Could not determine Android versionCode. Build the release APK with pnpm --filter happy-app android:production first.');
+}
+
 function resolveBuildDate() {
     return process.env.HAPPY_ANDROID_UPDATE_BUILD_DATE
         || process.env.HAPPY_APP_BUILD_TIMESTAMP
@@ -286,9 +308,12 @@ async function main() {
     fs.copyFileSync(sourceApk, targetApk);
 
     const baseUrl = `http://${tailscaleIp}:${port}`;
+    const versionCode = readAndroidVersionCode();
     const manifest = {
         version: readAppVersion(),
         displayVersion: readAppVersion(),
+        versionCode,
+        buildNumber: String(versionCode),
         buildDate: resolveBuildDate(),
         publishedAt: beijingIsoNow(),
         apkUrl: `${baseUrl}/${publishName}`,

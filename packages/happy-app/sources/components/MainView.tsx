@@ -7,16 +7,12 @@ import { useIsTablet } from '@/utils/responsive';
 import { useRouter } from 'expo-router';
 import { EmptySessionsTablet } from './EmptySessionsTablet';
 import { SessionsList } from './SessionsList';
-import { FABWide } from './FABWide';
-import { TabBar, TabType } from './TabBar';
-import { SettingsViewWrapper } from './SettingsViewWrapper';
 import { SessionsListWrapper } from './SessionsListWrapper';
 import { Header } from './navigation/Header';
 import { StatusDot } from './StatusDot';
-import { Feather, Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
-import { isUsingCustomServer } from '@/sync/serverConfig';
 
 interface MainViewProps {
     variant: 'phone' | 'sidebar';
@@ -86,12 +82,6 @@ const styles = StyleSheet.create((theme) => ({
         lineHeight: 16,
         ...Typography.default(),
     },
-    headerButton: {
-        width: 36,
-        height: 36,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
     headerActionButton: {
         width: 36,
         height: 36,
@@ -108,16 +98,8 @@ const styles = StyleSheet.create((theme) => ({
 }));
 
 // Tab header configuration
-const TAB_TITLES = {
-    sessions: 'tabs.sessions',
-    settings: 'tabs.settings',
-} as const;
-
-// Active tabs
-type ActiveTabType = TabType;
-
 // Header title component with connection status
-const HeaderTitle = React.memo(({ activeTab }: { activeTab: ActiveTabType }) => {
+const HeaderTitle = React.memo(() => {
     const { theme } = useUnistyles();
     const socketStatus = useSocketStatus();
 
@@ -160,7 +142,7 @@ const HeaderTitle = React.memo(({ activeTab }: { activeTab: ActiveTabType }) => 
     return (
         <View style={styles.titleContainer}>
             <Text style={styles.titleText}>
-                {t(TAB_TITLES[activeTab])}
+                {t('tabs.sessions')}
             </Text>
             {connectionStatus.text && (
                 <View style={styles.statusContainer}>
@@ -180,74 +162,38 @@ const HeaderTitle = React.memo(({ activeTab }: { activeTab: ActiveTabType }) => 
 });
 
 // Header right button - varies by tab
-const HeaderRight = React.memo(({ activeTab }: { activeTab: ActiveTabType }) => {
+const HeaderRight = React.memo(() => {
     const router = useRouter();
     const { theme } = useUnistyles();
-    const isCustomServer = isUsingCustomServer();
-
-    if (activeTab === 'sessions') {
-        return (
-            <Pressable
-                onPress={() => router.navigate('/new')}
-                hitSlop={15}
-                style={({ pressed }) => [styles.headerActionButton, pressed && styles.headerActionButtonPressed]}
-                accessibilityRole="button"
-                accessibilityLabel="新建会话"
-            >
-                <Ionicons name="add-outline" size={22} color={theme.colors.header.tint} />
-            </Pressable>
-        );
-    }
-
-    if (activeTab === 'settings') {
-        if (!isCustomServer) {
-            // Empty view to maintain header centering
-            return <View style={styles.headerButton} />;
-        }
-        return (
-            <Pressable
-                onPress={() => router.push('/server')}
-                hitSlop={15}
-                style={({ pressed }) => [styles.headerActionButton, pressed && styles.headerActionButtonPressed]}
-                accessibilityRole="button"
-                accessibilityLabel="服务器设置"
-            >
-                <Ionicons name="server-outline" size={21} color={theme.colors.header.tint} />
-            </Pressable>
-        );
-    }
-
-    return null;
-});
-
-const HeaderLeft = React.memo(({
-    activeTab,
-    hasActiveSessions,
-    activeSessionsCollapsed,
-    onToggleActiveSessionsCollapsed,
-}: {
-    activeTab: ActiveTabType;
-    hasActiveSessions: boolean;
-    activeSessionsCollapsed: boolean;
-    onToggleActiveSessionsCollapsed: () => void;
-}) => {
-    const { theme } = useUnistyles();
-
-    if (activeTab !== 'sessions' || !hasActiveSessions) {
-        return <View style={styles.headerButton} />;
-    }
 
     return (
         <Pressable
-            onPress={onToggleActiveSessionsCollapsed}
+            onPress={() => router.navigate('/new')}
             hitSlop={15}
-            style={styles.headerButton}
+            style={({ pressed }) => [styles.headerActionButton, pressed && styles.headerActionButtonPressed]}
             accessibilityRole="button"
-            accessibilityLabel={activeSessionsCollapsed ? '展开全部项目' : '折叠全部项目'}
+            accessibilityLabel={t('sidebar.newSession')}
         >
-            <Feather
-                name="align-left"
-                size={24}
+            <Ionicons name="add-outline" size={22} color={theme.colors.header.tint} />
+        </Pressable>
+    );
+});
+
+const HeaderLeft = React.memo(() => {
+    const router = useRouter();
+    const { theme } = useUnistyles();
+
+    return (
+        <Pressable
+            onPress={() => router.navigate('/settings')}
+            hitSlop={15}
+            style={({ pressed }) => [styles.headerActionButton, pressed && styles.headerActionButtonPressed]}
+            accessibilityRole="button"
+            accessibilityLabel={t('tabs.settings')}
+        >
+            <Ionicons
+                name="settings-outline"
+                size={21}
                 color={theme.colors.header.tint}
             />
         </Pressable>
@@ -258,42 +204,6 @@ export const MainView = React.memo(({ variant }: MainViewProps) => {
     const { theme } = useUnistyles();
     const sessionListViewData = useVisibleSessionListViewData();
     const isTablet = useIsTablet();
-
-    // Tab state management
-    // NOTE: Zen tab removed - the feature never got to a useful state
-    const [activeTab, setActiveTab] = React.useState<TabType>('sessions');
-    const [activeSessionsCollapsed, setActiveSessionsCollapsed] = React.useState(false);
-
-    const hasActiveSessions = React.useMemo(() => {
-        return sessionListViewData?.some(item =>
-            item.type === 'active-sessions' && item.sessions.length > 0
-        ) ?? false;
-    }, [sessionListViewData]);
-
-    const handleTabPress = React.useCallback((tab: TabType) => {
-        setActiveTab(tab);
-    }, []);
-
-    const handleToggleActiveSessionsCollapsed = React.useCallback(() => {
-        setActiveSessionsCollapsed(prev => !prev);
-    }, []);
-
-    React.useEffect(() => {
-        if (!hasActiveSessions && activeSessionsCollapsed) {
-            setActiveSessionsCollapsed(false);
-        }
-    }, [activeSessionsCollapsed, hasActiveSessions]);
-
-    // Regular phone mode with tabs - define this before any conditional returns
-    const renderTabContent = React.useCallback(() => {
-        switch (activeTab) {
-            case 'settings':
-                return <SettingsViewWrapper />;
-            case 'sessions':
-            default:
-                return <SessionsListWrapper activeSessionsCollapsed={activeSessionsCollapsed} />;
-        }
-    }, [activeSessionsCollapsed, activeTab]);
 
     // Sidebar variant
     if (variant === 'sidebar') {
@@ -335,32 +245,18 @@ export const MainView = React.memo(({ variant }: MainViewProps) => {
         return <View style={styles.emptyStateContentContainer} />;
     }
 
-    // Regular phone mode with tabs
     return (
-        <>
-            <View style={styles.phoneContainer}>
-                <View style={{ backgroundColor: theme.colors.groupped.background }}>
-                    <Header
-                        title={<HeaderTitle activeTab={activeTab as ActiveTabType} />}
-                        headerRight={() => <HeaderRight activeTab={activeTab as ActiveTabType} />}
-                        headerLeft={() => (
-                            <HeaderLeft
-                                activeTab={activeTab as ActiveTabType}
-                                hasActiveSessions={hasActiveSessions}
-                                activeSessionsCollapsed={activeSessionsCollapsed}
-                                onToggleActiveSessionsCollapsed={handleToggleActiveSessionsCollapsed}
-                            />
-                        )}
-                        headerShadowVisible={false}
-                        headerTransparent={true}
-                    />
-                </View>
-                {renderTabContent()}
+        <View style={styles.phoneContainer}>
+            <View style={{ backgroundColor: theme.colors.groupped.background }}>
+                <Header
+                    title={<HeaderTitle />}
+                    headerRight={() => <HeaderRight />}
+                    headerLeft={() => <HeaderLeft />}
+                    headerShadowVisible={false}
+                    headerTransparent={true}
+                />
             </View>
-            <TabBar
-                activeTab={activeTab}
-                onTabPress={handleTabPress}
-            />
-        </>
+            <SessionsListWrapper />
+        </View>
     );
 });
