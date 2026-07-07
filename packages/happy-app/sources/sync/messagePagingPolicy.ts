@@ -4,6 +4,12 @@ import type { Message } from './typesMessage';
 export const DEFAULT_INITIAL_MESSAGE_PAGE_LIMIT = 100;
 export const CODEX_BACKFILLED_INITIAL_MESSAGE_PAGE_LIMIT = 40;
 export const STALE_RUNNING_TOOL_COMPLETION_PREFETCH_MS = 5 * 60 * 1000;
+export const STALE_RUNNING_TOOL_COMPLETION_PREFETCH_PAGE_LIMIT = 3;
+
+type MessagePageState = {
+    messages: readonly Message[];
+    hasMoreOlder: boolean;
+};
 
 export function isCodexBackfilledSession(metadata: Metadata | null | undefined): boolean {
     return metadata?.flavor === 'codex'
@@ -32,4 +38,18 @@ export function hasStaleRunningTool(
         }
         return now - message.tool.createdAt >= staleAfterMs;
     });
+}
+
+export function shouldLoadOlderMessagesForStaleRunningTools(
+    pageState: MessagePageState | null | undefined,
+    pagesLoaded: number,
+    now: number = Date.now(),
+): boolean {
+    if (!pageState?.hasMoreOlder) {
+        return false;
+    }
+    if (pagesLoaded >= STALE_RUNNING_TOOL_COMPLETION_PREFETCH_PAGE_LIMIT) {
+        return false;
+    }
+    return hasStaleRunningTool(pageState.messages, now);
 }

@@ -58,7 +58,7 @@ import {
 } from './nativeUpdateManifest';
 import {
     getInitialMessagePageLimit,
-    hasStaleRunningTool,
+    shouldLoadOlderMessagesForStaleRunningTools,
     shouldPrefetchOlderMessages,
 } from './messagePagingPolicy';
 import { getIncomingMessageSeqAction } from './messageSeqGate';
@@ -84,8 +84,6 @@ const SEQ_BACKWARD_INITIAL_SENTINEL = 2_147_483_647;
 // message), which is well worth removing the per-token re-render storms.
 const MESSAGE_COALESCE_MS = 24;
 const BACKGROUND_OLDER_PREFETCH_PAGE_LIMIT = 1;
-const STALE_RUNNING_TOOL_COMPLETION_PREFETCH_PAGE_LIMIT = 3;
-
 type V3PostSessionMessagesResponse = {
     messages: Array<{
         id: string;
@@ -1719,9 +1717,9 @@ class Sync {
         sessionId: string,
         encryption: ReturnType<Encryption['getSessionEncryption']> & {},
     ) => {
-        for (let pagesLoaded = 0; pagesLoaded < STALE_RUNNING_TOOL_COMPLETION_PREFETCH_PAGE_LIMIT; pagesLoaded++) {
+        for (let pagesLoaded = 0; ; pagesLoaded++) {
             const sessionMessages = storage.getState().sessionMessages[sessionId];
-            if (!sessionMessages?.hasMoreOlder || !hasStaleRunningTool(sessionMessages.messages)) {
+            if (!shouldLoadOlderMessagesForStaleRunningTools(sessionMessages, pagesLoaded)) {
                 return;
             }
 
