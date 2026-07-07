@@ -24,6 +24,7 @@ import { useRouter } from 'expo-router';
 import { compareSessionsByRecency, getSessionRecencyTime } from '@/utils/sessionRecency';
 import { formatShortRelativeTime } from '@/utils/shortRelativeTime';
 import { compareProjectGroupsByStablePath } from '@/utils/projectGroupSorting';
+import { resolveExpandedProjectKey, toggleExpandedProjectKey, type ProjectAccordionSelection } from '@/utils/projectAccordionState';
 
 const STATUS_CONFIG: Record<SessionState, { color: string; dotColor: string; isPulsing: boolean; isConnected: boolean }> = {
     disconnected: { color: '#999', dotColor: '#999', isPulsing: false, isConnected: false },
@@ -223,51 +224,29 @@ export function ActiveSessionsGroupCompact({ sessions, selectedSessionId, collap
     const projectKeys = React.useMemo(() => {
         const keys: string[] = [];
         machineGroups.forEach(machineGroup => {
-            machineGroup.projects.forEach((_projectGroup, projectPath) => {
+            Array.from(machineGroup.projects.entries()).sort(compareProjectGroupsByStablePath).forEach(([projectPath]) => {
                 keys.push(`${machineGroup.machineId}:${projectPath}`);
             });
         });
         return keys;
     }, [machineGroups]);
 
-    const [collapsedProjectKeys, setCollapsedProjectKeys] = React.useState<Set<string>>(() => new Set());
-    const projectKeysRef = React.useRef(projectKeys);
+    const [expandedProjectKey, setExpandedProjectKey] = React.useState<ProjectAccordionSelection>(undefined);
 
     React.useEffect(() => {
-        projectKeysRef.current = projectKeys;
-    }, [projectKeys]);
-
-    React.useEffect(() => {
-        setCollapsedProjectKeys(collapsed ? new Set(projectKeysRef.current) : new Set());
-    }, [collapsed]);
-
-    React.useEffect(() => {
-        setCollapsedProjectKeys(prev => {
-            const validKeys = new Set(projectKeys);
-            let changed = false;
-            const next = new Set<string>();
-            prev.forEach(key => {
-                if (validKeys.has(key)) {
-                    next.add(key);
-                } else {
-                    changed = true;
-                }
-            });
-            return changed ? next : prev;
+        setExpandedProjectKey(prev => {
+            if (prev === undefined || prev === null || projectKeys.includes(prev)) {
+                return prev;
+            }
+            return undefined;
         });
     }, [projectKeys]);
+
+    const effectiveExpandedProjectKey = resolveExpandedProjectKey(projectKeys, expandedProjectKey, collapsed);
 
     const handleToggleProject = React.useCallback((projectKey: string) => {
-        setCollapsedProjectKeys(prev => {
-            const next = new Set(prev);
-            if (next.has(projectKey)) {
-                next.delete(projectKey);
-            } else {
-                next.add(projectKey);
-            }
-            return next;
-        });
-    }, []);
+        setExpandedProjectKey(toggleExpandedProjectKey(effectiveExpandedProjectKey, projectKey));
+    }, [effectiveExpandedProjectKey]);
 
     return (
         <View style={styles.container}>
@@ -280,7 +259,7 @@ export function ActiveSessionsGroupCompact({ sessions, selectedSessionId, collap
                             const firstSession = projectGroup.sessions[0];
                             if (!firstSession) return null;
                             const projectKey = `${machineGroup.machineId}:${projectPath}`;
-                            const projectCollapsed = collapsedProjectKeys.has(projectKey);
+                            const projectCollapsed = effectiveExpandedProjectKey !== projectKey;
                             const hasScrollableSessions = projectGroup.sessions.length > PROJECT_VISIBLE_SESSION_COUNT;
 
                             return (
