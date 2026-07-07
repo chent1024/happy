@@ -8,6 +8,21 @@ import { clearDaemonState, readDaemonState } from '@/persistence';
 import { Metadata } from '@/api/types';
 import { configuration } from '@/configuration';
 import type { CodexRuntimeJournalEntry } from '@/codex/runtime/codexRuntimeEventJournal';
+import type { DaemonLocallyPersistedState } from '@/persistence';
+
+export type DaemonRunningState =
+  | { state: 'missing-state'; running: false }
+  | { state: 'dead-pid'; running: false; pid: number }
+  | { state: 'http-ok'; running: true; pid: number; httpPort: number }
+  | { state: 'http-unhealthy'; running: false; pid: number; httpPort: number; status?: number; detail?: string }
+  | { state: 'running-no-http-port'; running: true; pid: number };
+
+function daemonStateBase(state: DaemonLocallyPersistedState): { pid: number; httpPort: number } {
+  return {
+    pid: state.pid,
+    httpPort: state.httpPort,
+  };
+}
 
 async function daemonPost(path: string, body?: any): Promise<{ error?: string } | any> {
   const state = await readDaemonState();
@@ -153,10 +168,10 @@ export async function stopDaemonHttp(): Promise<void> {
  * We can destructure the response on the caller for richer output.
  * For instance when running `happy daemon status` we can show more information.
  */
-export async function checkIfDaemonRunningAndCleanupStaleState(): Promise<boolean> {
+export async function inspectDaemonRunningState(): Promise<DaemonRunningState> {
   const state = await readDaemonState();
   if (!state) {
-    return false;
+    return { state: 'missing-state', running: false };
   }
 
   // Check if the PID is alive
@@ -165,7 +180,7 @@ export async function checkIfDaemonRunningAndCleanupStaleState(): Promise<boolea
   } catch {
     logger.debug('[DAEMON RUN] Daemon PID not running, cleaning up state');
     await cleanupDaemonState();
-    return false;
+    return { state: 'dead-pid', running: false, pid: state.pid };
   }
 
   // PID is alive, but on Windows PIDs get reused after reboot.
@@ -179,17 +194,34 @@ export async function checkIfDaemonRunningAndCleanupStaleState(): Promise<boolea
         signal: AbortSignal.timeout(2000)
       });
       if (response.ok) {
-        return true;
+        return { state: 'http-ok', running: true, pid: state.pid, httpPort: state.httpPort };
       }
+      logger.debug(`[DAEMON RUN] PID ${state.pid} is alive but HTTP health check returned ${response.status} on port ${state.httpPort}, cleaning up stale state`);
+      await cleanupDaemonState();
+      return {
+        state: 'http-unhealthy',
+        running: false,
+        ...daemonStateBase(state),
+        status: response.status,
+      };
     } catch {
       // HTTP check failed - the PID is not our daemon (likely reused by OS after reboot)
       logger.debug(`[DAEMON RUN] PID ${state.pid} is alive but HTTP health check failed on port ${state.httpPort}, cleaning up stale state`);
       await cleanupDaemonState();
-      return false;
+      return {
+        state: 'http-unhealthy',
+        running: false,
+        ...daemonStateBase(state),
+        detail: 'health-check-failed',
+      };
     }
   }
 
-  return true;
+  return { state: 'running-no-http-port', running: true, pid: state.pid };
+}
+
+export async function checkIfDaemonRunningAndCleanupStaleState(): Promise<boolean> {
+  return (await inspectDaemonRunningState()).running;
 }
 
 /**
