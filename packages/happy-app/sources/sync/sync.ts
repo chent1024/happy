@@ -62,6 +62,10 @@ import {
     shouldLoadOlderMessagesForStaleRunningTools,
     shouldPrefetchOlderMessages,
 } from './messagePagingPolicy';
+import {
+    getLatestMessagePageCursorUpdate,
+    getOlderMessagePageCursorUpdate,
+} from './messagePageCursors';
 import { getIncomingMessageSeqAction } from './messageSeqGate';
 
 type V3GetSessionMessagesResponse = {
@@ -1762,18 +1766,17 @@ class Sync {
 
         // Anchor both ends so future incremental forward sync resumes from
         // maxSeq, and loadOlderMessages can page backward from minSeq.
-        let maxSeq = this.sessionLastSeq.get(sessionId) ?? 0;
-        let minSeq = Number.POSITIVE_INFINITY;
-        for (const message of messages) {
-            if (message.seq > maxSeq) maxSeq = message.seq;
-            if (message.seq < minSeq) minSeq = message.seq;
-        }
-        this.sessionLastSeq.set(sessionId, maxSeq);
-        if (messages.length > 0) {
-            this.sessionOldestSeq.set(sessionId, minSeq);
+        const cursorUpdate = getLatestMessagePageCursorUpdate(
+            messages,
+            this.sessionLastSeq.get(sessionId),
+            data.hasMore,
+        );
+        this.sessionLastSeq.set(sessionId, cursorUpdate.lastSeq);
+        if (cursorUpdate.oldestSeq !== null) {
+            this.sessionOldestSeq.set(sessionId, cursorUpdate.oldestSeq);
         }
         storage.getState().applyOlderMessagesPagination(sessionId, {
-            hasMore: !!data.hasMore && messages.length > 0
+            hasMore: cursorUpdate.hasMoreOlder
         });
     }
 
@@ -1862,18 +1865,15 @@ class Sync {
 
         await this.applyFetchedMessages(sessionId, encryption, messages);
 
-        let minSeq = beforeSeq;
-        for (const message of messages) {
-            if (message.seq < minSeq) minSeq = message.seq;
-        }
-        if (messages.length > 0) {
-            this.sessionOldestSeq.set(sessionId, minSeq);
+        const cursorUpdate = getOlderMessagePageCursorUpdate(messages, beforeSeq, data.hasMore);
+        if (cursorUpdate.oldestSeq !== null) {
+            this.sessionOldestSeq.set(sessionId, cursorUpdate.oldestSeq);
         }
         storage.getState().applyOlderMessagesPagination(sessionId, {
-            hasMore: !!data.hasMore && messages.length > 0
+            hasMore: cursorUpdate.hasMoreOlder
         });
 
-        return messages.length > 0;
+        return cursorUpdate.loaded;
     }
 
     private registerPushToken = async () => {
