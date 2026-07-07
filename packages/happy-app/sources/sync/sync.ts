@@ -58,6 +58,7 @@ import {
 } from './nativeUpdateManifest';
 import {
     getInitialMessagePageLimit,
+    hasStaleRunningTool,
     shouldPrefetchOlderMessages,
 } from './messagePagingPolicy';
 import { getIncomingMessageSeqAction } from './messageSeqGate';
@@ -83,6 +84,7 @@ const SEQ_BACKWARD_INITIAL_SENTINEL = 2_147_483_647;
 // message), which is well worth removing the per-token re-render storms.
 const MESSAGE_COALESCE_MS = 24;
 const BACKGROUND_OLDER_PREFETCH_PAGE_LIMIT = 1;
+const STALE_RUNNING_TOOL_COMPLETION_PREFETCH_PAGE_LIMIT = 3;
 
 type V3PostSessionMessagesResponse = {
     messages: Array<{
@@ -1647,6 +1649,7 @@ class Sync {
                     encryption,
                     getInitialMessagePageLimit(metadata),
                 );
+                await this.prefetchOlderMessagesForStaleRunningTools(sessionId, encryption);
             } else {
                 // Reconcile with the latest page on every visible-session
                 // refresh. A prior app run may have cached an old cursor (for
@@ -1660,6 +1663,7 @@ class Sync {
                     encryption,
                     getInitialMessagePageLimit(metadata),
                 );
+                await this.prefetchOlderMessagesForStaleRunningTools(sessionId, encryption);
             }
 
             storage.getState().applyMessagesLoaded(sessionId);
@@ -1708,6 +1712,23 @@ class Sync {
             }
 
             await new Promise((resolve) => setTimeout(resolve, SLEEP_BETWEEN_PAGES_MS));
+        }
+    }
+
+    private prefetchOlderMessagesForStaleRunningTools = async (
+        sessionId: string,
+        encryption: ReturnType<Encryption['getSessionEncryption']> & {},
+    ) => {
+        for (let pagesLoaded = 0; pagesLoaded < STALE_RUNNING_TOOL_COMPLETION_PREFETCH_PAGE_LIMIT; pagesLoaded++) {
+            const sessionMessages = storage.getState().sessionMessages[sessionId];
+            if (!sessionMessages?.hasMoreOlder || !hasStaleRunningTool(sessionMessages.messages)) {
+                return;
+            }
+
+            const loaded = await this.loadOlderMessagesPageUnlocked(sessionId, encryption);
+            if (!loaded) {
+                return;
+            }
         }
     }
 
@@ -1797,31 +1818,50 @@ class Sync {
                 if (beforeSeq === undefined || beforeSeq <= 1) {
                     return;
                 }
-                const response = await apiSocket.request(
-                    `/v3/sessions/${sessionId}/messages?before_seq=${beforeSeq}&limit=100`
-                );
-                if (!response.ok) {
-                    throw new Error(`Failed to load older messages for ${sessionId}: ${response.status}`);
-                }
-                const data = await response.json() as V3GetSessionMessagesResponse;
-                const messages = Array.isArray(data.messages) ? data.messages : [];
-
-                await this.applyFetchedMessages(sessionId, encryption, messages);
-
-                let minSeq = beforeSeq;
-                for (const message of messages) {
-                    if (message.seq < minSeq) minSeq = message.seq;
-                }
-                if (messages.length > 0) {
-                    this.sessionOldestSeq.set(sessionId, minSeq);
-                }
-                storage.getState().applyOlderMessagesPagination(sessionId, {
-                    hasMore: !!data.hasMore && messages.length > 0
-                });
+                await this.loadOlderMessagesPageUnlocked(sessionId, encryption);
             });
         } finally {
             storage.getState().applyOlderMessagesLoading(sessionId, false);
         }
+    }
+
+    private loadOlderMessagesPageUnlocked = async (
+        sessionId: string,
+        encryption: ReturnType<Encryption['getSessionEncryption']> & {},
+    ): Promise<boolean> => {
+        const beforeSeq = this.sessionOldestSeq.get(sessionId);
+        if (beforeSeq === undefined || beforeSeq <= 1) {
+            return false;
+        }
+
+        const sessionMessages = storage.getState().sessionMessages[sessionId];
+        if (!sessionMessages?.hasMoreOlder) {
+            return false;
+        }
+
+        const response = await apiSocket.request(
+            `/v3/sessions/${sessionId}/messages?before_seq=${beforeSeq}&limit=100`
+        );
+        if (!response.ok) {
+            throw new Error(`Failed to load older messages for ${sessionId}: ${response.status}`);
+        }
+        const data = await response.json() as V3GetSessionMessagesResponse;
+        const messages = Array.isArray(data.messages) ? data.messages : [];
+
+        await this.applyFetchedMessages(sessionId, encryption, messages);
+
+        let minSeq = beforeSeq;
+        for (const message of messages) {
+            if (message.seq < minSeq) minSeq = message.seq;
+        }
+        if (messages.length > 0) {
+            this.sessionOldestSeq.set(sessionId, minSeq);
+        }
+        storage.getState().applyOlderMessagesPagination(sessionId, {
+            hasMore: !!data.hasMore && messages.length > 0
+        });
+
+        return messages.length > 0;
     }
 
     private registerPushToken = async () => {

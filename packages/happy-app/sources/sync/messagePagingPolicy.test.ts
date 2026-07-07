@@ -4,6 +4,7 @@ import {
     CODEX_BACKFILLED_INITIAL_MESSAGE_PAGE_LIMIT,
     DEFAULT_INITIAL_MESSAGE_PAGE_LIMIT,
     getInitialMessagePageLimit,
+    hasStaleRunningTool,
     shouldPrefetchOlderMessages,
 } from './messagePagingPolicy';
 
@@ -23,5 +24,26 @@ describe('messagePagingPolicy', () => {
 
         expect(getInitialMessagePageLimit(metadata as any)).toBe(CODEX_BACKFILLED_INITIAL_MESSAGE_PAGE_LIMIT);
         expect(shouldPrefetchOlderMessages(metadata as any)).toBe(false);
+    });
+
+    it('detects stale running tools that may need older completion events', () => {
+        const now = 1_000_000;
+        const staleRunningTool = {
+            kind: 'tool-call',
+            tool: {
+                state: 'running',
+                createdAt: now - 10 * 60 * 1000,
+            },
+        };
+        const freshRunningTool = {
+            kind: 'tool-call',
+            tool: {
+                state: 'running',
+                createdAt: now - 10 * 1000,
+            },
+        };
+
+        expect(hasStaleRunningTool([staleRunningTool] as any, now)).toBe(true);
+        expect(hasStaleRunningTool([freshRunningTool] as any, now)).toBe(false);
     });
 });
