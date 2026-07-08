@@ -183,12 +183,15 @@ export const ToolView = React.memo<ToolViewProps>((props) => {
     const renderHeaderContent = () => {
         if (isCompactTool) {
             const compactDetail = isCompactTerminalTool ? terminalCommand : description;
+            const showCompactToolName = !isCompactTerminalTool;
             return (
                 <View style={styles.compactHeaderLeft}>
                     <View style={styles.compactIconContainer}>
                         {icon}
                     </View>
-                    <Text style={styles.compactToolName} numberOfLines={1}>{toolTitle}</Text>
+                    {showCompactToolName ? (
+                        <Text style={styles.compactToolName} numberOfLines={1}>{toolTitle}</Text>
+                    ) : null}
                     {status ? <Text style={styles.compactStatus} numberOfLines={1}>{status}</Text> : null}
                     {compactDetail ? (
                         <Text style={styles.compactCommandText} numberOfLines={1}>

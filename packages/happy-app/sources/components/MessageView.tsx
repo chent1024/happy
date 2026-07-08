@@ -122,6 +122,7 @@ function UserTextBlock(props: {
   }
 
   const parsed = parseLocalCommandMessage(props.message.displayText || props.message.text);
+  const userText = parsed.kind === 'text' ? parsed.text.trim() : null;
   if (parsed.kind === 'caveat') {
     return null;
   }
@@ -163,6 +164,9 @@ function UserTextBlock(props: {
       </View>
     );
   }
+  if (!userText) {
+    return null;
+  }
 
   return (
     <View style={styles.userMessageContainer}>
@@ -171,7 +175,7 @@ function UserTextBlock(props: {
         delayLongPress={400}
         style={styles.userMessageBubble}
       >
-        <MarkdownView markdown={parsed.text} onOptionPress={handleOptionPress} sessionId={props.sessionId} compact />
+        <MarkdownView markdown={userText} onOptionPress={handleOptionPress} sessionId={props.sessionId} compact />
       </Pressable>
     </View>
   );

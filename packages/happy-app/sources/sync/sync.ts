@@ -586,6 +586,7 @@ class Sync {
             attachmentCount: attachments?.length ?? 0,
         });
         const effectiveAttachments = attachmentPlan.shouldUseAttachments ? attachments : undefined;
+        let queuedAttachmentMessages = false;
 
         if (attachmentPlan.shouldShowUnsupportedAlert) {
             Modal.alert(
@@ -666,8 +667,17 @@ class Sync {
                         this.enqueueMessages(sessionId, [fileNormalized]);
                     }
                     pending.push({ localId: fileLocalId, content: encryptedFileRecord });
+                    queuedAttachmentMessages = true;
                 }
             }
+        }
+
+        if (text.trim().length === 0) {
+            if (queuedAttachmentMessages) {
+                this.getSendSync(sessionId).invalidate();
+                this.maybeStartBackgroundSendWatchdog();
+            }
+            return;
         }
 
         // Generate local ID

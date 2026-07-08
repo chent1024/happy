@@ -518,12 +518,12 @@ export const zhHans: TranslationStructure = {
         editedFile: 'Edited file',
         editedFiles: ({ count }: { count: number }) => `编辑了 ${count} 个文件`,
         readFiles: ({ count }: { count: number }) => `读取了 ${count} 个文件`,
-        ranCommands: ({ count }: { count: number }) => `执行了 ${count} 个命令`,
+        ranCommands: ({ count }: { count: number }) => `已执行 ${count} 个命令`,
         searched: ({ count }: { count: number }) => `搜索了 ${count} 次`,
         fetchedUrls: ({ count }: { count: number }) => `获取了 ${count} 个 URL`,
-        ranTasks: ({ count }: { count: number }) => `执行了 ${count} 个任务`,
+        ranTasks: ({ count }: { count: number }) => `已执行 ${count} 个任务`,
         usedTools: ({ count }: { count: number }) => `使用了 ${count} 个工具`,
-        workedFor: ({ duration }: { duration: string }) => `Worked ${duration}`,
+        workedFor: ({ duration }: { duration: string }) => `已处理 ${duration}`,
     },
 
     tools: {
@@ -547,7 +547,7 @@ export const zhHans: TranslationStructure = {
         },
         names: {
             task: '任务',
-            terminal: '终端',
+            terminal: '命令',
             searchFiles: '搜索文件',
             search: '搜索',
             searchContent: '搜索内容',
@@ -567,7 +567,7 @@ export const zhHans: TranslationStructure = {
             question: '问题',
         },
         desc: {
-            terminalCmd: ({ cmd }: { cmd: string }) => `终端(命令: ${cmd})`,
+            terminalCmd: ({ cmd }: { cmd: string }) => `命令: ${cmd}`,
             searchPattern: ({ pattern }: { pattern: string }) => `搜索(模式: ${pattern})`,
             searchPath: ({ basename }: { basename: string }) => `搜索(路径: ${basename})`,
             fetchUrlHost: ({ host }: { host: string }) => `获取 URL(网址: ${host})`,
