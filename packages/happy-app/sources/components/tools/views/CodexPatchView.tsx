@@ -161,8 +161,41 @@ function getPatchKindLabel(change: CodexPatchEntry): string | null {
     }
 }
 
+function getPatchKindDisplayLabel(change: CodexPatchEntry): string | null {
+    switch (getPatchKindType(change)) {
+        case 'add':
+            return '新增';
+        case 'delete':
+            return '删除';
+        case 'update':
+            return getPatchMovePath(change) ? '移动' : '更新';
+        default:
+            return null;
+    }
+}
+
 function getPatchMovePath(change: CodexPatchEntry): string | null {
     return change.kind?.move_path ?? change.move_path ?? null;
+}
+
+function getPatchDisplayData(file: string, change: CodexPatchEntry, metadata: Metadata | null) {
+    const filePath = resolvePath(file, metadata);
+    const diffInput = getPatchInput(change);
+    const kindLabel = getPatchKindLabel(change);
+    const kindDisplayLabel = getPatchKindDisplayLabel(change);
+    const rawMovePath = getPatchMovePath(change);
+    const movePath = rawMovePath ? resolvePath(rawMovePath, metadata) : null;
+    const fileName = file.split('/').pop() ?? file;
+    const displayPatch = diffInput?.kind === 'patch'
+        ? materializeUnifiedDiffPatch(diffInput.patch, file, getPatchKindType(change))
+        : null;
+    const stats = !diffInput
+        ? null
+        : diffInput.kind === 'patch'
+            ? getPatchDiffStats(displayPatch ?? diffInput.patch)
+            : getDiffStats(diffInput.oldText, diffInput.newText);
+
+    return { filePath, diffInput, kindLabel, kindDisplayLabel, movePath, fileName, displayPatch, stats };
 }
 
 export const CodexPatchView = React.memo<CodexPatchViewProps>(({ tool, metadata, permissionFooter }) => {
@@ -190,6 +223,97 @@ export const CodexPatchView = React.memo<CodexPatchViewProps>(({ tool, metadata,
     );
 });
 
+export const CodexPatchViewFull = React.memo<CodexPatchViewProps>(({ tool, metadata }) => {
+    const { theme } = useUnistyles();
+    const changes = getPatchChanges(tool.input);
+    const entries = changes ? Object.entries(changes) : [];
+    const displayEntries = entries.map(([file, change]) => ({
+        file,
+        change,
+        data: getPatchDisplayData(file, change, metadata),
+    }));
+
+    const totals = displayEntries.reduce((acc, entry) => {
+        acc.additions += entry.data.stats?.additions ?? 0;
+        acc.deletions += entry.data.stats?.deletions ?? 0;
+        return acc;
+    }, { additions: 0, deletions: 0 });
+
+    if (displayEntries.length === 0) {
+        return null;
+    }
+
+    return (
+        <View style={styles.fullRoot}>
+            <View style={styles.fullSummary}>
+                <View style={styles.fullSummaryIcon}>
+                    <Octicons name="file-diff" size={18} color={theme.colors.textSecondary} />
+                </View>
+                <View style={styles.fullSummaryText}>
+                    <Text style={styles.fullSummaryTitle}>
+                        {`${displayEntries.length} 个文件已更新`}
+                    </Text>
+                    <View style={styles.fullSummaryMeta}>
+                        {totals.additions > 0 ? <Text style={styles.added}>+{totals.additions}</Text> : null}
+                        {totals.deletions > 0 ? <Text style={styles.removed}>-{totals.deletions}</Text> : null}
+                    </View>
+                </View>
+            </View>
+            {displayEntries.map(({ file, change, data }) => (
+                <CodexPatchFullFileView
+                    key={file}
+                    file={file}
+                    change={change}
+                    data={data}
+                />
+            ))}
+        </View>
+    );
+});
+
+const CodexPatchFullFileView = React.memo(function CodexPatchFullFileView(props: {
+    file: string;
+    change: CodexPatchEntry;
+    data: ReturnType<typeof getPatchDisplayData>;
+}) {
+    const { data } = props;
+    const { theme } = useUnistyles();
+
+    return (
+        <View style={styles.fullFileGroup}>
+            <View style={styles.fullFileHeader}>
+                <View style={styles.fullFileTitleRow}>
+                    <Octicons name="file-diff" size={16} color={theme.colors.textSecondary} />
+                    <Text style={styles.fullFileName} numberOfLines={1}>{data.fileName}</Text>
+                    {data.kindDisplayLabel ? <Text style={styles.kindLabel}>{data.kindDisplayLabel}</Text> : null}
+                    {data.stats && (data.stats.additions > 0 || data.stats.deletions > 0) ? (
+                        <View style={styles.stats}>
+                            {data.stats.additions > 0 ? <Text style={styles.added}>+{data.stats.additions}</Text> : null}
+                            {data.stats.deletions > 0 ? <Text style={styles.removed}>-{data.stats.deletions}</Text> : null}
+                        </View>
+                    ) : null}
+                </View>
+                <Text style={styles.fullFilePath} numberOfLines={2}>{data.filePath}</Text>
+                {data.movePath ? <Text style={styles.movePath} numberOfLines={2}>{data.movePath}</Text> : null}
+            </View>
+            {data.displayPatch ? (
+                <ToolDiffView patch={data.displayPatch} fileName={data.fileName} style={styles.fullDiff} />
+            ) : data.diffInput?.kind === 'pair' && (data.diffInput.oldText.length > 0 || data.diffInput.newText.length > 0) ? (
+                <ToolDiffView
+                    oldText={data.diffInput.oldText}
+                    newText={data.diffInput.newText}
+                    fileName={data.fileName}
+                    style={styles.fullDiff}
+                />
+            ) : (
+                <View style={styles.fullEmptyState}>
+                    <Text style={styles.fullEmptyText}>没有可展示的 diff 内容</Text>
+                </View>
+            )}
+        </View>
+    );
+});
+
 const CodexPatchFileView = React.memo(function CodexPatchFileView(props: {
     file: string;
     change: CodexPatchEntry;
@@ -199,21 +323,7 @@ const CodexPatchFileView = React.memo(function CodexPatchFileView(props: {
     const { file, change, metadata, permissionFooter } = props;
     const { theme } = useUnistyles();
     const [expanded, setExpanded] = React.useState(false);
-
-    const filePath = resolvePath(file, metadata);
-    const diffInput = getPatchInput(change);
-    const kindLabel = getPatchKindLabel(change);
-    const rawMovePath = getPatchMovePath(change);
-    const movePath = rawMovePath ? resolvePath(rawMovePath, metadata) : null;
-    const fileName = file.split('/').pop() ?? file;
-    const displayPatch = diffInput?.kind === 'patch'
-        ? materializeUnifiedDiffPatch(diffInput.patch, file, getPatchKindType(change))
-        : null;
-    const stats = !diffInput
-        ? null
-        : diffInput.kind === 'patch'
-            ? getPatchDiffStats(displayPatch ?? diffInput.patch)
-            : getDiffStats(diffInput.oldText, diffInput.newText);
+    const { filePath, diffInput, kindLabel, movePath, fileName, displayPatch, stats } = getPatchDisplayData(file, change, metadata);
 
     const toggle = (
         <Pressable
@@ -285,6 +395,90 @@ const CodexPatchFileView = React.memo(function CodexPatchFileView(props: {
 });
 
 const styles = StyleSheet.create((theme) => ({
+    fullRoot: {
+        gap: 16,
+        paddingBottom: 24,
+    },
+    fullSummary: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        paddingHorizontal: 16,
+        paddingVertical: 14,
+        backgroundColor: theme.colors.surface,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+    },
+    fullSummaryIcon: {
+        width: 28,
+        height: 28,
+        borderRadius: 6,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.surfaceHigh,
+    },
+    fullSummaryText: {
+        flex: 1,
+        minWidth: 0,
+        gap: 4,
+    },
+    fullSummaryTitle: {
+        fontSize: 16,
+        lineHeight: 22,
+        fontWeight: '600',
+        color: theme.colors.text,
+    },
+    fullSummaryMeta: {
+        flexDirection: 'row',
+        gap: 10,
+    },
+    fullFileGroup: {
+        overflow: 'hidden',
+        backgroundColor: theme.colors.surface,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+    },
+    fullFileHeader: {
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        gap: 6,
+        backgroundColor: theme.colors.surfaceHigh,
+        borderBottomWidth: 1,
+        borderBottomColor: theme.colors.divider,
+    },
+    fullFileTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    fullFileName: {
+        flex: 1,
+        minWidth: 0,
+        fontSize: 15,
+        lineHeight: 20,
+        fontWeight: '600',
+        color: theme.colors.text,
+        fontFamily: 'monospace',
+    },
+    fullFilePath: {
+        fontSize: 12,
+        lineHeight: 17,
+        color: theme.colors.textSecondary,
+        fontFamily: 'monospace',
+    },
+    fullDiff: {
+        width: '100%',
+    },
+    fullEmptyState: {
+        paddingHorizontal: 12,
+        paddingVertical: 16,
+    },
+    fullEmptyText: {
+        fontSize: 13,
+        color: theme.colors.textSecondary,
+    },
     editedFileGroup: {
         gap: 4,
     },
