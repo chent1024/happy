@@ -3,7 +3,10 @@ import { describe, expect, it } from 'vitest';
 import {
     CODEX_BACKFILLED_INITIAL_MESSAGE_PAGE_LIMIT,
     DEFAULT_INITIAL_MESSAGE_PAGE_LIMIT,
+    SEVERE_WEAK_NETWORK_MESSAGE_PAGE_LIMIT,
     STALE_RUNNING_TOOL_COMPLETION_PREFETCH_PAGE_LIMIT,
+    WEAK_NETWORK_MESSAGE_PAGE_LIMIT,
+    getAdaptiveMessagePageLimit,
     getInitialMessagePageLimit,
     hasStaleRunningTool,
     shouldLoadOlderMessagesForStaleRunningTools,
@@ -73,5 +76,18 @@ describe('messagePagingPolicy', () => {
             ...pageState,
             hasMoreOlder: false,
         } as any, 0, now)).toBe(false);
+    });
+
+    it('steps down message page size after weak-network failures', () => {
+        expect(getAdaptiveMessagePageLimit(DEFAULT_INITIAL_MESSAGE_PAGE_LIMIT, 0))
+            .toBe(DEFAULT_INITIAL_MESSAGE_PAGE_LIMIT);
+        expect(getAdaptiveMessagePageLimit(DEFAULT_INITIAL_MESSAGE_PAGE_LIMIT, 1))
+            .toBe(WEAK_NETWORK_MESSAGE_PAGE_LIMIT);
+        expect(getAdaptiveMessagePageLimit(DEFAULT_INITIAL_MESSAGE_PAGE_LIMIT, 2))
+            .toBe(SEVERE_WEAK_NETWORK_MESSAGE_PAGE_LIMIT);
+        expect(getAdaptiveMessagePageLimit(CODEX_BACKFILLED_INITIAL_MESSAGE_PAGE_LIMIT, 1))
+            .toBe(CODEX_BACKFILLED_INITIAL_MESSAGE_PAGE_LIMIT);
+        expect(getAdaptiveMessagePageLimit(CODEX_BACKFILLED_INITIAL_MESSAGE_PAGE_LIMIT, 2))
+            .toBe(SEVERE_WEAK_NETWORK_MESSAGE_PAGE_LIMIT);
     });
 });

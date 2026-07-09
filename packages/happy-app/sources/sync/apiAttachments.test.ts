@@ -294,6 +294,8 @@ describe('downloadEncryptedAttachment', () => {
                 ok: true,
                 json: { downloadUrl: storageUrl },
             }))
+            .mockRejectedValueOnce(new Error('Failed to fetch'))
+            .mockRejectedValueOnce(new Error('Failed to fetch'))
             .mockRejectedValueOnce(new Error('Failed to fetch'));
 
         const error = await rejectedError(downloadEncryptedAttachment(
@@ -311,6 +313,29 @@ describe('downloadEncryptedAttachment', () => {
             message: 'Failed to fetch',
         });
         expectNoAttachmentLeaks(error);
+    });
+
+    it('retries transient blob-download failures before reading the body', async () => {
+        const buffer = new Uint8Array([1, 2, 3]).buffer;
+        fetchMock
+            .mockResolvedValueOnce(response({
+                ok: true,
+                json: { downloadUrl: storageUrl },
+            }))
+            .mockRejectedValueOnce(new Error('Failed to fetch'))
+            .mockResolvedValueOnce(response({
+                ok: true,
+                arrayBuffer: buffer,
+            }));
+
+        const data = await downloadEncryptedAttachment(
+            credentials,
+            'session-1',
+            'happy/session-1/ref',
+        );
+
+        expect(Array.from(data)).toEqual([1, 2, 3]);
+        expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 
     it('classifies blob-download HTTP failures without leaking presigned query data', async () => {

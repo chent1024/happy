@@ -4,6 +4,7 @@ import Constants from 'expo-constants';
 import { TokenStorage } from '@/auth/tokenStorage';
 import { Encryption } from './encryption/encryption';
 import { storage } from './storage';
+import { fetchWithRetry, type HappyRequestInit } from './httpRetry';
 
 export function getHappyClientId(): string {
     let platform: string = Platform.OS; // 'ios' | 'android' | 'web'
@@ -204,7 +205,7 @@ class ApiSocket {
     // HTTP Requests
     //
 
-    async request(path: string, options?: RequestInit): Promise<Response> {
+    async request(path: string, options?: HappyRequestInit): Promise<Response> {
         if (!this.config) {
             throw new Error('SyncSocket not initialized');
         }
@@ -221,7 +222,7 @@ class ApiSocket {
             ...options?.headers
         };
 
-        return fetch(url, {
+        return fetchWithRetry(url, {
             ...options,
             headers
         });

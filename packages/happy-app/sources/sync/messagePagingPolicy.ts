@@ -3,6 +3,8 @@ import type { Message } from './typesMessage';
 
 export const DEFAULT_INITIAL_MESSAGE_PAGE_LIMIT = 100;
 export const CODEX_BACKFILLED_INITIAL_MESSAGE_PAGE_LIMIT = 40;
+export const WEAK_NETWORK_MESSAGE_PAGE_LIMIT = 40;
+export const SEVERE_WEAK_NETWORK_MESSAGE_PAGE_LIMIT = 20;
 export const STALE_RUNNING_TOOL_COMPLETION_PREFETCH_MS = 5 * 60 * 1000;
 export const STALE_RUNNING_TOOL_COMPLETION_PREFETCH_PAGE_LIMIT = 3;
 
@@ -21,6 +23,16 @@ export function getInitialMessagePageLimit(metadata: Metadata | null | undefined
     return isCodexBackfilledSession(metadata)
         ? CODEX_BACKFILLED_INITIAL_MESSAGE_PAGE_LIMIT
         : DEFAULT_INITIAL_MESSAGE_PAGE_LIMIT;
+}
+
+export function getAdaptiveMessagePageLimit(baseLimit: number, consecutiveFailures: number): number {
+    if (consecutiveFailures <= 0) {
+        return baseLimit;
+    }
+    if (consecutiveFailures === 1) {
+        return Math.min(baseLimit, WEAK_NETWORK_MESSAGE_PAGE_LIMIT);
+    }
+    return Math.min(baseLimit, SEVERE_WEAK_NETWORK_MESSAGE_PAGE_LIMIT);
 }
 
 export function shouldPrefetchOlderMessages(metadata: Metadata | null | undefined): boolean {

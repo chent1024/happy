@@ -17,8 +17,10 @@ import {
 } from './attachmentDiagnostics';
 import { getServerUrl } from './serverConfig';
 import { appendFormFile } from './uploadFormFile';
+import { fetchWithRetry } from './httpRetry';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const ATTACHMENT_DOWNLOAD_TIMEOUT_MS = 60_000;
 
 /**
  * If a self-hosted server's request-upload / request-download response points
@@ -308,7 +310,10 @@ export async function downloadEncryptedAttachment(
     }
     let blobRes: Response;
     try {
-        blobRes = await fetch(downloadUrl, { headers });
+        blobRes = await fetchWithRetry(downloadUrl, {
+            headers,
+            timeoutMs: ATTACHMENT_DOWNLOAD_TIMEOUT_MS,
+        });
     } catch (err) {
         const message = errorMessageFromUnknown(err);
         throw createAttachmentDiagnosticError(formatNetworkErrorMessage('Attachment download network error', message), {

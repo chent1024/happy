@@ -58,11 +58,14 @@ import {
     type NativeUpdateManifest,
 } from './nativeUpdateManifest';
 import {
+    DEFAULT_INITIAL_MESSAGE_PAGE_LIMIT,
+    getAdaptiveMessagePageLimit,
     getInitialMessagePageLimit,
     shouldLoadOlderMessagesForStaleRunningTools,
     shouldPrefetchOlderMessages,
 } from './messagePagingPolicy';
 import {
+    getForwardMessagePageCursorUpdate,
     getLatestMessagePageCursorUpdate,
     getOlderMessagePageCursorUpdate,
 } from './messagePageCursors';
@@ -89,6 +92,14 @@ const SEQ_BACKWARD_INITIAL_SENTINEL = 2_147_483_647;
 // message), which is well worth removing the per-token re-render storms.
 const MESSAGE_COALESCE_MS = 24;
 const BACKGROUND_OLDER_PREFETCH_PAGE_LIMIT = 1;
+const MESSAGE_PAGE_KIND_LATEST = 'latest';
+const MESSAGE_PAGE_KIND_OLDER = 'older';
+const MESSAGE_PAGE_KIND_NEWER = 'newer';
+type MessagePageKind =
+    | typeof MESSAGE_PAGE_KIND_LATEST
+    | typeof MESSAGE_PAGE_KIND_OLDER
+    | typeof MESSAGE_PAGE_KIND_NEWER;
+
 type V3PostSessionMessagesResponse = {
     messages: Array<{
         id: string;
@@ -128,6 +139,7 @@ class Sync {
     // load older history. Set after the initial latest-page fetch and
     // advanced downward by loadOlderMessages.
     private sessionOldestSeq = new Map<string, number>();
+    private messagePageFailureCounts = new Map<string, number>();
     private pendingOutbox = new Map<string, OutboxMessage[]>();
     private sessionMessageQueue = new Map<string, NormalizedMessage[]>();
     private sessionQueueProcessing = new Set<string>();
@@ -314,6 +326,28 @@ class Sync {
             this.sessionMessageLocks.set(sessionId, lock);
         }
         return lock;
+    }
+
+    private getMessagePageFailureKey(sessionId: string, kind: MessagePageKind): string {
+        return `${sessionId}:${kind}`;
+    }
+
+    private getAdaptiveSessionMessagePageLimit(
+        sessionId: string,
+        kind: MessagePageKind,
+        baseLimit: number,
+    ): number {
+        const failures = this.messagePageFailureCounts.get(this.getMessagePageFailureKey(sessionId, kind)) ?? 0;
+        return getAdaptiveMessagePageLimit(baseLimit, failures);
+    }
+
+    private recordMessagePageSuccess(sessionId: string, kind: MessagePageKind) {
+        this.messagePageFailureCounts.delete(this.getMessagePageFailureKey(sessionId, kind));
+    }
+
+    private recordMessagePageFailure(sessionId: string, kind: MessagePageKind) {
+        const key = this.getMessagePageFailureKey(sessionId, kind);
+        this.messagePageFailureCounts.set(key, (this.messagePageFailureCounts.get(key) ?? 0) + 1);
     }
 
     private scheduleQueuedMessagesProcessing(sessionId: string) {
@@ -1761,15 +1795,23 @@ class Sync {
     private fetchInitialLatestPage = async (
         sessionId: string,
         encryption: ReturnType<Encryption['getSessionEncryption']> & {},
-        limit: number,
+        baseLimit: number,
     ) => {
-        const response = await apiSocket.request(
-            `/v3/sessions/${sessionId}/messages?before_seq=${SEQ_BACKWARD_INITIAL_SENTINEL}&limit=${limit}`
-        );
-        if (!response.ok) {
-            throw new Error(`Failed to fetch initial page for ${sessionId}: ${response.status}`);
+        const limit = this.getAdaptiveSessionMessagePageLimit(sessionId, MESSAGE_PAGE_KIND_LATEST, baseLimit);
+        let data: V3GetSessionMessagesResponse;
+        try {
+            const response = await apiSocket.request(
+                `/v3/sessions/${sessionId}/messages?before_seq=${SEQ_BACKWARD_INITIAL_SENTINEL}&limit=${limit}`
+            );
+            if (!response.ok) {
+                throw new Error(`Failed to fetch initial page for ${sessionId}: ${response.status}`);
+            }
+            data = await response.json() as V3GetSessionMessagesResponse;
+            this.recordMessagePageSuccess(sessionId, MESSAGE_PAGE_KIND_LATEST);
+        } catch (error) {
+            this.recordMessagePageFailure(sessionId, MESSAGE_PAGE_KIND_LATEST);
+            throw error;
         }
-        const data = await response.json() as V3GetSessionMessagesResponse;
         const messages = Array.isArray(data.messages) ? data.messages : [];
 
         await this.applyFetchedMessages(sessionId, encryption, messages);
@@ -1788,6 +1830,74 @@ class Sync {
         storage.getState().applyOlderMessagesPagination(sessionId, {
             hasMore: cursorUpdate.hasMoreOlder
         });
+    }
+
+    private reconcileLoadedMessageGaps = async () => {
+        const sessionIds = Array.from(this.sessionLastSeq.keys());
+        for (const sessionId of sessionIds) {
+            await this.reconcileSessionMessageGap(sessionId);
+        }
+    }
+
+    private reconcileSessionMessageGap = async (sessionId: string) => {
+        const lock = this.getSessionMessageLock(sessionId);
+        try {
+            await lock.inLock(async () => {
+                const encryption = this.encryption.getSessionEncryption(sessionId);
+                const afterSeq = this.sessionLastSeq.get(sessionId);
+                if (!encryption || afterSeq === undefined) {
+                    this.getMessagesSync(sessionId).invalidate();
+                    return;
+                }
+                await this.fetchNewerMessagesAfterSeqUnlocked(sessionId, encryption);
+            });
+        } catch (error) {
+            log.log(`💬 reconcileSessionMessageGap failed for ${sessionId}: ${String(error)}`);
+        }
+    }
+
+    private fetchNewerMessagesAfterSeqUnlocked = async (
+        sessionId: string,
+        encryption: ReturnType<Encryption['getSessionEncryption']> & {},
+    ): Promise<boolean> => {
+        let loadedAny = false;
+
+        for (;;) {
+            const afterSeq = this.sessionLastSeq.get(sessionId);
+            if (afterSeq === undefined) {
+                return loadedAny;
+            }
+
+            const limit = this.getAdaptiveSessionMessagePageLimit(
+                sessionId,
+                MESSAGE_PAGE_KIND_NEWER,
+                DEFAULT_INITIAL_MESSAGE_PAGE_LIMIT,
+            );
+            let data: V3GetSessionMessagesResponse;
+            try {
+                const response = await apiSocket.request(
+                    `/v3/sessions/${sessionId}/messages?after_seq=${afterSeq}&limit=${limit}`
+                );
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch newer messages for ${sessionId}: ${response.status}`);
+                }
+                data = await response.json() as V3GetSessionMessagesResponse;
+                this.recordMessagePageSuccess(sessionId, MESSAGE_PAGE_KIND_NEWER);
+            } catch (error) {
+                this.recordMessagePageFailure(sessionId, MESSAGE_PAGE_KIND_NEWER);
+                throw error;
+            }
+
+            const messages = Array.isArray(data.messages) ? data.messages : [];
+            await this.applyFetchedMessages(sessionId, encryption, messages);
+
+            const cursorUpdate = getForwardMessagePageCursorUpdate(messages, afterSeq, data.hasMore);
+            this.sessionLastSeq.set(sessionId, cursorUpdate.lastSeq);
+            loadedAny = loadedAny || cursorUpdate.loaded;
+            if (!cursorUpdate.hasMoreNewer || !cursorUpdate.advanced) {
+                return loadedAny;
+            }
+        }
     }
 
     private applyFetchedMessages = async (
@@ -1864,13 +1974,25 @@ class Sync {
             return false;
         }
 
-        const response = await apiSocket.request(
-            `/v3/sessions/${sessionId}/messages?before_seq=${beforeSeq}&limit=100`
+        const limit = this.getAdaptiveSessionMessagePageLimit(
+            sessionId,
+            MESSAGE_PAGE_KIND_OLDER,
+            DEFAULT_INITIAL_MESSAGE_PAGE_LIMIT,
         );
-        if (!response.ok) {
-            throw new Error(`Failed to load older messages for ${sessionId}: ${response.status}`);
+        let data: V3GetSessionMessagesResponse;
+        try {
+            const response = await apiSocket.request(
+                `/v3/sessions/${sessionId}/messages?before_seq=${beforeSeq}&limit=${limit}`
+            );
+            if (!response.ok) {
+                throw new Error(`Failed to load older messages for ${sessionId}: ${response.status}`);
+            }
+            data = await response.json() as V3GetSessionMessagesResponse;
+            this.recordMessagePageSuccess(sessionId, MESSAGE_PAGE_KIND_OLDER);
+        } catch (error) {
+            this.recordMessagePageFailure(sessionId, MESSAGE_PAGE_KIND_OLDER);
+            throw error;
         }
-        const data = await response.json() as V3GetSessionMessagesResponse;
         const messages = Array.isArray(data.messages) ? data.messages : [];
 
         await this.applyFetchedMessages(sessionId, encryption, messages);
@@ -1926,6 +2048,7 @@ class Sync {
             for (const sync of this.sendSync.values()) {
                 sync.invalidate();
             }
+            void this.reconcileLoadedMessageGaps();
         });
     }
 
@@ -2002,7 +2125,7 @@ class Sync {
                             gitStatusSync.invalidate(updateData.body.sid);
                         }
                     } else {
-                        this.getMessagesSync(updateData.body.sid).invalidate();
+                        void this.reconcileSessionMessageGap(updateData.body.sid);
                     }
                 }
             }

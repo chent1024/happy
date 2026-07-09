@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+    getForwardMessagePageCursorUpdate,
     getLatestMessagePageCursorUpdate,
     getOlderMessagePageCursorUpdate,
 } from './messagePageCursors';
@@ -60,6 +61,32 @@ describe('messagePageCursors', () => {
             oldestSeq: null,
             hasMoreOlder: false,
             loaded: false,
+        });
+    });
+
+    it('advances forward cursor from after_seq pages', () => {
+        expect(getForwardMessagePageCursorUpdate(
+            [message(43), message(45), message(44)],
+            42,
+            true,
+        )).toEqual({
+            lastSeq: 45,
+            hasMoreNewer: true,
+            loaded: true,
+            advanced: true,
+        });
+    });
+
+    it('stops forward pagination when a page does not advance the cursor', () => {
+        expect(getForwardMessagePageCursorUpdate(
+            [message(40), message(42)],
+            42,
+            true,
+        )).toEqual({
+            lastSeq: 42,
+            hasMoreNewer: true,
+            loaded: true,
+            advanced: false,
         });
     });
 });

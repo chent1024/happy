@@ -12,6 +12,13 @@ export type OlderMessagePageCursorUpdate = {
     loaded: boolean;
 };
 
+export type ForwardMessagePageCursorUpdate = {
+    lastSeq: number;
+    hasMoreNewer: boolean;
+    loaded: boolean;
+    advanced: boolean;
+};
+
 export function getLatestMessagePageCursorUpdate(
     messages: readonly ApiMessage[],
     currentLastSeq: number | undefined,
@@ -53,5 +60,26 @@ export function getOlderMessagePageCursorUpdate(
         oldestSeq: messages.length > 0 ? oldestSeq : null,
         hasMoreOlder: !!hasMore && messages.length > 0,
         loaded: messages.length > 0,
+    };
+}
+
+export function getForwardMessagePageCursorUpdate(
+    messages: readonly ApiMessage[],
+    currentLastSeq: number,
+    hasMore: boolean | undefined,
+): ForwardMessagePageCursorUpdate {
+    let lastSeq = currentLastSeq;
+
+    for (const message of messages) {
+        if (message.seq > lastSeq) {
+            lastSeq = message.seq;
+        }
+    }
+
+    return {
+        lastSeq,
+        hasMoreNewer: !!hasMore && messages.length > 0,
+        loaded: messages.length > 0,
+        advanced: lastSeq > currentLastSeq,
     };
 }
