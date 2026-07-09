@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { resolveMessageModeMeta } from './messageMeta';
 
 describe('resolveMessageModeMeta', () => {
-    it('omits agent mode metadata when nothing was explicitly overridden', () => {
+    it('sends the Codex default effort when nothing was explicitly overridden', () => {
         const meta = resolveMessageModeMeta({
             permissionMode: null,
             modelMode: null,
@@ -10,7 +10,7 @@ describe('resolveMessageModeMeta', () => {
             metadata: { flavor: 'codex' },
         } as any);
 
-        expect(meta).toEqual({});
+        expect(meta).toEqual({ effort: 'high' });
     });
 
     it('sends explicit per-session overrides', () => {

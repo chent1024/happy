@@ -50,6 +50,11 @@ import {
     hashCodexEnhancedMode,
     type CodexEnhancedMode,
 } from './codexPrompt';
+import {
+    DEFAULT_CODEX_EFFORT,
+    DEFAULT_CODEX_MODEL,
+    DEFAULT_CODEX_PERMISSION_MODE,
+} from './codexDefaults';
 import { discoverCodexSkillCommands } from './codexSkills';
 import { resolveAppendSystemPrompt } from '@/utils/optionsSystemPrompt';
 import {
@@ -149,10 +154,6 @@ function normalizeCodexAccountRateLimits(payload: unknown): CodexAccountRateLimi
         credits: normalizeCodexCredits(record.credits),
     };
 }
-
-const DEFAULT_CODEX_MODEL = 'gpt-5.5';
-const DEFAULT_CODEX_EFFORT: ReasoningEffort = 'medium';
-const DEFAULT_CODEX_PERMISSION_MODE: PermissionMode = 'yolo';
 
 /**
  * Main entry point for the codex command with ink UI

@@ -1,6 +1,6 @@
 import type { Session } from './storageTypes';
 import type { Settings } from './settings';
-import { getAgentDefaultOverride } from './agentDefaults';
+import { getAgentDefaultOverride, resolveAgentDefaultConfig } from './agentDefaults';
 import type { PermissionModeKey } from '@/components/PermissionModeSelector';
 
 export type MessageModeMeta = {
@@ -27,7 +27,10 @@ export function resolveMessageModeMeta(
         meta.model = modelMode === 'default' ? null : modelMode;
     }
 
-    const effort = session.effortLevel ?? agentOverrides.effortLevel;
+    const codexDefaultEffort = session.metadata?.flavor === 'codex'
+        ? resolveAgentDefaultConfig(settings?.agentDefaultOverrides, session.metadata?.flavor).effortLevel
+        : undefined;
+    const effort = session.effortLevel ?? agentOverrides.effortLevel ?? codexDefaultEffort;
     if (effort !== undefined) {
         meta.effort = effort;
     }
