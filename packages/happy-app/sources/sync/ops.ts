@@ -496,10 +496,11 @@ export function buildCodexImportedSessionMetadata(
     thread: CodexThreadListItem,
     machineId: string,
     machineMetadata?: MachineMetadata | null,
+    fallbackUpdatedAt?: number | null,
 ): Metadata {
     const path = codexThreadProjectPath(thread);
     const title = sanitizeCodexTitle(firstNonEmpty(thread.name, thread.preview)) ?? `Codex ${thread.id.slice(0, 8)}`;
-    const updatedAt = codexThreadUpdatedAt(thread) || Date.now();
+    const updatedAt = codexThreadUpdatedAt(thread) || normalizeCodexTimestamp(fallbackUpdatedAt) || 0;
 
     return {
         path,
@@ -559,6 +560,17 @@ function getArchivedCodexThreadIds(machineId: string): Set<string> {
         }
     }
     return archivedThreadIds;
+}
+
+function importedCodexSessionUpdatedAt(session: Session | null): number | null {
+    if (!session) {
+        return null;
+    }
+
+    return normalizeCodexTimestamp(session.metadata?.summary?.updatedAt)
+        ?? normalizeCodexTimestamp(session.updatedAt)
+        ?? normalizeCodexTimestamp(session.activeAt)
+        ?? normalizeCodexTimestamp(session.createdAt);
 }
 
 function isImportedCodexMetadataForManualArchive(metadata: Metadata | null | undefined): metadata is Metadata & { codexThreadId: string } {
@@ -707,9 +719,14 @@ async function applyImportedCodexSessionLocally(response: Response, metadata: Me
     storage.getState().applySessions([localSession]);
 }
 
-async function createImportedCodexSession(machineId: string, thread: CodexThreadListItem): Promise<void> {
+async function createImportedCodexSession(machineId: string, thread: CodexThreadListItem, existingSession?: Session | null): Promise<void> {
     const machineMetadata = storage.getState().machines[machineId]?.metadata ?? null;
-    const metadata = buildCodexImportedSessionMetadata(thread, machineId, machineMetadata);
+    const metadata = buildCodexImportedSessionMetadata(
+        thread,
+        machineId,
+        machineMetadata,
+        importedCodexSessionUpdatedAt(existingSession ?? null),
+    );
     const dataEncryptionKey = getRandomBytes(32);
     const encryptedDataKey = await sync.encryption.encryptEncryptionKey(dataEncryptionKey);
     const sessionEncryption = await sync.encryption.openEncryption(dataEncryptionKey);
@@ -978,7 +995,7 @@ export async function syncCodexSessions(machineId: string): Promise<CodexSession
             }
 
             const existingImportedSession = findImportedCodexThread(machineId, thread.id);
-            await createImportedCodexSession(machineId, thread);
+            await createImportedCodexSession(machineId, thread, existingImportedSession);
             if (existingImportedSession) {
                 refreshed++;
             } else {

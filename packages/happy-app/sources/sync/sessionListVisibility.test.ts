@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getSessionListSortTime, getSessionProjectGroupPath, getSessionRecencySortTime, inheritImportedCodexSessionTitles, isDuplicateImportedCodexSession, isImportedCodexSession, isProjectGroupSession } from './sessionListVisibility';
+import { getSessionListSortTime, getSessionProjectGroupPath, getSessionRecencySortTime, inheritImportedCodexSessionTitles, isArchivedSession, isDuplicateImportedCodexSession, isImportedCodexSession, isProjectGroupSession, isVisibleSessionInLists } from './sessionListVisibility';
 
 describe('session list visibility', () => {
     it('identifies inactive imported Codex threads for project-group display', () => {
@@ -60,6 +60,21 @@ describe('session list visibility', () => {
         })).toBe(false);
     });
 
+    it('hides archived sessions from session lists even if they still look active', () => {
+        const archivedSession = {
+            active: true,
+            metadata: {
+                flavor: 'codex',
+                lifecycleState: 'archived',
+                codexThreadId: 'thread-1',
+            } as any,
+        };
+
+        expect(isArchivedSession(archivedSession)).toBe(true);
+        expect(isVisibleSessionInLists(archivedSession)).toBe(false);
+        expect(isProjectGroupSession(archivedSession)).toBe(false);
+    });
+
     it('sorts imported Codex threads by summary time under the default creation-time setting', () => {
         const importedCodex = {
             active: false,
@@ -83,19 +98,33 @@ describe('session list visibility', () => {
 
         expect(getSessionListSortTime(importedCodex, false)).toBe(10);
         expect(getSessionListSortTime(regularSession, false)).toBe(2);
-        expect(getSessionListSortTime(regularSession, true)).toBe(20_000);
+        expect(getSessionListSortTime(regularSession, true)).toBe(3);
     });
 
-    it('keeps completed active sessions sorted by stable content time instead of keep-alive time', () => {
+    it('keeps completed active sessions sorted by stable content time instead of refreshed session row time', () => {
         expect(getSessionRecencySortTime({
             active: true,
             activeAt: 1_000_000,
-            updatedAt: 10,
+            updatedAt: 2_000_000,
+            createdAt: 1,
+            thinking: false,
+            agentState: null,
+            metadata: {
+                summary: { text: 'Completed task', updatedAt: 10 },
+            } as any,
+        })).toBe(10);
+    });
+
+    it('does not treat refreshed row updatedAt as user-visible activity for idle sessions', () => {
+        expect(getSessionRecencySortTime({
+            active: true,
+            activeAt: 1_000_000,
+            updatedAt: 2_000_000,
             createdAt: 1,
             thinking: false,
             agentState: null,
             metadata: null,
-        })).toBe(10);
+        })).toBe(1);
     });
 
     it('uses keep-alive recency while the session is actively working', () => {

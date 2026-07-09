@@ -12,6 +12,14 @@ function isNonProjectImportedCodexSession(session: Pick<Session, 'active' | 'met
     return isImportedCodexSession(session) && session.metadata?.codexProject === false;
 }
 
+export function isArchivedSession(session: Pick<Session, 'metadata'>): boolean {
+    return session.metadata?.lifecycleState === 'archived';
+}
+
+export function isVisibleSessionInLists(session: Pick<Session, 'metadata'>): boolean {
+    return !isArchivedSession(session);
+}
+
 function codexThreadKey(session: Pick<Session, 'metadata'>): string | null {
     const machineId = session.metadata?.machineId;
     const threadId = session.metadata?.codexThreadId;
@@ -161,6 +169,9 @@ export function inheritImportedCodexSessionTitles(
 }
 
 export function isProjectGroupSession(session: Pick<Session, 'active' | 'metadata'>): boolean {
+    if (isArchivedSession(session)) {
+        return false;
+    }
     return session.active || (isImportedCodexSession(session) && !isNonProjectImportedCodexSession(session));
 }
 
@@ -200,11 +211,9 @@ export function getSessionRecencySortTime(
         return session.metadata?.summary?.updatedAt ?? session.activeAt ?? session.createdAt;
     }
 
-    const stableActivityAt = Math.max(
-        session.metadata?.summary?.updatedAt ?? 0,
-        session.updatedAt ?? 0,
-        session.createdAt ?? 0,
-    );
+    const stableActivityAt = session.metadata?.summary?.updatedAt
+        ?? (!session.active ? session.activeAt : undefined)
+        ?? session.createdAt;
     const activeAt = session.activeAt ?? 0;
     const hasPendingRequests = Boolean(
         session.agentState?.requests && Object.keys(session.agentState.requests).length > 0,

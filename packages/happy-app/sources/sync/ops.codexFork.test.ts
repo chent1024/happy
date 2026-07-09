@@ -401,6 +401,57 @@ describe('codex fork ops', () => {
         expect(refreshSessions).toHaveBeenCalledTimes(1);
     });
 
+    it('preserves imported Codex recency when refreshing a thread without timestamps', async () => {
+        storageState.sessions = {
+            existing: {
+                id: 'existing',
+                active: false,
+                createdAt: 1699980000000,
+                updatedAt: 1699980000000,
+                activeAt: 1699980000000,
+                metadata: {
+                    machineId: 'machine-1',
+                    flavor: 'codex',
+                    lifecycleState: 'imported',
+                    codexThreadId: 'thread-existing',
+                    summary: { text: 'old title', updatedAt: 1699990000000 },
+                },
+            },
+        };
+        machineRPC.mockResolvedValue({
+            type: 'success',
+            threads: [
+                { id: 'thread-existing', cwd: '/tmp/project', preview: 'refreshed', gitInfo: { originUrl: 'https://example.com/project.git' } },
+            ],
+            nextCursor: null,
+            backwardsCursor: null,
+        });
+        request.mockResolvedValue({ ok: true, status: 200 });
+
+        const { syncCodexSessions } = await import('./ops');
+        const result = await syncCodexSessions('machine-1');
+
+        expect(result).toEqual({
+            type: 'success',
+            fetched: 1,
+            imported: 0,
+            refreshed: 1,
+            skipped: 0,
+        });
+        expect(encrypt).toHaveBeenCalledWith([
+            expect.objectContaining({
+                summary: {
+                    text: 'refreshed',
+                    updatedAt: 1699990000000,
+                },
+            }),
+        ]);
+        expect(JSON.parse(request.mock.calls[0][1].body)).toEqual(expect.objectContaining({
+            tag: 'codex:machine-1:thread-existing',
+            updatedAt: 1699990000000,
+        }));
+    });
+
     it('imports nested Codex environment threads under the Codex project root for the same git origin', async () => {
         machineRPC.mockResolvedValue({
             type: 'success',

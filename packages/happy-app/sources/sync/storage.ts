@@ -28,7 +28,7 @@ import { sync } from "./sync";
 import { isMutableTool } from "@/components/tools/knownTools";
 import { DecryptedArtifact } from "./artifactTypes";
 import { FeedItem } from "./feedTypes";
-import { buildDuplicateImportedCodexSessionIds, getSessionListSortTime, getSessionRecencySortTime, inheritImportedCodexSessionTitles, isProjectGroupSession } from "./sessionListVisibility";
+import { buildDuplicateImportedCodexSessionIds, getSessionListSortTime, getSessionRecencySortTime, inheritImportedCodexSessionTitles, isProjectGroupSession, isVisibleSessionInLists } from "./sessionListVisibility";
 import { mergeMessagesByCreatedAtDesc } from "./messageMerge";
 
 // Debounce timer for realtimeMode changes
@@ -80,6 +80,7 @@ export interface SessionRowData {
     subtitle: string;
     avatarId: string;
     flavor: string | null;
+    lifecycleState: string | null;
     state: SessionState;
     // Only present on inactive sessions — active sessions never show "last seen"
     // and activeAt updates on every heartbeat, causing needless deep-equal diffs
@@ -118,6 +119,7 @@ function buildSessionRowData(session: Session, unreadSessionIds?: Set<string>): 
         subtitle: getSessionSubtitle(session),
         avatarId: getSessionAvatarId(session),
         flavor: session.metadata?.flavor ?? null,
+        lifecycleState: session.metadata?.lifecycleState ?? null,
         state,
         ...(!session.active && { activeAt: session.activeAt, createdAt: session.createdAt }),
         recencyAt: getSessionRowRecencyTime(session),
@@ -250,7 +252,7 @@ function buildSessionListViewData(
     const inactiveSessions: Session[] = [];
 
     const duplicateImportedIds = buildDuplicateImportedCodexSessionIds(sessions);
-    const visibleSessions = Object.values(sessions).filter(session => !duplicateImportedIds.has(session.id));
+    const visibleSessions = Object.values(sessions).filter(session => isVisibleSessionInLists(session) && !duplicateImportedIds.has(session.id));
 
     visibleSessions.forEach(session => {
         if (isProjectGroupSession(session)) {
@@ -458,7 +460,7 @@ export const storage = create<StorageState>()((set, get) => {
             // Build active set from all sessions (including existing ones)
             const activeSet = new Set<string>();
             const duplicateImportedIds = buildDuplicateImportedCodexSessionIds(mergedSessions);
-            const visibleSessions = Object.values(mergedSessions).filter(session => !duplicateImportedIds.has(session.id));
+            const visibleSessions = Object.values(mergedSessions).filter(session => isVisibleSessionInLists(session) && !duplicateImportedIds.has(session.id));
 
             visibleSessions.forEach(session => {
                 if (isProjectGroupSession(session)) {

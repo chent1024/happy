@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Pressable, FlatList, Platform } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/StyledText';
 import { usePathname } from 'expo-router';
 import { SessionListViewItem, SessionRowData, useSessionListViewData } from '@/sync/storage';
@@ -8,7 +9,7 @@ import { ActiveSessionsGroupCompact } from './ActiveSessionsGroupCompact';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from './StatusDot';
-import { StyleSheet } from 'react-native-unistyles';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useIsTablet } from '@/utils/responsive';
 import { requestReview } from '@/utils/requestReview';
 import { UpdateBanner } from './UpdateBanner';
@@ -18,14 +19,19 @@ import { SessionActionsAnchor, SessionActionsPopover } from './SessionActionsPop
 import { useSessionActionAlert } from '@/hooks/useSessionQuickActions';
 import { formatShortRelativeTime } from '@/utils/shortRelativeTime';
 import { getSessionProjectGroupPath } from '@/sync/sessionListVisibility';
+import { getSessionRecencyTime } from '@/utils/sessionRecency';
 import { t } from '@/text';
 
-const RECENT_SESSION_COUNT = 6;
+const RECENT_SESSION_COUNT = 5;
 
 type SessionsListDisplayItem =
-    | { type: 'section-header'; section: 'recent' | 'projects' }
-    | { type: 'recent-sessions'; sessions: SessionRowData[] }
+    | { type: 'section-header'; section: 'projects' }
     | { type: 'projects'; sessions: SessionRowData[] };
+
+interface SessionsListDisplayData {
+    items: SessionsListDisplayItem[];
+    recentSessions: SessionRowData[];
+}
 
 function sessionSubtitle(session: SessionRowData): string {
     if (!session.path) {
@@ -35,7 +41,7 @@ function sessionSubtitle(session: SessionRowData): string {
     return projectPath.split(/[/\\]/).filter(Boolean).pop() || session.subtitle;
 }
 
-function buildDisplayData(data: SessionListViewItem[]): SessionsListDisplayItem[] {
+function buildDisplayData(data: SessionListViewItem[]): SessionsListDisplayData {
     const sessionsById = new Map<string, SessionRowData>();
     const projectSessions: SessionRowData[] = [];
 
@@ -51,21 +57,18 @@ function buildDisplayData(data: SessionListViewItem[]): SessionsListDisplayItem[
     }
 
     const recentSessions = Array.from(sessionsById.values())
-        .sort((a, b) => b.recencyAt - a.recencyAt)
+        .filter(session => session.lifecycleState !== 'archived')
+        .sort((a, b) => getSessionRecencyTime(b) - getSessionRecencyTime(a))
         .slice(0, RECENT_SESSION_COUNT);
 
-    const displayData: SessionsListDisplayItem[] = [];
-    if (recentSessions.length > 0) {
-        displayData.push({ type: 'section-header', section: 'recent' });
-        displayData.push({ type: 'recent-sessions', sessions: recentSessions });
-    }
+    const displayItems: SessionsListDisplayItem[] = [];
 
     if (projectSessions.length > 0) {
-        displayData.push({ type: 'section-header', section: 'projects' });
-        displayData.push({ type: 'projects', sessions: projectSessions });
+        displayItems.push({ type: 'section-header', section: 'projects' });
+        displayItems.push({ type: 'projects', sessions: projectSessions });
     }
 
-    return displayData;
+    return { items: displayItems, recentSessions };
 }
 
 const stylesheet = StyleSheet.create((theme) => ({
@@ -79,6 +82,9 @@ const stylesheet = StyleSheet.create((theme) => ({
     contentContainer: {
         flex: 1,
         maxWidth: layout.maxWidth,
+    },
+    projectList: {
+        flex: 1,
     },
     headerSection: {
         backgroundColor: theme.colors.groupped.background,
@@ -95,17 +101,25 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     recentList: {
         marginHorizontal: 16,
-        borderRadius: 14,
+        borderRadius: 12,
         overflow: 'hidden',
         backgroundColor: theme.colors.surface,
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: theme.colors.divider,
     },
+    recentDock: {
+        backgroundColor: theme.colors.groupped.background,
+        paddingTop: 8,
+    },
+    recentDockHeader: {
+        paddingHorizontal: 24,
+        paddingBottom: 6,
+    },
     recentSessionRow: {
-        minHeight: 56,
+        minHeight: 44,
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 14,
+        paddingHorizontal: 12,
         backgroundColor: theme.colors.surface,
     },
     recentSessionRowWithBorder: {
@@ -123,7 +137,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     recentSessionContent: {
         flex: 1,
         minWidth: 0,
-        paddingVertical: 8,
+        paddingVertical: 5,
     },
     recentSessionTopRow: {
         flexDirection: 'row',
@@ -131,22 +145,21 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     recentSessionTitle: {
         flex: 1,
-        fontSize: 15,
-        lineHeight: 20,
+        fontSize: 14,
+        lineHeight: 18,
         color: theme.colors.text,
         ...Typography.default('semiBold'),
     },
     recentSessionTime: {
         marginLeft: 10,
-        fontSize: 12,
-        lineHeight: 16,
+        fontSize: 11,
+        lineHeight: 14,
         color: theme.colors.textSecondary,
         ...Typography.default(),
     },
     recentSessionSubtitle: {
-        marginTop: 1,
-        fontSize: 12,
-        lineHeight: 16,
+        fontSize: 11,
+        lineHeight: 14,
         color: theme.colors.textSecondary,
         ...Typography.default(),
     },
@@ -179,23 +192,25 @@ export function SessionsList({ activeSessionsCollapsed = false }: SessionsListPr
         }
     }, [data && data.length > 0]);
 
-    const displayData = React.useMemo(() => data ? buildDisplayData(data) : [], [data]);
+    const displayData = React.useMemo<SessionsListDisplayData>(
+        () => data ? buildDisplayData(data) : { items: [], recentSessions: [] },
+        [data],
+    );
 
     const keyExtractor = React.useCallback((item: SessionsListDisplayItem, index: number) => {
         switch (item.type) {
             case 'section-header': return `section-header-${item.section}-${index}`;
-            case 'recent-sessions': return 'recent-sessions';
             case 'projects': return 'projects';
         }
     }, []);
 
-    const renderItem = React.useCallback(({ item, index }: { item: SessionsListDisplayItem, index: number }) => {
+    const renderItem = React.useCallback(({ item }: { item: SessionsListDisplayItem }) => {
         switch (item.type) {
             case 'section-header':
                 return (
                     <View style={styles.headerSection}>
                         <Text style={styles.headerText}>
-                            {item.section === 'recent' ? t('sessionList.recent') : t('sessionList.projects')}
+                            {t('sessionList.projects')}
                         </Text>
                     </View>
                 );
@@ -207,20 +222,6 @@ export function SessionsList({ activeSessionsCollapsed = false }: SessionsListPr
                         selectedSessionId={selectedSessionId}
                         collapsed={activeSessionsCollapsed}
                     />
-                );
-
-            case 'recent-sessions':
-                return (
-                    <View style={styles.recentList}>
-                        {item.sessions.map((session, sessionIndex) => (
-                            <RecentSessionRow
-                                key={session.id}
-                                session={session}
-                                selected={session.id === selectedSessionId}
-                                showBorder={sessionIndex < item.sessions.length - 1}
-                            />
-                        ))}
-                    </View>
                 );
         }
     }, [selectedSessionId, activeSessionsCollapsed]);
@@ -252,15 +253,21 @@ export function SessionsList({ activeSessionsCollapsed = false }: SessionsListPr
         <View style={styles.container}>
             <View style={styles.contentContainer}>
                 <FlatList
-                    data={displayData}
+                    style={styles.projectList}
+                    data={displayData.items}
                     renderItem={renderItem}
                     keyExtractor={keyExtractor}
                     extraData={`${selectedSessionId ?? ''}:${activeSessionsCollapsed ? 'collapsed' : 'expanded'}`}
-                    contentContainerStyle={{ paddingBottom: safeArea.bottom + 128, maxWidth: layout.maxWidth }}
+                    contentContainerStyle={{ paddingBottom: 16, maxWidth: layout.maxWidth }}
                     ListHeaderComponent={HeaderComponent}
                     windowSize={5}
                     maxToRenderPerBatch={8}
                     initialNumToRender={10}
+                />
+                <RecentSessionsDock
+                    sessions={displayData.recentSessions}
+                    selectedSessionId={selectedSessionId}
+                    bottomInset={safeArea.bottom}
                 />
             </View>
         </View>
@@ -280,6 +287,7 @@ const RecentSessionRow = React.memo(({ session, selected, showBorder }: {
     showBorder?: boolean;
 }) => {
     const styles = stylesheet;
+    const { theme } = useUnistyles();
     const navigateToSession = useNavigateToSession();
     const [actionsAnchor, setActionsAnchor] = React.useState<SessionActionsAnchor | null>(null);
     const baseStatus = STATUS_CONFIG[session.state];
@@ -287,8 +295,14 @@ const RecentSessionRow = React.memo(({ session, selected, showBorder }: {
     const status = session.hasUnread
         ? { ...baseStatus, color: '#007AFF', dotColor: '#007AFF', isPulsing: false, isConnected: baseStatus.isConnected }
         : baseStatus;
-    const shortTimeText = formatShortRelativeTime(session.recencyAt);
+    const shortTimeText = formatShortRelativeTime(getSessionRecencyTime(session));
     const subtitle = sessionSubtitle(session);
+    let leadingIndicator: React.ReactNode = null;
+    if (session.hasUnread || session.state === 'thinking' || session.state === 'permission_required') {
+        leadingIndicator = <StatusDot color={status.dotColor} isPulsing={status.isPulsing} size={7} />;
+    } else if (session.state === 'waiting' && session.hasDraft) {
+        leadingIndicator = <Ionicons name="create-outline" size={14} color={theme.colors.textSecondary} />;
+    }
 
     const handlePress = React.useCallback(() => {
         navigateToSession(session.id);
@@ -323,7 +337,7 @@ const RecentSessionRow = React.memo(({ session, selected, showBorder }: {
                 {...menuProps}
             >
                 <View style={styles.recentStatusSlot}>
-                    <StatusDot color={status.dotColor} isPulsing={status.isPulsing} size={7} />
+                    {leadingIndicator}
                 </View>
                 <View style={styles.recentSessionContent}>
                     <View style={styles.recentSessionTopRow}>
@@ -348,5 +362,41 @@ const RecentSessionRow = React.memo(({ session, selected, showBorder }: {
                 />
             )}
         </>
+    );
+});
+
+const RecentSessionsDock = React.memo(({
+    sessions,
+    selectedSessionId,
+    bottomInset,
+}: {
+    sessions: SessionRowData[];
+    selectedSessionId?: string;
+    bottomInset: number;
+}) => {
+    const styles = stylesheet;
+
+    if (sessions.length === 0) {
+        return null;
+    }
+
+    return (
+        <View style={[styles.recentDock, { paddingBottom: bottomInset + 10 }]}>
+            <View style={styles.recentDockHeader}>
+                <Text style={styles.headerText}>
+                    {t('sessionList.recent')}
+                </Text>
+            </View>
+            <View style={styles.recentList}>
+                {sessions.map((session, index) => (
+                    <RecentSessionRow
+                        key={session.id}
+                        session={session}
+                        selected={session.id === selectedSessionId}
+                        showBorder={index < sessions.length - 1}
+                    />
+                ))}
+            </View>
+        </View>
     );
 });

@@ -7,7 +7,7 @@ export function formatShortRelativeTime(timestamp: number, now: number = Date.no
     const diffWeeks = Math.floor(diffDays / 7);
 
     if (diffMinutes < 1) {
-        return 'now';
+        return '<1m';
     }
     if (diffMinutes < 60) {
         return `${diffMinutes}m`;
