@@ -311,12 +311,6 @@ export default function DevScreen() {
             {/* 测试功能 */}
             <ItemGroup title="测试功能" footer="这些操作可能影响应用稳定性">
                 <Item
-                    title="Claude OAuth 测试"
-                    subtitle="测试 Claude 认证流程"
-                    icon={<Ionicons name="key-outline" size={28} color="#007AFF" />}
-                    onPress={() => router.push('/settings/connect/claude')}
-                />
-                <Item
                     title="崩溃测试"
                     subtitle="触发一次测试崩溃"
                     destructive={true}

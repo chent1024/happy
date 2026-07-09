@@ -254,8 +254,8 @@ export function ActiveSessionsGroupCompact({ sessions, selectedSessionId, collap
                 const sortedProjects = Array.from(machineGroup.projects.entries()).sort(compareProjectGroupsByStablePath);
 
                 return (
-                    <React.Fragment key={machineGroup.machineId}>
-                        {sortedProjects.map(([projectPath, projectGroup]) => {
+                    <View key={machineGroup.machineId} style={styles.projectsGroup}>
+                        {sortedProjects.map(([projectPath, projectGroup], projectIndex) => {
                             const firstSession = projectGroup.sessions[0];
                             if (!firstSession) return null;
                             const projectKey = `${machineGroup.machineId}:${projectPath}`;
@@ -263,7 +263,13 @@ export function ActiveSessionsGroupCompact({ sessions, selectedSessionId, collap
                             const hasScrollableSessions = projectGroup.sessions.length > PROJECT_VISIBLE_SESSION_COUNT;
 
                             return (
-                                <View key={projectPath} style={styles.projectCard}>
+                                <View
+                                    key={projectPath}
+                                    style={[
+                                        styles.projectCard,
+                                        projectIndex < sortedProjects.length - 1 && styles.projectCardWithBorder,
+                                    ]}
+                                >
                                     <SectionHeader
                                         session={firstSession}
                                         projectPath={projectPath}
@@ -291,7 +297,7 @@ export function ActiveSessionsGroupCompact({ sessions, selectedSessionId, collap
                                 </View>
                             );
                         })}
-                    </React.Fragment>
+                    </View>
                 );
             })}
         </View>
@@ -463,19 +469,21 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
         backgroundColor: theme.colors.groupped.background,
-        paddingTop: 8,
+        paddingTop: 0,
     },
     // Section header styles
     sectionHeader: {
-        paddingTop: 12,
-        paddingBottom: Platform.select({ ios: 8, default: 10 }),
+        minHeight: 54,
+        paddingTop: 8,
+        paddingBottom: Platform.select({ ios: 7, default: 8 }),
         paddingHorizontal: 16,
         flexDirection: 'row',
         alignItems: 'center',
     },
     sectionHeaderSingleLine: {
-        paddingTop: 12,
-        paddingBottom: Platform.select({ ios: 8, default: 10 }),
+        minHeight: 54,
+        paddingTop: 0,
+        paddingBottom: 0,
         paddingHorizontal: 16,
         flexDirection: 'row',
         alignItems: 'center',
@@ -534,8 +542,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: theme.colors.divider,
     },
-    // Project card styles
-    projectCard: {
+    projectsGroup: {
         backgroundColor: theme.colors.surface,
         marginTop: 4,
         marginBottom: 10,
@@ -549,6 +556,14 @@ const stylesheet = StyleSheet.create((theme) => ({
         shadowOpacity: theme.colors.shadow.opacity * 0.7,
         shadowRadius: 2,
         elevation: 1,
+    },
+    // Project row styles
+    projectCard: {
+        backgroundColor: theme.colors.surface,
+    },
+    projectCardWithBorder: {
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: theme.colors.divider,
     },
     projectSessionsContainer: {
         borderTopWidth: StyleSheet.hairlineWidth,

@@ -23,6 +23,7 @@ import { getSessionRecencyTime } from '@/utils/sessionRecency';
 import { t } from '@/text';
 
 const RECENT_SESSION_COUNT = 5;
+const RECENT_DOCK_BOTTOM_GAP = 24;
 
 type SessionsListDisplayItem =
     | { type: 'section-header'; section: 'projects' }
@@ -113,10 +114,10 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     recentDockHeader: {
         paddingHorizontal: 24,
-        paddingBottom: 6,
+        paddingBottom: 7,
     },
     recentSessionRow: {
-        minHeight: 44,
+        minHeight: 46,
         flexDirection: 'row',
         alignItems: 'center',
         paddingHorizontal: 12,
@@ -130,14 +131,14 @@ const stylesheet = StyleSheet.create((theme) => ({
         backgroundColor: theme.colors.surfaceSelected,
     },
     recentStatusSlot: {
-        width: 12,
+        width: 8,
         alignItems: 'center',
-        marginRight: 10,
+        marginRight: 8,
     },
     recentSessionContent: {
         flex: 1,
         minWidth: 0,
-        paddingVertical: 5,
+        paddingVertical: 6,
     },
     recentSessionTopRow: {
         flexDirection: 'row',
@@ -145,8 +146,8 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     recentSessionTitle: {
         flex: 1,
-        fontSize: 14,
-        lineHeight: 18,
+        fontSize: 13,
+        lineHeight: 17,
         color: theme.colors.text,
         ...Typography.default('semiBold'),
     },
@@ -336,9 +337,11 @@ const RecentSessionRow = React.memo(({ session, selected, showBorder }: {
                 onPress={handlePress}
                 {...menuProps}
             >
-                <View style={styles.recentStatusSlot}>
-                    {leadingIndicator}
-                </View>
+                {leadingIndicator ? (
+                    <View style={styles.recentStatusSlot}>
+                        {leadingIndicator}
+                    </View>
+                ) : null}
                 <View style={styles.recentSessionContent}>
                     <View style={styles.recentSessionTopRow}>
                         <Text style={styles.recentSessionTitle} numberOfLines={1}>
@@ -381,7 +384,7 @@ const RecentSessionsDock = React.memo(({
     }
 
     return (
-        <View style={[styles.recentDock, { paddingBottom: bottomInset + 10 }]}>
+        <View style={[styles.recentDock, { paddingBottom: bottomInset + RECENT_DOCK_BOTTOM_GAP }]}>
             <View style={styles.recentDockHeader}>
                 <Text style={styles.headerText}>
                     {t('sessionList.recent')}
