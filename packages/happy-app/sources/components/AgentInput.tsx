@@ -60,6 +60,9 @@ interface AgentInputProps {
     metadata?: Metadata | null;
     onRecoverSession?: () => void;
     isRecoveringSession?: boolean;
+    recoverSessionAccessibilityLabel?: string;
+    recoverSessionIcon?: keyof typeof Ionicons.glyphMap;
+    recoverSessionLabel?: string;
     onAbort?: () => void | Promise<void>;
     showAbortButton?: boolean;
     connectionStatus?: {
@@ -1403,9 +1406,13 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                                 props.onRecoverSession?.();
                                             }}
                                             hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
+                                            accessibilityRole="button"
+                                            accessibilityLabel={props.recoverSessionAccessibilityLabel ?? props.recoverSessionLabel}
+                                            accessibilityState={{ disabled: props.isRecoveringSession }}
                                             style={(p) => ({
                                                 flexDirection: 'row',
                                                 alignItems: 'center',
+                                                gap: 4,
                                                 borderRadius: Platform.select({ default: 16, android: 20 }),
                                                 paddingHorizontal: 8,
                                                 paddingVertical: 6,
@@ -1422,11 +1429,24 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                                 />
                                             ) : (
                                                 <Ionicons
-                                                    name="reload-outline"
+                                                    name={props.recoverSessionIcon ?? 'reload-outline'}
                                                     size={17}
                                                     color={theme.colors.button.secondary.tint}
                                                 />
                                             )}
+                                            {props.recoverSessionLabel ? (
+                                                <Text
+                                                    numberOfLines={1}
+                                                    style={{
+                                                        color: theme.colors.button.secondary.tint,
+                                                        fontSize: 13,
+                                                        lineHeight: 18,
+                                                        ...Typography.default('semiBold'),
+                                                    }}
+                                                >
+                                                    {props.recoverSessionLabel}
+                                                </Text>
+                                            ) : null}
                                         </Pressable>
                                     )}
 

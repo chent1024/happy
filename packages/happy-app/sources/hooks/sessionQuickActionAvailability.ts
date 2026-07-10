@@ -24,6 +24,13 @@ const unavailable = (): SessionActionAvailability => ({
     message: '',
 });
 
+export function isSessionResumeFeatureEnabled(
+    experimentalResumeEnabled: boolean,
+    importedCodexSessionResumable: boolean,
+): boolean {
+    return experimentalResumeEnabled || importedCodexSessionResumable;
+}
+
 export function getResumeAvailability(
     session: Session,
     machine: Machine | null | undefined,

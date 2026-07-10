@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Machine, Session } from '@/sync/storageTypes';
-import { getRestartAvailability, getResumeAvailability, type SessionActionAvailabilityLabels } from './sessionQuickActionAvailability';
+import {
+    getRestartAvailability,
+    getResumeAvailability,
+    isSessionResumeFeatureEnabled,
+    type SessionActionAvailabilityLabels,
+} from './sessionQuickActionAvailability';
 
 const labels: SessionActionAvailabilityLabels = {
     resumeSessionSubtitle: 'resume on same machine',
@@ -50,6 +55,12 @@ function machine(overrides: Partial<Machine> = {}): Machine {
 }
 
 describe('session quick action availability', () => {
+    it('enables resume for imported Codex sessions without the experimental flag', () => {
+        expect(isSessionResumeFeatureEnabled(false, true)).toBe(true);
+        expect(isSessionResumeFeatureEnabled(false, false)).toBe(false);
+        expect(isSessionResumeFeatureEnabled(true, false)).toBe(true);
+    });
+
     it('shows resume and hides restart for disconnected resumable sessions', () => {
         const sourceSession = session();
         const sourceMachine = machine();

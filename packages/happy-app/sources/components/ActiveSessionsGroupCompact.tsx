@@ -1,14 +1,14 @@
 import React from 'react';
-import { View, Pressable, Platform, ScrollView, type GestureResponderEvent } from 'react-native';
+import { View, Pressable, Platform, ScrollView } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Text } from '@/components/StyledText';
 import { Machine } from '@/sync/storageTypes';
 import { SessionRowData } from '@/sync/storage';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { type SessionState, formatPathRelativeToHome, formatLastSeen } from '@/utils/sessionUtils';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from './StatusDot';
-import { useAllMachines, useSessionGitStatus } from '@/sync/storage';
+import { useAllMachines } from '@/sync/storage';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
@@ -18,9 +18,8 @@ import { SessionActionsAnchor, SessionActionsPopover } from './SessionActionsPop
 import { useSessionActionAlert } from '@/hooks/useSessionQuickActions';
 import { sessionArchiveWithStop } from '@/sync/ops';
 import { getSessionProjectGroupPath } from '@/sync/sessionListVisibility';
-import { isWorktreePath, getRepoPath, getWorktreeName } from '@/utils/worktree';
+import { isWorktreePath, getRepoPath } from '@/utils/worktree';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
-import { useRouter } from 'expo-router';
 import { compareSessionsByRecency, getSessionRecencyTime } from '@/utils/sessionRecency';
 import { formatShortRelativeTime } from '@/utils/shortRelativeTime';
 import { compareProjectGroupsByStablePath } from '@/utils/projectGroupSorting';
@@ -33,7 +32,7 @@ const STATUS_CONFIG: Record<SessionState, { color: string; dotColor: string; isP
     permission_required: { color: '#FF9500', dotColor: '#FF9500', isPulsing: true, isConnected: true },
 };
 
-const PROJECT_VISIBLE_SESSION_COUNT = 3;
+const PROJECT_VISIBLE_SESSION_COUNT = 5;
 const PROJECT_SESSION_ROW_HEIGHT = 52;
 
 interface ActiveSessionsGroupProps {
@@ -42,57 +41,30 @@ interface ActiveSessionsGroupProps {
     collapsed?: boolean;
 }
 
-/**
- * Hook to get git display info for a section header:
- * branch name, line changes, and worktree status.
- */
-function useSectionGitInfo(sessionId: string) {
-    const gitStatus = useSessionGitStatus(sessionId);
-
-    return React.useMemo(() => {
-        if (!gitStatus || gitStatus.lastUpdatedAt === 0) {
-            return { branch: null, linesAdded: 0, linesRemoved: 0, hasChanges: false };
-        }
-        return {
-            branch: gitStatus.branch,
-            linesAdded: gitStatus.unstagedLinesAdded,
-            linesRemoved: gitStatus.unstagedLinesRemoved,
-            hasChanges: gitStatus.unstagedLinesAdded > 0 || gitStatus.unstagedLinesRemoved > 0,
-        };
-    }, [gitStatus]);
-}
-
-// Section header: path + branch + tree icon + line changes | + button
 const SectionHeader = React.memo(({
     session,
     projectPath,
     displayPath,
+    sessionCount,
     onToggle,
 }: {
     session: SessionRowData;
     projectPath: string;
     displayPath: string;
+    sessionCount: number;
     onToggle: () => void;
 }) => {
     const styles = stylesheet;
-    const { theme } = useUnistyles();
-    const router = useRouter();
     const draft = useNewSessionDraft();
 
     const isWorktree = isWorktreePath(projectPath);
     const repoPath = isWorktree ? getRepoPath(projectPath) : projectPath;
-    const repoDisplayPath = isWorktree
+    const projectDisplayPath = isWorktree
         ? formatPathRelativeToHome(repoPath, session.homeDir ?? undefined)
         : displayPath;
-    const repoFolderName = repoPath.split(/[/\\]/).filter(Boolean).pop() || repoDisplayPath;
-    const worktreeName = isWorktree ? getWorktreeName(projectPath) : null;
+    const repoFolderName = repoPath.split(/[/\\]/).filter(Boolean).pop() || projectDisplayPath;
 
-    const gitInfo = useSectionGitInfo(session.id);
-    const branchName = worktreeName || gitInfo.branch;
-    const hasBranch = !!branchName;
-
-    const handleAdd = React.useCallback((event: GestureResponderEvent) => {
-        event.stopPropagation();
+    const handleToggle = React.useCallback(() => {
         const machineId = session.machineId;
         if (machineId) {
             draft.setMachineId(machineId);
@@ -101,60 +73,27 @@ const SectionHeader = React.memo(({
         draft.setPath(pathToSet);
         draft.setSessionType(isWorktree ? 'worktree' : 'simple');
         draft.setWorktreeKey(isWorktree ? projectPath : null);
-        router.navigate('/new');
-    }, [session.machineId, session.homeDir, repoPath, isWorktree, projectPath, draft, router]);
-
-    const [isHovered, setIsHovered] = React.useState(false);
+        onToggle();
+    }, [session.machineId, session.homeDir, repoPath, isWorktree, projectPath, draft, onToggle]);
 
     return (
         <Pressable
-            style={hasBranch ? styles.sectionHeader : styles.sectionHeaderSingleLine}
-            onPress={onToggle}
-            // @ts-ignore - Web only events
-            onMouseEnter={() => setIsHovered(true)}
-            // @ts-ignore - Web only events
-            onMouseLeave={() => setIsHovered(false)}
+            style={styles.sectionHeader}
+            onPress={handleToggle}
             accessibilityRole="button"
             accessibilityLabel="折叠或展开项目会话"
         >
-            {/* Path + branch */}
             <View style={styles.sectionHeaderContent}>
                 <Text style={styles.sectionHeaderPath} numberOfLines={1}>
                     {repoFolderName}
                 </Text>
-                {hasBranch && (
-                    <View style={styles.branchRow}>
-                        <Text style={styles.branchText} numberOfLines={1}>
-                            {branchName}
-                        </Text>
-                        {isWorktree && (
-                            <MaterialCommunityIcons
-                                name="tree"
-                                size={11}
-                                color={theme.colors.textSecondary}
-                                style={styles.worktreeIcon}
-                            />
-                        )}
-                        {gitInfo.linesAdded > 0 && (
-                            <Text style={styles.addedText}>+{gitInfo.linesAdded}</Text>
-                        )}
-                        {gitInfo.linesRemoved > 0 && (
-                            <Text style={styles.removedText}>-{gitInfo.linesRemoved}</Text>
-                        )}
-                    </View>
-                )}
+                <Text style={styles.projectPathText} numberOfLines={1}>
+                    {projectDisplayPath}
+                </Text>
             </View>
-
-            {/* + button — vertically centered, large hit area; desktop: hover-only */}
-            <Pressable
-                onPress={handleAdd}
-                hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-                style={[styles.addButton, { opacity: Platform.OS !== 'web' || isHovered ? 1 : 0 }]}
-                accessibilityRole="button"
-                accessibilityLabel="在当前项目新建会话"
-            >
-                <Ionicons name="add-outline" size={16} color={theme.colors.textSecondary} />
-            </Pressable>
+            <View style={styles.projectSessionCountBadge}>
+                <Text style={styles.projectSessionCount}>{sessionCount}</Text>
+            </View>
         </Pressable>
     );
 });
@@ -274,6 +213,7 @@ export function ActiveSessionsGroupCompact({ sessions, selectedSessionId, collap
                                         session={firstSession}
                                         projectPath={projectPath}
                                         displayPath={projectGroup.displayPath}
+                                        sessionCount={projectGroup.sessions.length}
                                         onToggle={() => handleToggleProject(projectKey)}
                                     />
                                     {!projectCollapsed && (
@@ -473,17 +413,8 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     // Section header styles
     sectionHeader: {
-        minHeight: 54,
-        paddingTop: 8,
-        paddingBottom: Platform.select({ ios: 7, default: 8 }),
-        paddingHorizontal: 16,
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    sectionHeaderSingleLine: {
-        minHeight: 54,
-        paddingTop: 0,
-        paddingBottom: 0,
+        minHeight: 64,
+        paddingVertical: 8,
         paddingHorizontal: 16,
         flexDirection: 'row',
         alignItems: 'center',
@@ -496,51 +427,34 @@ const stylesheet = StyleSheet.create((theme) => ({
     sectionHeaderPath: {
         ...Typography.default('regular'),
         color: theme.colors.groupped.sectionTitle,
-        fontSize: 15,
+        fontSize: 16,
         lineHeight: 20,
         letterSpacing: 0,
         fontWeight: '500',
         flexShrink: 1,
     },
-    branchRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginTop: 1,
-    },
-    branchText: {
+    projectPathText: {
         fontSize: 12,
         lineHeight: 16,
         color: theme.colors.textSecondary,
         ...Typography.default('regular'),
         flexShrink: 1,
     },
-    worktreeIcon: {
-        marginLeft: 4,
-    },
-    addedText: {
+    projectSessionCount: {
         fontSize: 12,
         lineHeight: 16,
-        fontWeight: '600',
-        color: theme.colors.gitAddedText,
-        marginLeft: 6,
+        color: theme.colors.textSecondary,
+        ...Typography.default('semiBold'),
     },
-    removedText: {
-        fontSize: 12,
-        lineHeight: 16,
-        fontWeight: '600',
-        color: theme.colors.gitRemovedText,
-        marginLeft: 3,
-    },
-    addButton: {
-        width: 26,
-        height: 26,
-        marginLeft: 8,
-        borderRadius: 13,
+    projectSessionCountBadge: {
+        minWidth: 28,
+        height: 24,
+        paddingHorizontal: 8,
+        marginLeft: 12,
+        borderRadius: 12,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: theme.colors.groupped.background,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: theme.colors.divider,
+        backgroundColor: theme.colors.surfaceHighest,
     },
     projectsGroup: {
         backgroundColor: theme.colors.surface,

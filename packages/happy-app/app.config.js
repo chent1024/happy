@@ -161,6 +161,9 @@ export default {
                 }
             ] : []
         },
+        androidStatusBar: {
+            barStyle: 'dark-content',
+        },
         web: {
             bundler: "metro",
             output: "single",
@@ -168,6 +171,7 @@ export default {
         },
         plugins: [
             require("./plugins/withAndroidApkUpdate.js"),
+            require("./plugins/withAndroidLightStatusBar.js"),
             require("./plugins/withEinkCompatibility.js"),
             require("./plugins/withAndroidArm64Only.js"),
             [

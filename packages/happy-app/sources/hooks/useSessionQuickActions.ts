@@ -17,7 +17,11 @@ import { getSessionForkSource } from '@/utils/sessionFork';
 import { usePathname, useRouter } from 'expo-router';
 import { useSession } from '@/sync/storage';
 import { DuplicateSheet } from '@/components/DuplicateSheet';
-import { getRestartAvailability, getResumeAvailability } from './sessionQuickActionAvailability';
+import {
+    getRestartAvailability,
+    getResumeAvailability,
+    isSessionResumeFeatureEnabled,
+} from './sessionQuickActionAvailability';
 import {
     buildOptimisticResumedSession,
     getResumeNavigationAction,
@@ -82,6 +86,11 @@ export function useSessionQuickActions(
     const machine = useMachine(machineId);
     const devModeEnabled = useLocalSetting('devModeEnabled');
     const expResumeSession = useSetting('expResumeSession');
+    const importedCodexSessionResumable = canResumeImportedCodexSession(session);
+    const resumeFeatureEnabled = isSessionResumeFeatureEnabled(
+        expResumeSession,
+        importedCodexSessionResumable,
+    );
     const availabilityLabels = React.useMemo(() => ({
         resumeSessionSubtitle: t('sessionInfo.resumeSessionSubtitle'),
         resumeSessionMissingMachine: t('sessionInfo.resumeSessionMissingMachine'),
@@ -91,8 +100,8 @@ export function useSessionQuickActions(
         restartSession: t('sessionInfo.restartSession'),
     }), []);
     const resumeAvailability = React.useMemo(
-        () => expResumeSession ? getResumeAvailability(session, machine, sessionStatus.isConnected, availabilityLabels) : { canResume: false, canShowResume: false, subtitle: '', message: '' },
-        [availabilityLabels, machine, session, sessionStatus.isConnected, expResumeSession],
+        () => resumeFeatureEnabled ? getResumeAvailability(session, machine, sessionStatus.isConnected, availabilityLabels) : { canResume: false, canShowResume: false, subtitle: '', message: '' },
+        [availabilityLabels, machine, resumeFeatureEnabled, session, sessionStatus.isConnected],
     );
     const restartAvailability = React.useMemo(
         () => expResumeSession ? getRestartAvailability(session, machine, sessionStatus.isConnected, availabilityLabels) : { canResume: false, canShowResume: false, subtitle: '', message: '' },

@@ -20,7 +20,7 @@ import { useDraft } from '@/hooks/useDraft';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { Modal } from '@/modal';
 import { gitStatusSync } from '@/sync/gitStatusSync';
-import { refreshCodexAccountRateLimits, sessionAbort, sessionGoalAction } from '@/sync/ops';
+import { canResumeImportedCodexSession, refreshCodexAccountRateLimits, sessionAbort, sessionGoalAction } from '@/sync/ops';
 import { storage, useIsDataReady, useLocalSetting, useSessionMessages, useSessionUsage, useSetting } from '@/sync/storage';
 import { useSession } from '@/sync/storage';
 import { Session } from '@/sync/storageTypes';
@@ -58,6 +58,7 @@ import {
     pickTightestRateLimitWindow,
 } from './codexRateLimitDisplay';
 import { CodexRateLimitsModal, type CodexRateLimitDetail } from './CodexRateLimitsModal';
+import { resolveSessionRecoveryUi } from './sessionRecoveryUi';
 
 export const SessionView = React.memo((props: { id: string }) => {
     const sessionId = props.id;
@@ -487,6 +488,10 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
     const expResumeSession = useSetting('expResumeSession');
     const { canResume, canShowRestart, resumeSession, restartSession, resumingSession, restartingSession } = useSessionQuickActions(session);
     const isDisconnected = !sessionStatus.isConnected;
+    const recoveryUi = resolveSessionRecoveryUi({
+        isDisconnected,
+        isImportedCodexSession: canResumeImportedCodexSession(session),
+    });
     const resumeCommandBlock = getResumeCommandBlock(session);
     const recoverSession = isDisconnected ? (canResume ? resumeSession : undefined) : (canShowRestart ? restartSession : undefined);
     const recoveringSession = isDisconnected ? resumingSession : restartingSession;
@@ -672,6 +677,11 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
             onSend={handleSend}
             onRecoverSession={recoverSession}
             isRecoveringSession={recoveringSession}
+            recoverSessionAccessibilityLabel={recoveryUi.showContinueLabel
+                ? t('sessionInfo.continueCodexSession')
+                : t(isDisconnected ? 'sessionInfo.resumeSession' : 'sessionInfo.restartSession')}
+            recoverSessionIcon={recoveryUi.icon}
+            recoverSessionLabel={recoveryUi.showContinueLabel ? t('sessionInfo.continueCodexSession') : undefined}
             onAbort={isDisconnected ? undefined : handleAbort}
             showAbortButton={sessionStatus.state === 'thinking' || sessionStatus.state === 'waiting'}
             onFileViewerPress={experiments && !isTablet ? handleFileViewerPress : undefined}

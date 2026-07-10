@@ -1,29 +1,17 @@
 import React from 'react';
-import { View, Pressable, FlatList, Platform } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { View, FlatList } from 'react-native';
 import { Text } from '@/components/StyledText';
 import { usePathname } from 'expo-router';
 import { SessionListViewItem, SessionRowData, useSessionListViewData } from '@/sync/storage';
-import { type SessionState } from '@/utils/sessionUtils';
 import { ActiveSessionsGroupCompact } from './ActiveSessionsGroupCompact';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Typography } from '@/constants/Typography';
-import { StatusDot } from './StatusDot';
-import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { StyleSheet } from 'react-native-unistyles';
 import { useIsTablet } from '@/utils/responsive';
 import { requestReview } from '@/utils/requestReview';
 import { UpdateBanner } from './UpdateBanner';
 import { layout } from './layout';
-import { useNavigateToSession } from '@/hooks/useNavigateToSession';
-import { SessionActionsAnchor, SessionActionsPopover } from './SessionActionsPopover';
-import { useSessionActionAlert } from '@/hooks/useSessionQuickActions';
-import { formatShortRelativeTime } from '@/utils/shortRelativeTime';
-import { getSessionProjectGroupPath } from '@/sync/sessionListVisibility';
-import { getSessionRecencyTime } from '@/utils/sessionRecency';
 import { t } from '@/text';
-
-const RECENT_SESSION_COUNT = 5;
-const RECENT_DOCK_BOTTOM_GAP = 24;
 
 type SessionsListDisplayItem =
     | { type: 'section-header'; section: 'projects' }
@@ -31,36 +19,18 @@ type SessionsListDisplayItem =
 
 interface SessionsListDisplayData {
     items: SessionsListDisplayItem[];
-    recentSessions: SessionRowData[];
-}
-
-function sessionSubtitle(session: SessionRowData): string {
-    if (!session.path) {
-        return session.subtitle;
-    }
-    const projectPath = getSessionProjectGroupPath(session);
-    return projectPath.split(/[/\\]/).filter(Boolean).pop() || session.subtitle;
 }
 
 function buildDisplayData(data: SessionListViewItem[]): SessionsListDisplayData {
-    const sessionsById = new Map<string, SessionRowData>();
     const projectSessions: SessionRowData[] = [];
 
     for (const item of data) {
         if (item.type === 'active-sessions') {
             for (const session of item.sessions) {
-                sessionsById.set(session.id, session);
                 projectSessions.push(session);
             }
-        } else if (item.type === 'session') {
-            sessionsById.set(item.session.id, item.session);
         }
     }
-
-    const recentSessions = Array.from(sessionsById.values())
-        .filter(session => session.lifecycleState !== 'archived')
-        .sort((a, b) => getSessionRecencyTime(b) - getSessionRecencyTime(a))
-        .slice(0, RECENT_SESSION_COUNT);
 
     const displayItems: SessionsListDisplayItem[] = [];
 
@@ -69,7 +39,7 @@ function buildDisplayData(data: SessionListViewItem[]): SessionsListDisplayData 
         displayItems.push({ type: 'projects', sessions: projectSessions });
     }
 
-    return { items: displayItems, recentSessions };
+    return { items: displayItems };
 }
 
 const stylesheet = StyleSheet.create((theme) => ({
@@ -99,70 +69,6 @@ const stylesheet = StyleSheet.create((theme) => ({
         color: theme.colors.groupped.sectionTitle,
         letterSpacing: 0.1,
         ...Typography.default('semiBold'),
-    },
-    recentList: {
-        marginHorizontal: 16,
-        borderRadius: 12,
-        overflow: 'hidden',
-        backgroundColor: theme.colors.surface,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: theme.colors.divider,
-    },
-    recentDock: {
-        backgroundColor: theme.colors.groupped.background,
-        paddingTop: 8,
-    },
-    recentDockHeader: {
-        paddingHorizontal: 24,
-        paddingBottom: 7,
-    },
-    recentSessionRow: {
-        minHeight: 46,
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 12,
-        backgroundColor: theme.colors.surface,
-    },
-    recentSessionRowWithBorder: {
-        borderBottomWidth: StyleSheet.hairlineWidth,
-        borderBottomColor: theme.colors.divider,
-    },
-    recentSessionRowSelected: {
-        backgroundColor: theme.colors.surfaceSelected,
-    },
-    recentStatusSlot: {
-        width: 8,
-        alignItems: 'center',
-        marginRight: 8,
-    },
-    recentSessionContent: {
-        flex: 1,
-        minWidth: 0,
-        paddingVertical: 6,
-    },
-    recentSessionTopRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    recentSessionTitle: {
-        flex: 1,
-        fontSize: 13,
-        lineHeight: 17,
-        color: theme.colors.text,
-        ...Typography.default('semiBold'),
-    },
-    recentSessionTime: {
-        marginLeft: 10,
-        fontSize: 11,
-        lineHeight: 14,
-        color: theme.colors.textSecondary,
-        ...Typography.default(),
-    },
-    recentSessionSubtitle: {
-        fontSize: 11,
-        lineHeight: 14,
-        color: theme.colors.textSecondary,
-        ...Typography.default(),
     },
 }));
 
@@ -194,7 +100,7 @@ export function SessionsList({ activeSessionsCollapsed = false }: SessionsListPr
     }, [data && data.length > 0]);
 
     const displayData = React.useMemo<SessionsListDisplayData>(
-        () => data ? buildDisplayData(data) : { items: [], recentSessions: [] },
+        () => data ? buildDisplayData(data) : { items: [] },
         [data],
     );
 
@@ -228,16 +134,11 @@ export function SessionsList({ activeSessionsCollapsed = false }: SessionsListPr
     }, [selectedSessionId, activeSessionsCollapsed]);
 
 
-    // Remove this section as we'll use FlatList for all items now
-
-
     const HeaderComponent = React.useCallback(() => {
         return (
             <UpdateBanner />
         );
     }, []);
-
-    // Footer removed - all sessions now shown inline
 
     // Early return if no data yet — placed AFTER all hooks so the hook order is
     // identical on every render (Rules of Hooks). Returning before the
@@ -259,147 +160,16 @@ export function SessionsList({ activeSessionsCollapsed = false }: SessionsListPr
                     renderItem={renderItem}
                     keyExtractor={keyExtractor}
                     extraData={`${selectedSessionId ?? ''}:${activeSessionsCollapsed ? 'collapsed' : 'expanded'}`}
-                    contentContainerStyle={{ paddingBottom: 16, maxWidth: layout.maxWidth }}
+                    contentContainerStyle={{
+                        paddingBottom: safeArea.bottom + 24,
+                        maxWidth: layout.maxWidth,
+                    }}
                     ListHeaderComponent={HeaderComponent}
                     windowSize={5}
                     maxToRenderPerBatch={8}
                     initialNumToRender={10}
                 />
-                <RecentSessionsDock
-                    sessions={displayData.recentSessions}
-                    selectedSessionId={selectedSessionId}
-                    bottomInset={safeArea.bottom}
-                />
             </View>
         </View>
     );
 }
-
-const STATUS_CONFIG: Record<SessionState, { color: string; dotColor: string; isPulsing: boolean; isConnected: boolean }> = {
-    disconnected: { color: '#999', dotColor: '#999', isPulsing: false, isConnected: false },
-    thinking: { color: '#007AFF', dotColor: '#007AFF', isPulsing: true, isConnected: true },
-    waiting: { color: '#34C759', dotColor: '#34C759', isPulsing: false, isConnected: true },
-    permission_required: { color: '#FF9500', dotColor: '#FF9500', isPulsing: true, isConnected: true },
-};
-
-const RecentSessionRow = React.memo(({ session, selected, showBorder }: {
-    session: SessionRowData;
-    selected?: boolean;
-    showBorder?: boolean;
-}) => {
-    const styles = stylesheet;
-    const { theme } = useUnistyles();
-    const navigateToSession = useNavigateToSession();
-    const [actionsAnchor, setActionsAnchor] = React.useState<SessionActionsAnchor | null>(null);
-    const baseStatus = STATUS_CONFIG[session.state];
-    // Override to solid blue when session has unread results
-    const status = session.hasUnread
-        ? { ...baseStatus, color: '#007AFF', dotColor: '#007AFF', isPulsing: false, isConnected: baseStatus.isConnected }
-        : baseStatus;
-    const shortTimeText = formatShortRelativeTime(getSessionRecencyTime(session));
-    const subtitle = sessionSubtitle(session);
-    let leadingIndicator: React.ReactNode = null;
-    if (session.hasUnread || session.state === 'thinking' || session.state === 'permission_required') {
-        leadingIndicator = <StatusDot color={status.dotColor} isPulsing={status.isPulsing} size={7} />;
-    } else if (session.state === 'waiting' && session.hasDraft) {
-        leadingIndicator = <Ionicons name="create-outline" size={14} color={theme.colors.textSecondary} />;
-    }
-
-    const handlePress = React.useCallback(() => {
-        navigateToSession(session.id);
-    }, [navigateToSession, session.id]);
-
-    const handleContextMenu = React.useCallback((event: any) => {
-        event.preventDefault?.();
-        event.stopPropagation?.();
-        setActionsAnchor({
-            type: 'point',
-            x: event.nativeEvent.clientX ?? event.nativeEvent.pageX ?? 0,
-            y: event.nativeEvent.clientY ?? event.nativeEvent.pageY ?? 0,
-        });
-    }, []);
-
-    const showActionAlert = useSessionActionAlert(session.id);
-    const menuProps = Platform.OS === 'web' ? {
-        onContextMenu: handleContextMenu,
-    } as any : {
-        onLongPress: showActionAlert,
-    };
-
-    return (
-        <>
-            <Pressable
-                style={[
-                    styles.recentSessionRow,
-                    showBorder && styles.recentSessionRowWithBorder,
-                    selected && styles.recentSessionRowSelected,
-                ]}
-                onPress={handlePress}
-                {...menuProps}
-            >
-                {leadingIndicator ? (
-                    <View style={styles.recentStatusSlot}>
-                        {leadingIndicator}
-                    </View>
-                ) : null}
-                <View style={styles.recentSessionContent}>
-                    <View style={styles.recentSessionTopRow}>
-                        <Text style={styles.recentSessionTitle} numberOfLines={1}>
-                            {session.name}
-                        </Text>
-                        <Text style={styles.recentSessionTime} numberOfLines={1}>
-                            {shortTimeText}
-                        </Text>
-                    </View>
-                    <Text style={styles.recentSessionSubtitle} numberOfLines={1}>
-                        {subtitle}
-                    </Text>
-                </View>
-            </Pressable>
-            {Platform.OS === 'web' && (
-                <SessionActionsPopover
-                    anchor={actionsAnchor}
-                    onClose={() => setActionsAnchor(null)}
-                    sessionId={session.id}
-                    visible={!!actionsAnchor}
-                />
-            )}
-        </>
-    );
-});
-
-const RecentSessionsDock = React.memo(({
-    sessions,
-    selectedSessionId,
-    bottomInset,
-}: {
-    sessions: SessionRowData[];
-    selectedSessionId?: string;
-    bottomInset: number;
-}) => {
-    const styles = stylesheet;
-
-    if (sessions.length === 0) {
-        return null;
-    }
-
-    return (
-        <View style={[styles.recentDock, { paddingBottom: bottomInset + RECENT_DOCK_BOTTOM_GAP }]}>
-            <View style={styles.recentDockHeader}>
-                <Text style={styles.headerText}>
-                    {t('sessionList.recent')}
-                </Text>
-            </View>
-            <View style={styles.recentList}>
-                {sessions.map((session, index) => (
-                    <RecentSessionRow
-                        key={session.id}
-                        session={session}
-                        selected={session.id === selectedSessionId}
-                        showBorder={index < sessions.length - 1}
-                    />
-                ))}
-            </View>
-        </View>
-    );
-});
