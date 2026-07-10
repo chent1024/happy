@@ -320,6 +320,7 @@ export const ru: TranslationStructure = {
         viewMachine: 'Посмотреть машину',
         viewMachineSubtitle: 'Посмотреть детали машины и сессии',
         resumeSession: 'Resume Session',
+        continueCodexSession: 'Продолжить',
         resumeSessionSubtitle: 'Resume this session on the same machine',
         resumeSessionSameMachineOnly: 'This session can only be resumed on the same machine it started on.',
         resumeSessionMachineOffline: 'This machine is offline. Resume is only available while it is online.',
@@ -873,6 +874,7 @@ export const ru: TranslationStructure = {
             fetched: 'Fetched',
             imported: 'Imported',
             updated: 'Updated',
+            archived: 'Archived',
             skipped: 'Skipped',
         }
     },

@@ -44,7 +44,10 @@ import { downloadCodexFileEventAttachment } from './utils/attachmentEvents';
 import { prepareCodexImageInputItems } from './utils/imageInput';
 import { createSerialAsyncHandler } from './utils/serialAsyncHandler';
 import { buildCodexThreadBackfillEnvelopes } from './utils/threadImageBackfill';
-import { shouldBackfillCodexThread } from './codexThreadBackfill';
+import {
+    shouldBackfillCodexThread,
+    shouldBackfillForkedCodexThread,
+} from './codexThreadBackfill';
 import {
     buildCodexTurnPrompt,
     hashCodexEnhancedMode,
@@ -55,6 +58,7 @@ import {
     DEFAULT_CODEX_MODEL,
     DEFAULT_CODEX_PERMISSION_MODE,
 } from './codexDefaults';
+import { shouldAttemptCodexSteer } from './codexSteerPolicy';
 import { discoverCodexSkillCommands } from './codexSkills';
 import { resolveAppendSystemPrompt } from '@/utils/optionsSystemPrompt';
 import {
@@ -219,6 +223,10 @@ export async function runCodex(opts: {
     // Lineage from the daemon's spawn RPC (set by app-side fork / duplicate).
     const forkedFromSessionId = process.env.HAPPY_FORKED_FROM_SESSION_ID;
     const forkedFromMessageId = process.env.HAPPY_FORKED_FROM_MESSAGE_ID;
+    const intakeSource = process.env.HAPPY_INTAKE_SOURCE;
+    const intakeMode = process.env.HAPPY_INTAKE_MODE;
+    const intakeSourceThreadId = process.env.HAPPY_INTAKE_SOURCE_THREAD_ID;
+    const intakeSourceTurnId = process.env.HAPPY_INTAKE_SOURCE_TURN_ID;
     const sessionTag = buildCodexSessionTag(machineId, opts.resumeThreadId, randomUUID(), {
         parentSessionId: forkedFromSessionId,
     });
@@ -232,6 +240,10 @@ export async function runCodex(opts: {
         ...(opts.resumeThreadId ? { codexThreadId: opts.resumeThreadId } : {}),
         ...(forkedFromSessionId ? { parentSessionId: forkedFromSessionId } : {}),
         ...(forkedFromMessageId ? { forkedFromMessageId } : {}),
+        ...(intakeSource ? { intakeSource } : {}),
+        ...(intakeMode ? { intakeMode } : {}),
+        ...(intakeSourceThreadId ? { intakeSourceThreadId } : {}),
+        ...(intakeSourceTurnId ? { intakeSourceTurnId } : {}),
     });
 
     const skillCommands = await discoverCodexSkillCommands();
@@ -444,11 +456,16 @@ export async function runCodex(opts: {
         };
 
         const deliveryIntent = message.meta?.deliveryIntent;
-        const shouldAttemptSteer = deliveryIntent === 'steer'
-            && client.hasActiveThread()
-            && client.turnId !== null
-            && !isCodexClearText(message.content.text)
-            && !parseCodexGoalCommand(message.content.text);
+        const isClearText = isCodexClearText(message.content.text);
+        const isGoalCommand = Boolean(parseCodexGoalCommand(message.content.text));
+        const shouldAttemptSteer = shouldAttemptCodexSteer({
+            deliveryIntent,
+            source: message.meta?.source,
+            hasActiveThread: client.hasActiveThread(),
+            hasActiveTurn: client.turnId !== null,
+            isClearText,
+            isGoalCommand,
+        });
         if (shouldAttemptSteer) {
             const imageInputs = await prepareCodexImageInputItems(attachmentsForThisMessage, {
                 sessionId: session.sessionId,
@@ -1024,12 +1041,13 @@ export async function runCodex(opts: {
         }
 
         const forkCodexThreadId = process.env.HAPPY_FORK_CODEX_THREAD_ID;
-        if (forkCodexThreadId && shouldBackfillCodexThread({
-            threadId: forkCodexThreadId,
+        if (shouldBackfillForkedCodexThread({
+            forkThreadId: forkCodexThreadId,
+            resumeThreadId: opts.resumeThreadId,
             sessionSeq: response?.seq,
             metadata: session.getMetadata(),
         })) {
-            await backfillCodexThreadHistory(forkCodexThreadId, 'fork');
+            await backfillCodexThreadHistory(forkCodexThreadId!, 'fork');
         }
 
         let pending: { message: string; mode: EnhancedMode; isolate: boolean; hash: string; attachments?: PendingAttachment[] } | null = null;

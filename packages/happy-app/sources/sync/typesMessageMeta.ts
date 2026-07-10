@@ -15,6 +15,7 @@ export const MessageMetaSchema = z.object({
     disallowedTools: z.array(z.string()).nullable().optional(), // Disallowed tools for this message (null = reset)
     effort: z.string().nullable().optional(), // Reasoning / thinking effort for this message (null = reset)
     deliveryIntent: z.enum(['queue', 'steer', 'interrupt']).optional(), // How the agent should handle the message when a turn is active
+    source: z.enum(['chat', 'new_session', 'option', 'question', 'voice', 'codex-app']).optional(), // Logical message origin
     displayText: z.string().optional() // Optional text to display in UI instead of actual message text
 });
 

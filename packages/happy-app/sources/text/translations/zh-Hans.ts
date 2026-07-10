@@ -364,6 +364,7 @@ export const zhHans: TranslationStructure = {
         viewMachine: '查看设备',
         viewMachineSubtitle: '查看设备详情和会话',
         resumeSession: '恢复会话',
+        continueCodexSession: '接续',
         resumeSessionSubtitle: '在同一台设备上恢复此会话',
         resumeSessionSameMachineOnly: '此会话只能在启动它的同一台设备上恢复。',
         resumeSessionMachineOffline: '此设备离线。只有设备在线时才能恢复。',
@@ -870,6 +871,7 @@ export const zhHans: TranslationStructure = {
             fetched: '获取',
             imported: '导入',
             updated: '更新',
+            archived: '已归档',
             skipped: '跳过',
         }
     },

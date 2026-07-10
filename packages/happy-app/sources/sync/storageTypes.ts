@@ -62,6 +62,10 @@ export const MetadataSchema = z.object({
      */
     parentSessionId: z.string().optional(),
     forkedFromMessageId: z.string().optional(),
+    intakeSource: z.string().optional(),
+    intakeMode: z.string().optional(),
+    intakeSourceThreadId: z.string().optional(),
+    intakeSourceTurnId: z.string().optional(),
 });
 
 export type Metadata = z.infer<typeof MetadataSchema>;

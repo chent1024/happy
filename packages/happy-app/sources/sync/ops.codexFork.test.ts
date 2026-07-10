@@ -1,29 +1,38 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { machineRPC, request, refreshSessions, storageState, encrypt, encryptEncryptionKey, applySessions } = vi.hoisted(() => ({
+const { machineRPC, request, emitWithAck, refreshSessions, sendMessage, storageState, encrypt, encryptMetadata, encryptEncryptionKey, getSessionEncryption, applySessions } = vi.hoisted(() => ({
     machineRPC: vi.fn(),
     request: vi.fn(),
+    emitWithAck: vi.fn(),
     refreshSessions: vi.fn(),
+    sendMessage: vi.fn(),
     applySessions: vi.fn(),
     storageState: {
         sessions: {} as Record<string, any>,
         machines: {} as Record<string, any>,
         applySessions: vi.fn(),
+        updateSessionPermissionMode: vi.fn(),
+        updateSessionModelMode: vi.fn(),
+        updateSessionEffortLevel: vi.fn(),
     },
     encrypt: vi.fn(),
+    encryptMetadata: vi.fn(),
     encryptEncryptionKey: vi.fn(),
+    getSessionEncryption: vi.fn(),
 }));
 
 vi.mock('./apiSocket', () => ({
-    apiSocket: { machineRPC, request },
+    apiSocket: { machineRPC, request, emitWithAck },
 }));
 
 vi.mock('./sync', () => ({
     sync: {
         refreshSessions,
+        sendMessage,
         encryption: {
             encryptEncryptionKey,
             openEncryption: vi.fn(async () => ({ encrypt })),
+            getSessionEncryption,
         },
     },
 }));
@@ -44,14 +53,23 @@ describe('codex fork ops', () => {
         vi.setSystemTime(new Date(1700000010000));
         machineRPC.mockReset();
         request.mockReset();
+        emitWithAck.mockReset();
         refreshSessions.mockReset();
+        sendMessage.mockReset();
         applySessions.mockReset();
         encrypt.mockReset();
+        encryptMetadata.mockReset();
         encryptEncryptionKey.mockReset();
+        getSessionEncryption.mockReset();
         storageState.sessions = {};
         storageState.applySessions = applySessions;
+        storageState.updateSessionPermissionMode = vi.fn();
+        storageState.updateSessionModelMode = vi.fn();
+        storageState.updateSessionEffortLevel = vi.fn();
         encrypt.mockResolvedValue([new Uint8Array([1, 2, 3])]);
+        encryptMetadata.mockResolvedValue('encrypted-archived-metadata');
         encryptEncryptionKey.mockResolvedValue(new Uint8Array([4, 5, 6]));
+        getSessionEncryption.mockReturnValue({ encryptMetadata, decryptMetadata: vi.fn() });
         storageState.machines = {
             'machine-1': {
                 metadata: {
@@ -148,6 +166,53 @@ describe('codex fork ops', () => {
                 forkedFromMessageId: 'message-2',
             }),
         );
+    });
+
+    it('creates a detached Happy Codex session for a Codex.app task without resuming the source thread', async () => {
+        machineRPC.mockResolvedValue({ type: 'success', sessionId: 'happy-intake' });
+
+        const { createCodexAppTaskSession } = await import('./ops');
+        const result = await createCodexAppTaskSession({
+            machineId: 'machine-1',
+            directory: '/tmp/project',
+            prompt: 'implement this safely',
+            sourceThreadId: 'thread-active',
+            sourceTurnId: 'turn-active',
+            model: 'gpt-5.5',
+            effort: 'high',
+            permissionMode: 'yolo',
+        });
+
+        expect(result).toEqual({ type: 'success', sessionId: 'happy-intake' });
+        expect(machineRPC).toHaveBeenCalledWith(
+            'machine-1',
+            'spawn-happy-session',
+            expect.not.objectContaining({
+                resumeCodexThreadId: expect.any(String),
+            }),
+        );
+        expect(machineRPC).toHaveBeenCalledWith(
+            'machine-1',
+            'spawn-happy-session',
+            expect.objectContaining({
+                type: 'spawn-in-directory',
+                directory: '/tmp/project',
+                agent: 'codex',
+                intakeSource: 'codex-app',
+                intakeMode: 'detached',
+                intakeSourceThreadId: 'thread-active',
+                intakeSourceTurnId: 'turn-active',
+            }),
+        );
+        expect(refreshSessions).toHaveBeenCalledTimes(1);
+        expect(storageState.updateSessionModelMode).toHaveBeenCalledWith('happy-intake', 'gpt-5.5');
+        expect(storageState.updateSessionEffortLevel).toHaveBeenCalledWith('happy-intake', 'high');
+        expect(storageState.updateSessionPermissionMode).toHaveBeenCalledWith('happy-intake', 'yolo');
+        expect(sendMessage).toHaveBeenCalledWith('happy-intake', 'implement this safely', {
+            source: 'codex-app',
+            deliveryIntent: 'queue',
+            attachments: undefined,
+        });
     });
 
     it('resumes an imported Codex session by spawning a new Happy session from the Codex thread', async () => {
@@ -363,6 +428,7 @@ describe('codex fork ops', () => {
             fetched: 2,
             imported: 1,
             refreshed: 1,
+            archived: 0,
             skipped: 0,
         });
         expect(machineRPC).toHaveBeenCalledWith('machine-1', 'codex-list-threads', {});
@@ -436,6 +502,7 @@ describe('codex fork ops', () => {
             fetched: 1,
             imported: 0,
             refreshed: 1,
+            archived: 0,
             skipped: 0,
         });
         expect(encrypt).toHaveBeenCalledWith([
@@ -501,6 +568,7 @@ describe('codex fork ops', () => {
             fetched: 2,
             imported: 2,
             refreshed: 0,
+            archived: 0,
             skipped: 0,
         });
         const importedMetadata = applySessions.mock.calls.flatMap((call) => call[0].map((session: any) => session.metadata));
@@ -627,6 +695,7 @@ describe('codex fork ops', () => {
             fetched: 2,
             imported: 1,
             refreshed: 0,
+            archived: 0,
             skipped: 1,
         });
         expect(request).toHaveBeenCalledTimes(1);
@@ -687,6 +756,7 @@ describe('codex fork ops', () => {
             fetched: 1,
             imported: 0,
             refreshed: 1,
+            archived: 0,
             skipped: 0,
         });
         expect(request).toHaveBeenCalledTimes(1);
@@ -796,6 +866,7 @@ describe('codex fork ops', () => {
             fetched: 19,
             imported: 17,
             refreshed: 0,
+            archived: 0,
             skipped: 2,
         });
         const importedTags = request.mock.calls.map((call) => JSON.parse(call[1].body).tag);
@@ -865,6 +936,7 @@ describe('codex fork ops', () => {
             fetched: 2,
             imported: 1,
             refreshed: 0,
+            archived: 0,
             skipped: 1,
         });
         expect(request).toHaveBeenCalledTimes(1);
@@ -940,6 +1012,7 @@ describe('codex fork ops', () => {
             fetched: 1,
             imported: 0,
             refreshed: 1,
+            archived: 0,
             skipped: 0,
         });
         expect(request).toHaveBeenCalledTimes(1);
@@ -1026,6 +1099,7 @@ describe('codex fork ops', () => {
             fetched: 16,
             imported: 15,
             refreshed: 1,
+            archived: 0,
             skipped: 0,
         });
         expect(request.mock.calls.map((call) => JSON.parse(call[1].body).tag)).toContain(
@@ -1111,6 +1185,7 @@ describe('codex fork ops', () => {
             fetched: 16,
             imported: 15,
             refreshed: 0,
+            archived: 0,
             skipped: 1,
         });
         expect(request.mock.calls.map((call) => JSON.parse(call[1].body).tag)).not.toContain(
@@ -1167,9 +1242,116 @@ describe('codex fork ops', () => {
             fetched: 1,
             imported: 0,
             refreshed: 0,
+            archived: 0,
             skipped: 1,
         });
         expect(request).not.toHaveBeenCalled();
+        expect(refreshSessions).not.toHaveBeenCalled();
+    });
+
+    it('archives imported Codex sessions missing from the complete upstream snapshot', async () => {
+        storageState.sessions = {
+            'happy-stale': {
+                id: 'happy-stale',
+                seq: 7,
+                createdAt: 1700,
+                updatedAt: 1700,
+                active: false,
+                activeAt: 1700,
+                metadata: {
+                    machineId: 'machine-1',
+                    path: '/Users/tester/project',
+                    flavor: 'codex',
+                    lifecycleState: 'imported',
+                    codexThreadId: 'thread-missing',
+                },
+                metadataVersion: 1,
+                agentState: null,
+                agentStateVersion: 0,
+                thinking: false,
+                thinkingAt: 0,
+                presence: 1700,
+            },
+        };
+        machineRPC.mockResolvedValue({
+            type: 'success',
+            threads: [],
+            sourceThreadIds: [],
+            nextCursor: null,
+            backwardsCursor: null,
+        });
+        emitWithAck.mockResolvedValue({ result: 'success', version: 2 });
+
+        const { syncCodexSessions } = await import('./ops');
+        const result = await syncCodexSessions('machine-1');
+
+        expect(result).toEqual({
+            type: 'success',
+            fetched: 0,
+            imported: 0,
+            refreshed: 0,
+            archived: 1,
+            skipped: 0,
+        });
+        expect(encryptMetadata).toHaveBeenCalledWith(expect.objectContaining({
+            lifecycleState: 'archived',
+            archivedBy: 'codex-session-sync',
+            archiveReason: 'source-missing',
+            codexThreadId: 'thread-missing',
+        }));
+        expect(applySessions).toHaveBeenCalledWith([
+            expect.objectContaining({
+                id: 'happy-stale',
+                metadataVersion: 2,
+                metadata: expect.objectContaining({ lifecycleState: 'archived' }),
+            }),
+        ]);
+        expect(refreshSessions).toHaveBeenCalledOnce();
+    });
+
+    it('does not archive imported Codex sessions when an older daemon omits the raw snapshot', async () => {
+        storageState.sessions = {
+            'happy-stale': {
+                id: 'happy-stale',
+                seq: 7,
+                createdAt: 1700,
+                updatedAt: 1700,
+                active: false,
+                activeAt: 1700,
+                metadata: {
+                    machineId: 'machine-1',
+                    path: '/Users/tester/project',
+                    flavor: 'codex',
+                    lifecycleState: 'imported',
+                    codexThreadId: 'thread-missing',
+                },
+                metadataVersion: 1,
+                agentState: null,
+                agentStateVersion: 0,
+                thinking: false,
+                thinkingAt: 0,
+                presence: 1700,
+            },
+        };
+        machineRPC.mockResolvedValue({
+            type: 'success',
+            threads: [],
+            nextCursor: null,
+            backwardsCursor: null,
+        });
+
+        const { syncCodexSessions } = await import('./ops');
+        const result = await syncCodexSessions('machine-1');
+
+        expect(result).toEqual({
+            type: 'success',
+            fetched: 0,
+            imported: 0,
+            refreshed: 0,
+            archived: 0,
+            skipped: 0,
+        });
+        expect(emitWithAck).not.toHaveBeenCalled();
         expect(refreshSessions).not.toHaveBeenCalled();
     });
 

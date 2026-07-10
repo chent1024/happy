@@ -70,6 +70,11 @@ import {
     getOlderMessagePageCursorUpdate,
 } from './messagePageCursors';
 import { getIncomingMessageSeqAction } from './messageSeqGate';
+import {
+    resolveSendMessageDeliveryIntent,
+    type SendMessageDeliveryIntent,
+    type SendMessageSource,
+} from './messageDeliveryIntent';
 
 type V3GetSessionMessagesResponse = {
     messages: ApiMessage[];
@@ -117,8 +122,8 @@ type OutboxMessage = {
 
 type SendMessageOptions = {
     displayText?: string;
-    source?: 'chat' | 'new_session' | 'option' | 'question' | 'voice';
-    deliveryIntent?: 'queue' | 'steer' | 'interrupt';
+    source?: SendMessageSource;
+    deliveryIntent?: SendMessageDeliveryIntent;
     /** Optional image attachments to send before the text message. */
     attachments?: AttachmentPreview[];
 };
@@ -611,7 +616,11 @@ class Sync {
 
         const modeMeta = resolveMessageModeMeta(session, storage.getState().settings);
         const { displayText, source = 'chat', attachments } = options ?? {};
-        const deliveryIntent = options?.deliveryIntent ?? (session.thinking ? 'steer' : undefined);
+        const deliveryIntent = resolveSendMessageDeliveryIntent({
+            source,
+            sessionThinking: session.thinking,
+            explicitIntent: options?.deliveryIntent,
+        });
 
         const flavor = session.metadata?.flavor;
         const attachmentPlan = getImageAttachmentSendPlan({
@@ -749,6 +758,7 @@ class Sync {
                 ...(modeMeta.model !== undefined ? { model: modeMeta.model } : {}),
                 ...(modeMeta.effort !== undefined ? { effort: modeMeta.effort } : {}),
                 ...(deliveryIntent !== undefined ? { deliveryIntent } : {}),
+                ...(source === 'codex-app' ? { source } : {}),
                 ...(displayText && { displayText }) // Add displayText if provided
             }
         };

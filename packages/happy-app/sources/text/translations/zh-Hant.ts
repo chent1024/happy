@@ -363,6 +363,7 @@ export const zhHant: TranslationStructure = {
         viewMachine: '查看裝置',
         viewMachineSubtitle: '查看裝置詳情和工作階段',
         resumeSession: '恢復工作階段',
+        continueCodexSession: '接續',
         resumeSessionSubtitle: '在同一台裝置上恢復此工作階段',
         resumeSessionSameMachineOnly: '此工作階段只能在啟動它的同一台裝置上恢復。',
         resumeSessionMachineOffline: '此裝置離線。只有裝置在線時才能恢復。',
@@ -869,6 +870,7 @@ export const zhHant: TranslationStructure = {
             fetched: '取得',
             imported: '匯入',
             updated: '更新',
+            archived: '已封存',
             skipped: '略過',
         }
     },

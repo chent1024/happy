@@ -99,8 +99,12 @@ function resolveCodexAppServerCommand(env: NodeJS.ProcessEnv = process.env): str
 
 function getCodexAppServerCommandCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
     const explicit = resolveCodexAppServerCommand(env);
+    if (explicit !== 'codex') {
+        return [explicit];
+    }
+
     const candidates = [
-        explicit,
+        '/Applications/ChatGPT.app/Contents/Resources/codex',
         '/Applications/Codex.app/Contents/Resources/codex',
         '/opt/homebrew/bin/codex',
         '/usr/local/bin/codex',
@@ -145,10 +149,6 @@ function parseCodexCliVersion(version: string): CodexCliVersion | null {
     return { major, minor, patch };
 }
 
-function compareCodexCliVersion(a: CodexCliVersion, b: CodexCliVersion): number {
-    return a.major - b.major || a.minor - b.minor || a.patch - b.patch;
-}
-
 function isCodexAppServerVersion(version: CodexCliVersion): boolean {
     return version.major > 0 || version.minor >= 100;
 }
@@ -163,27 +163,14 @@ function readCodexCliVersion(command: string): CodexCliVersion | null {
 }
 
 function resolveCodexAppServerBinary(env: NodeJS.ProcessEnv = process.env): CodexBinaryCandidate | null {
-    const explicit = resolveCodexAppServerCommand(env);
-    const candidates = getCodexAppServerCommandCandidates(env)
-        .map((command): CodexBinaryCandidate | null => {
-            const version = readCodexCliVersion(command);
-            return version && isCodexAppServerVersion(version) ? { command, version } : null;
-        })
-        .filter((candidate): candidate is CodexBinaryCandidate => Boolean(candidate));
-
-    if (candidates.length === 0) {
-        return null;
+    for (const command of getCodexAppServerCommandCandidates(env)) {
+        const version = readCodexCliVersion(command);
+        if (version && isCodexAppServerVersion(version)) {
+            return { command, version };
+        }
     }
 
-    if (explicit !== 'codex') {
-        return candidates.find(candidate => candidate.command === explicit) ?? null;
-    }
-
-    return candidates.sort((a, b) => compareCodexCliVersion(b.version, a.version))[0];
-}
-
-function isAppServerAvailable(): boolean {
-    return resolveCodexAppServerBinary() !== null;
+    return null;
 }
 
 function isGoalActionsAvailable(): boolean {
@@ -607,7 +594,8 @@ export class CodexAppServerClient {
     async connect(): Promise<void> {
         if (this.connected) return;
 
-        if (!isAppServerAvailable()) {
+        const resolvedCodex = resolveCodexAppServerBinary();
+        if (!resolvedCodex) {
             throw new Error(
                 'Codex CLI is not installed\n\n' +
                 'Please install Codex CLI using one of these methods:\n\n' +
@@ -615,11 +603,6 @@ export class CodexAppServerClient {
                 'Option 2 - Homebrew (macOS):\n  brew install --cask codex\n\n' +
                 'Alternatively, use Claude Code:\n  happy claude',
             );
-        }
-
-        const resolvedCodex = resolveCodexAppServerBinary();
-        if (!resolvedCodex) {
-            throw new Error('Codex CLI is not installed or does not support app-server');
         }
 
         let command = resolvedCodex.command;

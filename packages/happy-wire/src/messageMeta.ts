@@ -11,6 +11,7 @@ export const MessageMetaSchema = z.object({
   disallowedTools: z.array(z.string()).nullable().optional(),
   effort: z.string().nullable().optional(),
   deliveryIntent: z.enum(['queue', 'steer', 'interrupt']).optional(),
+  source: z.enum(['chat', 'new_session', 'option', 'question', 'voice', 'codex-app']).optional(),
   displayText: z.string().optional(),
 });
 export type MessageMeta = z.infer<typeof MessageMetaSchema>;

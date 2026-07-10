@@ -7,6 +7,7 @@ import { apiSocket } from './apiSocket';
 import { sync } from './sync';
 import { storage } from './storage';
 import type { AgentState, MachineMetadata, Metadata, Session } from './storageTypes';
+import type { AttachmentPreview } from './attachmentTypes';
 import { encodeBase64 } from '@/encryption/base64';
 import { getRandomBytes } from 'expo-crypto';
 import { sanitizeCodexTitle } from '@/utils/codexTitle';
@@ -191,6 +192,24 @@ export interface SpawnSessionOptions {
     parentSessionId?: string;
     /** Happy message id used as the rewind point (only set for "duplicate"). */
     forkedFromMessageId?: string;
+    /** External task source copied into a detached Happy session. */
+    intakeSource?: 'codex-app';
+    intakeMode?: 'detached';
+    intakeSourceThreadId?: string;
+    intakeSourceTurnId?: string;
+}
+
+export interface CodexAppTaskSessionOptions {
+    machineId: string;
+    directory: string;
+    prompt: string;
+    approvedNewDirectoryCreation?: boolean;
+    sourceThreadId?: string;
+    sourceTurnId?: string;
+    model?: string | null;
+    effort?: string | null;
+    permissionMode?: string | null;
+    attachments?: AttachmentPreview[];
 }
 
 // Options for forking a Claude session on a machine
@@ -277,13 +296,14 @@ export type CodexListThreadsResult =
     | {
         type: 'success';
         threads: CodexThreadListItem[];
+        sourceThreadIds?: string[];
         nextCursor: string | null;
         backwardsCursor: string | null;
     }
     | { type: 'error'; errorMessage: string };
 
 export type CodexSessionSyncResult =
-    | { type: 'success'; fetched: number; imported: number; refreshed: number; skipped: number }
+    | { type: 'success'; fetched: number; imported: number; refreshed: number; archived: number; skipped: number }
     | { type: 'error'; errorMessage: string };
 
 export type CodexAccountRateLimitsRefreshResult =
@@ -295,6 +315,8 @@ const CODEX_SYNC_MAX_THREAD_AGE_MS = 3 * 24 * 60 * 60 * 1000;
 const CODEX_SECONDS_TIMESTAMP_THRESHOLD = 10_000_000_000;
 const CODEX_IMPORTED_ARCHIVED_BY_USER = 'user';
 const CODEX_IMPORTED_ARCHIVE_REASON = 'manual-archive';
+const CODEX_IMPORTED_ARCHIVED_BY_SYNC = 'codex-session-sync';
+const CODEX_IMPORTED_SOURCE_MISSING_ARCHIVE_REASON = 'source-missing';
 
 export interface ResumeSessionOptions {
     machineId: string;
@@ -599,13 +621,18 @@ function isArchivedCodexMetadata(metadata: Metadata | null | undefined): metadat
     );
 }
 
-function buildManuallyArchivedCodexMetadata(metadata: Metadata & { codexThreadId: string }, archivedAt: number): Metadata {
+function buildArchivedCodexMetadata(
+    metadata: Metadata & { codexThreadId: string },
+    archivedAt: number,
+    archivedBy: string,
+    archiveReason: string,
+): Metadata {
     return {
         ...metadata,
         lifecycleState: 'archived',
         lifecycleStateSince: archivedAt,
-        archivedBy: CODEX_IMPORTED_ARCHIVED_BY_USER,
-        archiveReason: CODEX_IMPORTED_ARCHIVE_REASON,
+        archivedBy,
+        archiveReason,
     };
 }
 
@@ -622,7 +649,11 @@ function applyArchivedCodexSessionMetadata(sessionId: string, metadata: Metadata
     }]);
 }
 
-async function markImportedCodexSessionArchived(sessionId: string): Promise<{ success: boolean; message?: string }> {
+async function markImportedCodexSessionArchived(
+    sessionId: string,
+    archivedBy = CODEX_IMPORTED_ARCHIVED_BY_USER,
+    archiveReason = CODEX_IMPORTED_ARCHIVE_REASON,
+): Promise<{ success: boolean; message?: string }> {
     let session = storage.getState().sessions[sessionId];
     if (!isImportedCodexSessionForManualArchive(session)) {
         return { success: true };
@@ -654,7 +685,12 @@ async function markImportedCodexSessionArchived(sessionId: string): Promise<{ su
             return { success: true };
         }
 
-        const archivedMetadata = buildManuallyArchivedCodexMetadata(currentMetadata, archivedAt);
+        const archivedMetadata = buildArchivedCodexMetadata(
+            currentMetadata,
+            archivedAt,
+            archivedBy,
+            archiveReason,
+        );
         const encryptedMetadata = await sessionEncryption.encryptMetadata(archivedMetadata);
         const result = await apiSocket.emitWithAck<{
             result: 'success' | 'version-mismatch' | 'error';
@@ -685,6 +721,35 @@ async function markImportedCodexSessionArchived(sessionId: string): Promise<{ su
     }
 
     return { success: false, message: 'Failed to update imported Codex archive metadata after retries' };
+}
+
+async function archiveImportedCodexSessionsMissingFromSource(
+    machineId: string,
+    sourceThreadIds: Set<string>,
+): Promise<number> {
+    let archived = 0;
+
+    for (const session of Object.values(storage.getState().sessions)) {
+        if (
+            session.metadata?.machineId !== machineId
+            || !isImportedCodexSessionForManualArchive(session)
+            || sourceThreadIds.has(session.metadata.codexThreadId)
+        ) {
+            continue;
+        }
+
+        const result = await markImportedCodexSessionArchived(
+            session.id,
+            CODEX_IMPORTED_ARCHIVED_BY_SYNC,
+            CODEX_IMPORTED_SOURCE_MISSING_ARCHIVE_REASON,
+        );
+        if (!result.success) {
+            throw new Error(result.message ?? `Failed to archive missing Codex thread ${session.metadata.codexThreadId}`);
+        }
+        archived++;
+    }
+
+    return archived;
 }
 
 async function applyImportedCodexSessionLocally(response: Response, metadata: Metadata): Promise<void> {
@@ -772,7 +837,21 @@ async function createImportedCodexSession(machineId: string, thread: CodexThread
  */
 export async function machineSpawnNewSession(options: SpawnSessionOptions): Promise<SpawnSessionResult> {
 
-    const { machineId, directory, approvedNewDirectoryCreation = false, token, agent, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId } = options;
+    const {
+        machineId,
+        directory,
+        approvedNewDirectoryCreation = false,
+        token,
+        agent,
+        resumeClaudeSessionId,
+        resumeCodexThreadId,
+        parentSessionId,
+        forkedFromMessageId,
+        intakeSource,
+        intakeMode,
+        intakeSourceThreadId,
+        intakeSourceTurnId,
+    } = options;
 
     try {
         const result = await apiSocket.machineRPC<SpawnSessionResult, {
@@ -785,10 +864,28 @@ export async function machineSpawnNewSession(options: SpawnSessionOptions): Prom
             resumeCodexThreadId?: string,
             parentSessionId?: string,
             forkedFromMessageId?: string,
+            intakeSource?: 'codex-app',
+            intakeMode?: 'detached',
+            intakeSourceThreadId?: string,
+            intakeSourceTurnId?: string,
         }>(
             machineId,
             'spawn-happy-session',
-            { type: 'spawn-in-directory', directory, approvedNewDirectoryCreation, token, agent, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId }
+            {
+                type: 'spawn-in-directory',
+                directory,
+                approvedNewDirectoryCreation,
+                token,
+                agent,
+                resumeClaudeSessionId,
+                resumeCodexThreadId,
+                parentSessionId,
+                forkedFromMessageId,
+                intakeSource,
+                intakeMode,
+                intakeSourceThreadId,
+                intakeSourceTurnId,
+            }
         );
         return result;
     } catch (error) {
@@ -798,6 +895,44 @@ export async function machineSpawnNewSession(options: SpawnSessionOptions): Prom
             errorMessage: error instanceof Error ? error.message : 'Failed to spawn session'
         };
     }
+}
+
+export async function createCodexAppTaskSession(options: CodexAppTaskSessionOptions): Promise<SpawnSessionResult> {
+    const spawnResult = await machineSpawnNewSession({
+        machineId: options.machineId,
+        directory: options.directory,
+        approvedNewDirectoryCreation: options.approvedNewDirectoryCreation ?? false,
+        agent: 'codex',
+        intakeSource: 'codex-app',
+        intakeMode: 'detached',
+        intakeSourceThreadId: options.sourceThreadId,
+        intakeSourceTurnId: options.sourceTurnId,
+    });
+
+    if (spawnResult.type !== 'success') {
+        return spawnResult;
+    }
+
+    await sync.refreshSessions();
+
+    const state = storage.getState();
+    if (options.permissionMode !== undefined) {
+        state.updateSessionPermissionMode(spawnResult.sessionId, options.permissionMode);
+    }
+    if (options.model !== undefined) {
+        state.updateSessionModelMode(spawnResult.sessionId, options.model);
+    }
+    if (options.effort !== undefined) {
+        state.updateSessionEffortLevel(spawnResult.sessionId, options.effort);
+    }
+
+    await sync.sendMessage(spawnResult.sessionId, options.prompt, {
+        source: 'codex-app',
+        deliveryIntent: 'queue',
+        attachments: options.attachments,
+    });
+
+    return spawnResult;
 }
 
 /**
@@ -979,6 +1114,14 @@ export async function syncCodexSessions(machineId: string): Promise<CodexSession
         let imported = 0;
         let refreshed = 0;
         let skipped = 0;
+        // Only a complete raw snapshot may archive local imports. Older daemons
+        // and title-enrichment failures provide an incomplete import list.
+        const archived = listResult.sourceThreadIds
+            ? await archiveImportedCodexSessionsMissingFromSource(
+                machineId,
+                new Set(listResult.sourceThreadIds),
+            )
+            : 0;
         const { selected, skippedByProjectLimit, skippedByAge, skippedByNonProject, skippedByArchived } = selectCodexThreadsForSync(
             listResult.threads,
             CODEX_SYNC_MAX_THREADS_PER_PROJECT,
@@ -1003,7 +1146,7 @@ export async function syncCodexSessions(machineId: string): Promise<CodexSession
             }
         }
 
-        if (imported > 0 || refreshed > 0) {
+        if (imported > 0 || refreshed > 0 || archived > 0) {
             await sync.refreshSessions();
         }
 
@@ -1012,6 +1155,7 @@ export async function syncCodexSessions(machineId: string): Promise<CodexSession
             fetched: listResult.threads.length,
             imported,
             refreshed,
+            archived,
             skipped,
         };
     } catch (error) {

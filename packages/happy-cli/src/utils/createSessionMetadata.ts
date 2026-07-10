@@ -41,6 +41,11 @@ export interface CreateSessionMetadataOptions {
     parentSessionId?: string;
     /** Happy message id used as the fork rewind point. */
     forkedFromMessageId?: string;
+    /** External task source copied into this detached Happy session. */
+    intakeSource?: 'codex-app' | string;
+    intakeMode?: 'detached' | string;
+    intakeSourceThreadId?: string;
+    intakeSourceTurnId?: string;
 }
 
 /**
@@ -99,6 +104,10 @@ export function createSessionMetadata(opts: CreateSessionMetadataOptions): Sessi
         ...(opts.codexThreadId ? { codexThreadId: opts.codexThreadId } : {}),
         ...(opts.parentSessionId ? { parentSessionId: opts.parentSessionId } : {}),
         ...(opts.forkedFromMessageId ? { forkedFromMessageId: opts.forkedFromMessageId } : {}),
+        ...(opts.intakeSource ? { intakeSource: opts.intakeSource } : {}),
+        ...(opts.intakeMode ? { intakeMode: opts.intakeMode } : {}),
+        ...(opts.intakeSourceThreadId ? { intakeSourceThreadId: opts.intakeSourceThreadId } : {}),
+        ...(opts.intakeSourceTurnId ? { intakeSourceTurnId: opts.intakeSourceTurnId } : {}),
     };
 
     return { state, metadata };

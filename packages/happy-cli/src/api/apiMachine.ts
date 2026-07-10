@@ -38,6 +38,8 @@ import type {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CODEX_TITLE_ENRICHMENT_LIMIT = 50;
 const CODEX_DERIVED_TITLE_MAX_LENGTH = 80;
+const CODEX_THREAD_PAGE_LIMIT = 200;
+const CODEX_THREAD_MAX_PAGES = 50;
 
 interface ServerToDaemonEvents {
     update: (data: Update) => void;
@@ -289,14 +291,46 @@ export class ApiMachineClient {
 
         // Register spawn session handler
         this.rpcHandlerManager.registerHandler('spawn-happy-session', async (params: any) => {
-            const { directory, sessionId, machineId, approvedNewDirectoryCreation, agent, environmentVariables, token, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId } = params || {};
+            const {
+                directory,
+                sessionId,
+                machineId,
+                approvedNewDirectoryCreation,
+                agent,
+                environmentVariables,
+                token,
+                resumeClaudeSessionId,
+                resumeCodexThreadId,
+                parentSessionId,
+                forkedFromMessageId,
+                intakeSource,
+                intakeMode,
+                intakeSourceThreadId,
+                intakeSourceTurnId,
+            } = params || {};
             logger.debug(`[API MACHINE] Spawning session with params: ${JSON.stringify(params)}`);
 
             if (!directory) {
                 throw new Error('Directory is required');
             }
 
-            const result = await spawnSession({ directory, sessionId, machineId, approvedNewDirectoryCreation, agent, environmentVariables, token, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId });
+            const result = await spawnSession({
+                directory,
+                sessionId,
+                machineId,
+                approvedNewDirectoryCreation,
+                agent,
+                environmentVariables,
+                token,
+                resumeClaudeSessionId,
+                resumeCodexThreadId,
+                parentSessionId,
+                forkedFromMessageId,
+                intakeSource,
+                intakeMode,
+                intakeSourceThreadId,
+                intakeSourceTurnId,
+            });
 
             switch (result.type) {
                 case 'success':
@@ -441,22 +475,45 @@ export class ApiMachineClient {
 
         this.rpcHandlerManager.registerHandler('codex-list-threads', async () => {
             const response = await withCodexAppServerClient(async (client) => {
-                const listed = await client.listThreads({
-                    limit: 200,
-                    archived: false,
-                    useStateDbOnly: true,
-                    sortKey: 'updated_at',
-                    sortDirection: 'desc',
-                });
+                const threads: Thread[] = [];
+                const seenCursors = new Set<string>();
+                let cursor: string | null = null;
 
-                return {
-                    ...listed,
-                    data: await enrichMissingCodexThreadNames(client, listed.data),
-                };
+                for (let page = 0; page < CODEX_THREAD_MAX_PAGES; page++) {
+                    const listed = await client.listThreads({
+                        limit: CODEX_THREAD_PAGE_LIMIT,
+                        archived: false,
+                        useStateDbOnly: true,
+                        sortKey: 'updated_at',
+                        sortDirection: 'desc',
+                        ...(cursor ? { cursor } : {}),
+                    });
+                    threads.push(...listed.data);
+
+                    if (!listed.nextCursor) {
+                        return {
+                            data: await enrichMissingCodexThreadNames(client, threads),
+                            sourceThreadIds: threads
+                                .map((thread) => thread.id)
+                                .filter((threadId): threadId is string => typeof threadId === 'string' && threadId.length > 0),
+                            nextCursor: null,
+                            backwardsCursor: null,
+                        };
+                    }
+                    if (seenCursors.has(listed.nextCursor)) {
+                        throw new Error('Codex thread list returned a repeated pagination cursor');
+                    }
+
+                    seenCursors.add(listed.nextCursor);
+                    cursor = listed.nextCursor;
+                }
+
+                throw new Error(`Codex thread list exceeded ${CODEX_THREAD_MAX_PAGES} pages`);
             });
             return {
                 type: 'success',
                 threads: response.data,
+                sourceThreadIds: response.sourceThreadIds,
                 nextCursor: response.nextCursor,
                 backwardsCursor: response.backwardsCursor,
             };

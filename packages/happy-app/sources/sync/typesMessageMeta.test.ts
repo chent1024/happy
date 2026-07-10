@@ -8,11 +8,13 @@ describe('MessageMetaSchema', () => {
             model: 'custom-model',
             effort: 'medium',
             deliveryIntent: 'steer',
+            source: 'codex-app',
         });
 
         expect(parsed.permissionMode).toBe('team-custom-mode');
         expect(parsed.model).toBe('custom-model');
         expect(parsed.effort).toBe('medium');
         expect(parsed.deliveryIntent).toBe('steer');
+        expect(parsed.source).toBe('codex-app');
     });
 });

@@ -373,6 +373,18 @@ export async function startDaemon(): Promise<void> {
         if (options.forkedFromMessageId) {
           extraEnv.HAPPY_FORKED_FROM_MESSAGE_ID = options.forkedFromMessageId;
         }
+        if (options.intakeSource) {
+          extraEnv.HAPPY_INTAKE_SOURCE = options.intakeSource;
+        }
+        if (options.intakeMode) {
+          extraEnv.HAPPY_INTAKE_MODE = options.intakeMode;
+        }
+        if (options.intakeSourceThreadId) {
+          extraEnv.HAPPY_INTAKE_SOURCE_THREAD_ID = options.intakeSourceThreadId;
+        }
+        if (options.intakeSourceTurnId) {
+          extraEnv.HAPPY_INTAKE_SOURCE_TURN_ID = options.intakeSourceTurnId;
+        }
         // For fork: spawned Happy CLI needs to know which Claude JSONL to
         // backfill into the fresh Happy session row. Without this, the
         // SDK reads the JSONL silently as context but never re-emits the

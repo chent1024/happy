@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { shouldBackfillCodexThread } from './codexThreadBackfill';
+import {
+    shouldBackfillCodexThread,
+    shouldBackfillForkedCodexThread,
+} from './codexThreadBackfill';
 
 describe('shouldBackfillCodexThread', () => {
     it('backfills a new empty Happy session for a Codex thread', () => {
@@ -36,5 +39,25 @@ describe('shouldBackfillCodexThread', () => {
             sessionSeq: 3,
             metadata: { codexThreadId: 'thread-1' } as any,
         })).toBe(false);
+    });
+});
+
+describe('shouldBackfillForkedCodexThread', () => {
+    it('does not replay the same thread already handled by --resume', () => {
+        expect(shouldBackfillForkedCodexThread({
+            forkThreadId: 'thread-1',
+            resumeThreadId: 'thread-1',
+            sessionSeq: 0,
+            metadata: { codexThreadId: 'thread-1' } as any,
+        })).toBe(false);
+    });
+
+    it('allows a distinct eligible fork thread to be replayed', () => {
+        expect(shouldBackfillForkedCodexThread({
+            forkThreadId: 'thread-2',
+            resumeThreadId: 'thread-1',
+            sessionSeq: 0,
+            metadata: { codexThreadId: 'thread-2' } as any,
+        })).toBe(true);
     });
 });

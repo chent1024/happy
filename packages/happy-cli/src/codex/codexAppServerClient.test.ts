@@ -163,7 +163,10 @@ describe('CodexAppServerClient sandbox integration', () => {
         await client.connect();
 
         expect(mockInitializeSandbox).toHaveBeenCalledWith(sandboxConfig, process.cwd());
-        expect(mockWrapForMcpTransport).toHaveBeenCalledWith('codex', ['app-server', '--listen', 'stdio://']);
+        expect(mockWrapForMcpTransport).toHaveBeenCalledWith(
+            '/Applications/ChatGPT.app/Contents/Resources/codex',
+            ['app-server', '--listen', 'stdio://'],
+        );
         expect(mockSpawn).toHaveBeenCalledWith(
             'sh',
             ['-c', 'wrapped codex app-server'],
@@ -190,6 +193,7 @@ describe('CodexAppServerClient sandbox integration', () => {
             '"/Applications/Codex.app/Contents/Resources/codex" --version',
             expect.objectContaining({ encoding: 'utf8', windowsHide: true }),
         );
+        expect(mockExecSync).toHaveBeenCalledTimes(1);
         expect(mockSpawn).toHaveBeenCalledWith(
             '/Applications/Codex.app/Contents/Resources/codex',
             ['app-server', '--listen', 'stdio://'],
@@ -211,15 +215,12 @@ describe('CodexAppServerClient sandbox integration', () => {
         await client.disconnect();
     });
 
-    it('prefers a newer system Codex app-server over the repo-local Codex shim', async () => {
+    it('falls back to Homebrew Codex when app-bundled candidates are unavailable', async () => {
         mockExecSync.mockImplementation((command: string) => {
             if (command.includes('/opt/homebrew/bin/codex')) {
                 return 'codex-cli 0.142.2';
             }
-            if (command.includes('/Applications/Codex.app/Contents/Resources/codex')) {
-                return 'codex-cli 0.141.0';
-            }
-            return 'codex-cli 0.130.0';
+            throw new Error('candidate unavailable');
         });
         const { CodexAppServerClient } = await import('./codexAppServerClient');
         const client = new CodexAppServerClient();
@@ -229,6 +230,40 @@ describe('CodexAppServerClient sandbox integration', () => {
         expect(mockSpawn).toHaveBeenCalledWith(
             '/opt/homebrew/bin/codex',
             ['app-server', '--listen', 'stdio://'],
+            expect.anything(),
+        );
+        expect(mockExecSync.mock.calls.map(([command]) => command)).toEqual([
+            '"/Applications/ChatGPT.app/Contents/Resources/codex" --version',
+            '"/Applications/Codex.app/Contents/Resources/codex" --version',
+            '"/opt/homebrew/bin/codex" --version',
+        ]);
+
+        await client.disconnect();
+    });
+
+    it('uses the trusted ChatGPT.app binary without probing lower-priority candidates', async () => {
+        mockExecSync.mockImplementation((command: string) => {
+            if (command.includes('/Applications/ChatGPT.app/Contents/Resources/codex')) {
+                return 'codex-cli 0.140.0';
+            }
+            if (command.includes('/opt/homebrew/bin/codex')) {
+                return 'codex-cli 0.999.0';
+            }
+            return 'codex-cli 0.130.0';
+        });
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+
+        await client.connect();
+
+        expect(mockSpawn).toHaveBeenCalledWith(
+            '/Applications/ChatGPT.app/Contents/Resources/codex',
+            ['app-server', '--listen', 'stdio://'],
+            expect.anything(),
+        );
+        expect(mockExecSync).toHaveBeenCalledTimes(1);
+        expect(mockExecSync).not.toHaveBeenCalledWith(
+            '"/opt/homebrew/bin/codex" --version',
             expect.anything(),
         );
 
@@ -244,7 +279,7 @@ describe('CodexAppServerClient sandbox integration', () => {
 
         expect(mockWrapForMcpTransport).not.toHaveBeenCalled();
         expect(mockSpawn).toHaveBeenCalledWith(
-            'codex',
+            '/Applications/ChatGPT.app/Contents/Resources/codex',
             ['app-server', '--listen', 'stdio://'],
             expect.objectContaining({
                 env: expect.objectContaining({
@@ -1023,10 +1058,13 @@ describe('CodexAppServerClient sandbox integration', () => {
         });
         await client.sendTurnAndWait('hello');
 
-        expect(requests.find((msg) => msg.method === 'turn/start')?.params).toMatchObject({
+        const turnStartParams = requests.find((msg) => msg.method === 'turn/start')?.params;
+        expect(turnStartParams).toMatchObject({
             threadId: 'thread-text',
             input: [{ type: 'text', text: 'hello' }],
         });
+        expect(turnStartParams).not.toHaveProperty('serviceTier');
+        expect(turnStartParams).not.toHaveProperty('service_tier');
 
         await client.disconnect();
     });

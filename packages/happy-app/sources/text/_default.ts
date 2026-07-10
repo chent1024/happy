@@ -377,6 +377,7 @@ export const en = {
         viewMachine: 'View Machine',
         viewMachineSubtitle: 'View machine details and sessions',
         resumeSession: 'Resume Session',
+        continueCodexSession: 'Continue',
         resumeSessionSubtitle: 'Resume this session on the same machine',
         resumeSessionSameMachineOnly: 'This session can only be resumed on the same machine it started on.',
         resumeSessionMachineOffline: 'This machine is offline. Resume is only available while it is online.',
@@ -884,6 +885,7 @@ export const en = {
             fetched: 'Fetched',
             imported: 'Imported',
             updated: 'Updated',
+            archived: 'Archived',
             skipped: 'Skipped',
         }
     },

@@ -99,6 +99,40 @@ describe('ApiMachineClient Codex fork RPCs', () => {
         }));
     });
 
+    it('forwards detached Codex.app intake metadata through the spawn RPC', async () => {
+        const spawnSession = vi.fn().mockResolvedValue({ type: 'success', sessionId: 'happy-intake' });
+
+        const { ApiMachineClient } = await import('./apiMachine');
+        const client = new ApiMachineClient('token', machineClient());
+        client.setRPCHandlers({
+            spawnSession,
+            stopSession: vi.fn(),
+            requestShutdown: vi.fn(),
+        });
+
+        const result = await handlersFrom(client).get('machine-1:spawn-happy-session')?.({
+            directory: '/tmp/project',
+            agent: 'codex',
+            intakeSource: 'codex-app',
+            intakeMode: 'detached',
+            intakeSourceThreadId: 'thread-active',
+            intakeSourceTurnId: 'turn-active',
+        });
+
+        expect(result).toEqual({ type: 'success', sessionId: 'happy-intake' });
+        expect(spawnSession).toHaveBeenCalledWith(expect.objectContaining({
+            directory: '/tmp/project',
+            agent: 'codex',
+            intakeSource: 'codex-app',
+            intakeMode: 'detached',
+            intakeSourceThreadId: 'thread-active',
+            intakeSourceTurnId: 'turn-active',
+        }));
+        expect(spawnSession).toHaveBeenCalledWith(expect.not.objectContaining({
+            resumeCodexThreadId: expect.any(String),
+        }));
+    });
+
     it('registers ensure-live RPC and forwards resume options', async () => {
         const ensureSessionLive = vi.fn().mockResolvedValue({
             type: 'running',
@@ -236,6 +270,7 @@ describe('ApiMachineClient Codex fork RPCs', () => {
                 preview: 'recent Codex work',
                 updatedAt: 1700000000000,
             }],
+            sourceThreadIds: ['thread-recent'],
             nextCursor: null,
             backwardsCursor: null,
         });
@@ -252,6 +287,56 @@ describe('ApiMachineClient Codex fork RPCs', () => {
             includeTurns: true,
         });
         expect(codexClientMethods.disconnect).toHaveBeenCalledOnce();
+    });
+
+    it('collects every Codex thread page before returning a sync snapshot', async () => {
+        codexClientMethods.listThreads
+            .mockResolvedValueOnce({
+                data: [{ id: 'thread-page-1', cwd: '/tmp/project', name: 'First page', updatedAt: 1700000001000 }],
+                nextCursor: 'next-page',
+                backwardsCursor: null,
+            })
+            .mockResolvedValueOnce({
+                data: [{ id: 'thread-page-2', cwd: '/tmp/project', name: 'Second page', updatedAt: 1700000000000 }],
+                nextCursor: null,
+                backwardsCursor: null,
+            });
+
+        const { ApiMachineClient } = await import('./apiMachine');
+        const client = new ApiMachineClient('token', machineClient());
+        client.setRPCHandlers({
+            spawnSession: vi.fn(),
+            stopSession: vi.fn(),
+            requestShutdown: vi.fn(),
+        });
+
+        const result = await handlersFrom(client).get('machine-1:codex-list-threads')?.({});
+
+        expect(result).toEqual({
+            type: 'success',
+            threads: [
+                { id: 'thread-page-1', cwd: '/tmp/project', name: 'First page', updatedAt: 1700000001000 },
+                { id: 'thread-page-2', cwd: '/tmp/project', name: 'Second page', updatedAt: 1700000000000 },
+            ],
+            sourceThreadIds: ['thread-page-1', 'thread-page-2'],
+            nextCursor: null,
+            backwardsCursor: null,
+        });
+        expect(codexClientMethods.listThreads).toHaveBeenNthCalledWith(1, {
+            limit: 200,
+            archived: false,
+            useStateDbOnly: true,
+            sortKey: 'updated_at',
+            sortDirection: 'desc',
+        });
+        expect(codexClientMethods.listThreads).toHaveBeenNthCalledWith(2, {
+            limit: 200,
+            archived: false,
+            useStateDbOnly: true,
+            sortKey: 'updated_at',
+            sortDirection: 'desc',
+            cursor: 'next-page',
+        });
     });
 
     it('filters unreadable Codex threads from the imported session list', async () => {
@@ -303,6 +388,7 @@ describe('ApiMachineClient Codex fork RPCs', () => {
                 name: 'Readable work',
                 updatedAt: 1700000000000,
             }],
+            sourceThreadIds: ['thread-readable', 'thread-rollout-summary'],
             nextCursor: null,
             backwardsCursor: null,
         });
@@ -370,6 +456,7 @@ describe('ApiMachineClient Codex fork RPCs', () => {
                 preview: '# Options\n\ninternal prompt text',
                 updatedAt: 1700000000000,
             }],
+            sourceThreadIds: ['thread-options'],
             nextCursor: null,
             backwardsCursor: null,
         });

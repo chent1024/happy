@@ -140,6 +140,11 @@ export interface SpawnSessionOptions {
     parentSessionId?: string;
     /** Happy message id used as the rewind point (only set for "duplicate"). */
     forkedFromMessageId?: string;
+    /** External task source copied into a detached Happy session. */
+    intakeSource?: 'codex-app';
+    intakeMode?: 'detached';
+    intakeSourceThreadId?: string;
+    intakeSourceTurnId?: string;
 }
 
 export type SpawnSessionResult =

@@ -11,3 +11,20 @@ export function shouldBackfillCodexThread(opts: {
     if (opts.sessionSeq === 0) return true;
     return opts.metadata?.codexThreadId === threadId && !opts.metadata?.codexBackfilledThreadId;
 }
+
+export function shouldBackfillForkedCodexThread(opts: {
+    forkThreadId: string | null | undefined;
+    resumeThreadId: string | null | undefined;
+    sessionSeq: number | null | undefined;
+    metadata: Metadata | null | undefined;
+}): boolean {
+    if (!opts.forkThreadId || opts.forkThreadId === opts.resumeThreadId) {
+        return false;
+    }
+
+    return shouldBackfillCodexThread({
+        threadId: opts.forkThreadId,
+        sessionSeq: opts.sessionSeq,
+        metadata: opts.metadata,
+    });
+}

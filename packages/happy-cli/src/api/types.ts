@@ -199,7 +199,8 @@ export const MessageMetaSchema = z.object({
   allowedTools: z.array(z.string()).nullable().optional(), // Allowed tools for this message (null = reset)
   disallowedTools: z.array(z.string()).nullable().optional(), // Disallowed tools for this message (null = reset)
   effort: z.string().nullable().optional(), // Reasoning / thinking effort for this message (null = reset)
-  deliveryIntent: z.enum(['queue', 'steer', 'interrupt']).optional() // How to handle the message when a turn is active
+  deliveryIntent: z.enum(['queue', 'steer', 'interrupt']).optional(), // How to handle the message when a turn is active
+  source: z.enum(['chat', 'new_session', 'option', 'question', 'voice', 'codex-app']).optional() // Logical message origin
 })
 
 export type MessageMeta = z.infer<typeof MessageMetaSchema>
@@ -330,6 +331,10 @@ export type Metadata = {
   /** Lineage for sessions created via the fork / duplicate flow. */
   parentSessionId?: string
   forkedFromMessageId?: string
+  intakeSource?: 'codex-app' | string
+  intakeMode?: 'detached' | string
+  intakeSourceThreadId?: string
+  intakeSourceTurnId?: string
 };
 
 export type AgentGoalStatus = {

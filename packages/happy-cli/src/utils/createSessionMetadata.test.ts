@@ -93,4 +93,21 @@ describe('createSessionMetadata', () => {
 
         expect(metadata.codexThreadId).toBe('thread-1');
     });
+
+    it('sets detached Codex.app intake metadata without a resumed thread id', () => {
+        const { metadata } = createSessionMetadata({
+            flavor: 'codex',
+            machineId: 'machine-8',
+            intakeSource: 'codex-app',
+            intakeMode: 'detached',
+            intakeSourceThreadId: 'thread-active',
+            intakeSourceTurnId: 'turn-active',
+        });
+
+        expect(metadata.intakeSource).toBe('codex-app');
+        expect(metadata.intakeMode).toBe('detached');
+        expect(metadata.intakeSourceThreadId).toBe('thread-active');
+        expect(metadata.intakeSourceTurnId).toBe('turn-active');
+        expect(metadata.codexThreadId).toBeUndefined();
+    });
 });

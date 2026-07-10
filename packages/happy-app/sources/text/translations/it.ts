@@ -361,6 +361,7 @@ export const it: TranslationStructure = {
         viewMachine: 'Visualizza macchina',
         viewMachineSubtitle: 'Visualizza dettagli e sessioni della macchina',
         resumeSession: 'Resume Session',
+        continueCodexSession: 'Continua',
         resumeSessionSubtitle: 'Resume this session on the same machine',
         resumeSessionSameMachineOnly: 'This session can only be resumed on the same machine it started on.',
         resumeSessionMachineOffline: 'This machine is offline. Resume is only available while it is online.',
@@ -867,6 +868,7 @@ export const it: TranslationStructure = {
             fetched: 'Fetched',
             imported: 'Imported',
             updated: 'Updated',
+            archived: 'Archived',
             skipped: 'Skipped',
         }
     },

@@ -159,6 +159,12 @@ const styles = StyleSheet.create((theme) => ({
         paddingHorizontal: 12,
         paddingVertical: 11,
     },
+    metricWide: {
+        width: '100%',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
     metricValue: {
         ...Typography.default('semiBold'),
         color: theme.colors.text,
@@ -260,7 +266,7 @@ export function CodexSyncResultModal(props: {
 }) {
     const { theme } = useUnistyles();
     const { result, onClose } = props;
-    const changed = result.imported + result.refreshed;
+    const changed = result.imported + result.refreshed + result.archived;
     const metrics = [
         { label: t('codex.sync.fetched'), value: result.fetched },
         { label: t('codex.sync.imported'), value: result.imported },
@@ -288,6 +294,12 @@ export function CodexSyncResultModal(props: {
                         <Text style={styles.metricLabel}>{metric.label}</Text>
                     </View>
                 ))}
+                {result.archived > 0 && (
+                    <View style={[styles.metric, styles.metricWide]}>
+                        <Text style={styles.metricLabel}>{t('codex.sync.archived')}</Text>
+                        <Text style={styles.metricValue}>{result.archived}</Text>
+                    </View>
+                )}
             </View>
             <Pressable
                 onPress={onClose}
