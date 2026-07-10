@@ -1,7 +1,12 @@
 import React from 'react';
-import { Platform, StatusBar } from 'react-native';
+import { NativeModules, Platform, StatusBar } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 
+type HappySystemBarModule = {
+    setDarkIcons: (enabled: boolean) => void;
+};
+
+const happySystemBar = NativeModules.HappySystemBar as HappySystemBarModule | undefined;
 
 export const StatusBarProvider = React.memo(() => {
     const { theme } = useUnistyles();
@@ -17,8 +22,9 @@ export const StatusBarProvider = React.memo(() => {
         if (Platform.OS === 'android') {
             StatusBar.setBackgroundColor(backgroundColor, true);
             StatusBar.setTranslucent(false);
+            happySystemBar?.setDarkIcons(!theme.dark);
         }
-    }, [barStyle, backgroundColor]);
+    }, [barStyle, backgroundColor, theme.dark]);
 
     return (
         <StatusBar

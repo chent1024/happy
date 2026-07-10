@@ -171,7 +171,7 @@ export default {
         },
         plugins: [
             require("./plugins/withAndroidApkUpdate.js"),
-            require("./plugins/withAndroidLightStatusBar.js"),
+            require("./plugins/withAndroidSystemBarAppearance.js"),
             require("./plugins/withEinkCompatibility.js"),
             require("./plugins/withAndroidArm64Only.js"),
             [
