@@ -23,7 +23,14 @@ type OptionsPromptMeta = {
     } | null;
 };
 
-export function resolveAppendSystemPrompt(meta: OptionsPromptMeta | null | undefined): string | undefined {
+type ResolveAppendSystemPromptOptions = {
+    includeBuiltinOptionsPrompt?: boolean;
+};
+
+export function resolveAppendSystemPrompt(
+    meta: OptionsPromptMeta | null | undefined,
+    options: ResolveAppendSystemPromptOptions = {},
+): string | undefined {
     if (!meta) {
         return undefined;
     }
@@ -32,7 +39,9 @@ export function resolveAppendSystemPrompt(meta: OptionsPromptMeta | null | undef
         return meta.appendSystemPrompt || undefined;
     }
 
-    return meta.clientCapabilities?.optionsXml ? OPTIONS_SYSTEM_PROMPT : undefined;
+    return options.includeBuiltinOptionsPrompt !== false && meta.clientCapabilities?.optionsXml
+        ? OPTIONS_SYSTEM_PROMPT
+        : undefined;
 }
 
 export function hashAppendSystemPrompt(prompt: string | undefined): string | undefined {

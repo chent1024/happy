@@ -9,7 +9,6 @@ import { CodexPermissionHandler } from './utils/permissionHandler';
 import { ReasoningProcessor } from './utils/reasoningProcessor';
 import { DiffProcessor } from './utils/diffProcessor';
 import { randomUUID } from 'node:crypto';
-import { execSync } from 'node:child_process';
 import { logger } from '@/ui/logger';
 import { Credentials, readSettings } from '@/persistence';
 import { initialMachineMetadata } from '@/daemon/run';
@@ -169,20 +168,9 @@ export async function runCodex(opts: {
     resumeThreadId?: string;
     permissionMode?: PermissionMode;
 }): Promise<void> {
-    // Early check: ensure Codex CLI is installed before proceeding
-    try {
-        execSync('codex --version', { encoding: 'utf8', stdio: 'pipe', windowsHide: true });
-    } catch {
-        console.error('\n\x1b[1m\x1b[33mCodex CLI is not installed\x1b[0m\n');
-        console.error('Please install Codex CLI using one of these methods:\n');
-        console.error('\x1b[1mOption 1 - npm (recommended):\x1b[0m');
-        console.error('  \x1b[36mnpm install -g @openai/codex\x1b[0m\n');
-        console.error('\x1b[1mOption 2 - Homebrew (macOS):\x1b[0m');
-        console.error('  \x1b[36mbrew install --cask codex\x1b[0m\n');
-        console.error('Alternatively, use Claude Code:');
-        console.error('  \x1b[36mhappy claude\x1b[0m\n');
-        process.exit(1);
-    }
+    // Codex sessions run through the ChatGPT app-server runtime. A separate
+    // `codex` binary preflight can fail in daemon-spawned environments even
+    // when the actual app-server connection is available.
 
     type EnhancedMode = CodexEnhancedMode;
 
@@ -441,7 +429,13 @@ export async function runCodex(opts: {
             message.meta?.hasOwnProperty('appendSystemPrompt')
             || message.meta?.clientCapabilities?.optionsXml
         ) {
-            messageAppendSystemPrompt = resolveAppendSystemPrompt(message.meta);
+            // Codex app-server owns conversation titles. Do not prepend Happy's
+            // capability-derived options prompt to its first user turn, because
+            // it interferes with the title inferred by the Codex app. Explicit
+            // legacy appendSystemPrompt values remain supported.
+            messageAppendSystemPrompt = resolveAppendSystemPrompt(message.meta, {
+                includeBuiltinOptionsPrompt: false,
+            });
             currentAppendSystemPrompt = messageAppendSystemPrompt;
             logger.debug(`[Codex] Append system prompt updated from user message: ${messageAppendSystemPrompt ? 'set' : 'reset to none'}`);
         } else {

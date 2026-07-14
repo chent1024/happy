@@ -8,7 +8,7 @@ import type { ReasoningEffort } from './codexAppServerTypes';
 export interface CodexEnhancedMode {
     permissionMode: PermissionMode;
     model?: string;
-    /** Happy app instructions appended to the first Codex prompt for option chips. */
+    /** Explicit compatibility prompt prepended to the first Codex user turn. */
     appendSystemPrompt?: string;
     /** Reasoning effort passed through to Codex's sendTurnAndWait. */
     effort?: ReasoningEffort;

@@ -17,7 +17,17 @@ describe('resolveAppendSystemPrompt', () => {
         expect(resolveAppendSystemPrompt({
             appendSystemPrompt: 'legacy prompt',
             clientCapabilities: { optionsXml: true },
+        }, {
+            includeBuiltinOptionsPrompt: false,
         })).toBe('legacy prompt');
+    });
+
+    it('can disable only the built-in options prompt', () => {
+        expect(resolveAppendSystemPrompt({
+            clientCapabilities: { optionsXml: true },
+        }, {
+            includeBuiltinOptionsPrompt: false,
+        })).toBeUndefined();
     });
 
     it('allows legacy appendSystemPrompt null to reset the current prompt', () => {
