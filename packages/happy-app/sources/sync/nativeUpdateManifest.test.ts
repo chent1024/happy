@@ -8,8 +8,8 @@ import {
 
 describe('nativeUpdateManifest', () => {
     it('builds a Codex-style latest.json URL from a Happy server URL', () => {
-        expect(buildNativeUpdateManifestUrl('https://device.tailnet.ts.net')).toBe('http://device.tailnet.ts.net:8766/latest.json');
-        expect(buildNativeUpdateManifestUrl('https://device.tailnet.ts.net:3005')).toBe('http://device.tailnet.ts.net:8766/latest.json');
+        expect(buildNativeUpdateManifestUrl('https://device.tailnet.ts.net')).toBe('https://device.tailnet.ts.net:8766/latest.json');
+        expect(buildNativeUpdateManifestUrl('https://device.tailnet.ts.net:3005')).toBe('https://device.tailnet.ts.net:8766/latest.json');
         expect(buildNativeUpdateManifestUrl('http://192.168.1.20:3005')).toBe('http://192.168.1.20:8766/latest.json');
     });
 

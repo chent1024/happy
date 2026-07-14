@@ -45,7 +45,8 @@ export function buildNativeUpdateManifestUrl(serverUrlOrHost: string): string | 
     if (!host) {
         return null;
     }
-    return `http://${host}:${ANDROID_UPDATE_PORT}/latest.json`;
+    const protocol = serverUrlOrHost.trim().toLowerCase().startsWith('https://') ? 'https' : 'http';
+    return `${protocol}://${host}:${ANDROID_UPDATE_PORT}/latest.json`;
 }
 
 export function buildFallbackNativeUpdateApkUrl(manifestUrl: string): string {

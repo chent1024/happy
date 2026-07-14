@@ -14,28 +14,31 @@ function ensureUsesPermission(manifest, permissionName) {
 }
 
 function ensureProvider(application, packageName) {
-    const providers = application.provider ?? [];
+    const providers = (application.provider ?? []).filter((provider) => {
+        const attributes = provider.$ ?? {};
+        return !(
+            attributes['android:name'] === 'androidx.core.content.FileProvider' &&
+            typeof attributes['android:authorities'] === 'string' &&
+            attributes['android:authorities'].endsWith('.apkupdate.fileprovider')
+        );
+    });
     const authority = `${packageName}.apkupdate.fileprovider`;
-    const existing = providers.find((provider) => provider.$?.['android:authorities'] === authority);
-
-    if (!existing) {
-        providers.push({
-            $: {
-                'android:name': 'androidx.core.content.FileProvider',
-                'android:authorities': authority,
-                'android:exported': 'false',
-                'android:grantUriPermissions': 'true',
-            },
-            'meta-data': [
-                {
-                    $: {
-                        'android:name': 'android.support.FILE_PROVIDER_PATHS',
-                        'android:resource': '@xml/apk_update_file_paths',
-                    },
+    providers.push({
+        $: {
+            'android:name': 'androidx.core.content.FileProvider',
+            'android:authorities': authority,
+            'android:exported': 'false',
+            'android:grantUriPermissions': 'true',
+        },
+        'meta-data': [
+            {
+                $: {
+                    'android:name': 'android.support.FILE_PROVIDER_PATHS',
+                    'android:resource': '@xml/apk_update_file_paths',
                 },
-            ],
-        });
-    }
+            },
+        ],
+    });
 
     application.provider = providers;
 }
@@ -345,3 +348,5 @@ module.exports = function withAndroidApkUpdate(config) {
         },
     ]);
 };
+
+module.exports.ensureProvider = ensureProvider;

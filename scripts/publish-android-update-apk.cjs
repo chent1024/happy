@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 const fs = require('node:fs');
 const http = require('node:http');
+const https = require('node:https');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync, spawn } = require('node:child_process');
@@ -86,6 +87,16 @@ function resolveTailscaleIpv4() {
     const ifconfig = run('ifconfig', []);
     const match = ifconfig.match(/\b100\.\d+\.\d+\.\d+\b/);
     return match?.[0] || null;
+}
+
+function resolveTailscaleDnsName() {
+    try {
+        const status = JSON.parse(run('tailscale', ['status', '--json']));
+        const dnsName = status?.Self?.DNSName;
+        return typeof dnsName === 'string' ? dnsName.replace(/\.$/, '') : null;
+    } catch {
+        return null;
+    }
 }
 
 function beijingIsoNow() {
@@ -230,7 +241,7 @@ class UpdateRequestHandler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    ThreadingHTTPServer(("0.0.0.0", ${port}), UpdateRequestHandler).serve_forever()
+    ThreadingHTTPServer(("127.0.0.1", ${port}), UpdateRequestHandler).serve_forever()
 `);
 }
 
@@ -261,7 +272,8 @@ function waitForUrl(url) {
         let attempts = 0;
         const attempt = () => {
             attempts += 1;
-            const request = http.get(url, { timeout: 2000 }, (response) => {
+            const transport = url.startsWith('https://') ? https : http;
+            const request = transport.get(url, { timeout: 2000 }, (response) => {
                 response.resume();
                 if (response.statusCode && response.statusCode >= 200 && response.statusCode < 300) {
                     resolve(true);
@@ -307,7 +319,10 @@ async function main() {
     const targetApk = path.join(publishDir, publishName);
     fs.copyFileSync(sourceApk, targetApk);
 
-    const baseUrl = `http://${tailscaleIp}:${port}`;
+    const tailscaleDnsName = resolveTailscaleDnsName();
+    const baseUrl = tailscaleDnsName
+        ? `https://${tailscaleDnsName}:${port}`
+        : `http://${tailscaleIp}:${port}`;
     const versionCode = readAndroidVersionCode();
     const manifest = {
         version: readAppVersion(),
