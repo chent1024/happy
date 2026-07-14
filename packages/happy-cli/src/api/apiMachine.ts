@@ -4,6 +4,15 @@
  */
 
 import { io, Socket } from 'socket.io-client';
+import {
+    TtsSynthesisRequestSchema,
+    TtsSynthesisStreamRequestSchema,
+    type TtsServiceConfiguration,
+    type TtsSynthesisRequest,
+    type TtsSynthesisResult,
+    type TtsRuntimeStatus,
+    type TtsStatusResult,
+} from '@slopus/happy-wire';
 import { logger } from '@/ui/logger';
 import { configuration } from '@/configuration';
 import { MachineMetadata, DaemonState, Machine, Update, UpdateMachineBody } from './types';
@@ -44,6 +53,10 @@ const CODEX_THREAD_MAX_PAGES = 50;
 interface ServerToDaemonEvents {
     update: (data: Update) => void;
     'rpc-request': (data: { method: string, params: string }, callback: (response: string) => void) => void;
+    'tts-relay-request': (data: TtsSynthesisRequest, callback?: (response: TtsSynthesisResult) => void) => void;
+    'tts-relay-stream-request': (data: { streamId: string; request: TtsSynthesisRequest }, callback?: (response: { accepted: boolean }) => void) => void;
+    'tts-relay-stream-cancel': (data: { streamId?: unknown }) => void;
+    'tts-relay-status-request': (callback?: (response: TtsStatusResult) => void) => void;
     'rpc-registered': (data: { method: string }) => void;
     'rpc-unregistered': (data: { method: string }) => void;
     'rpc-error': (data: { type: string, error: string }) => void;
@@ -52,6 +65,7 @@ interface ServerToDaemonEvents {
 }
 
 interface DaemonToServerEvents {
+    'tts-relay-stream-event': (data: { streamId: string; event: unknown }) => void;
     'machine-alive': (data: {
         machineId: string;
         time: number;
@@ -106,6 +120,9 @@ type MachineRpcHandlers = {
     codexRuntimeStatus?: (sessionId: string) => DaemonCodexRuntimeStatus | null | Promise<DaemonCodexRuntimeStatus | null>;
     codexRuntimeReplay?: (sessionId: string, options?: DaemonCodexRuntimeReplayOptions) => unknown[] | Promise<unknown[]>;
     stopSession: (sessionId: string) => boolean;
+    ttsSynthesize?: (request: TtsSynthesisRequest, configuration: TtsServiceConfiguration) => Promise<TtsSynthesisResult>;
+    ttsSynthesizeStream?: (request: TtsSynthesisRequest, configuration: TtsServiceConfiguration, emit: (event: unknown) => void, signal: AbortSignal) => Promise<{ type: 'success' } | { type: 'error'; code: string }>;
+    ttsRuntimeStatus?: () => Promise<TtsRuntimeStatus>;
     requestShutdown: () => void;
 }
 
@@ -258,6 +275,10 @@ export class ApiMachineClient {
     private resumeSessionHandler: ((sessionId: string, options?: { model?: string; permissionMode?: string }) => Promise<SpawnSessionResult>) | null = null;
     private ensureSessionLiveHandler: ((sessionId: string, options?: { model?: string; permissionMode?: string; reason?: string }) => Promise<EnsureSessionLiveResult>) | null = null;
     private restartSessionHandler: ((sessionId: string, options?: { model?: string; permissionMode?: string; reason?: string }) => Promise<EnsureSessionLiveResult>) | null = null;
+    private ttsSynthesizeHandler: MachineRpcHandlers['ttsSynthesize'] | null = null;
+    private ttsSynthesizeStreamHandler: MachineRpcHandlers['ttsSynthesizeStream'] | null = null;
+    private ttsRuntimeStatusHandler: MachineRpcHandlers['ttsRuntimeStatus'] | null = null;
+    private readonly activeTtsStreams = new Map<string, AbortController>();
     private reconnectInterval: NodeJS.Timeout | null = null;
 
     constructor(
@@ -283,11 +304,17 @@ export class ApiMachineClient {
         codexRuntimeStatus,
         codexRuntimeReplay,
         stopSession,
+        ttsSynthesize,
+        ttsSynthesizeStream,
+        ttsRuntimeStatus,
         requestShutdown
     }: MachineRpcHandlers) {
         this.resumeSessionHandler = resumeSession ?? null;
         this.ensureSessionLiveHandler = ensureSessionLive ?? null;
         this.restartSessionHandler = restartSession ?? null;
+        this.ttsSynthesizeHandler = ttsSynthesize ?? null;
+        this.ttsSynthesizeStreamHandler = ttsSynthesizeStream ?? null;
+        this.ttsRuntimeStatusHandler = ttsRuntimeStatus ?? null;
 
         // Register spawn session handler
         this.rpcHandlerManager.registerHandler('spawn-happy-session', async (params: any) => {
@@ -767,13 +794,7 @@ export class ApiMachineClient {
                 this.reconnectInterval = null;
             }
 
-            this.updateDaemonState((state) => ({
-                ...state,
-                status: 'running',
-                pid: process.pid,
-                httpPort: this.machine.daemonState?.httpPort,
-                startedAt: Date.now()
-            }));
+            void this.publishConnectedDaemonState();
 
             this.rpcHandlerManager.onSocketConnect(this.socket);
             this.syncResumeSessionRpcRegistration();
@@ -791,6 +812,51 @@ export class ApiMachineClient {
         this.socket.on('rpc-request', async (data: { method: string, params: string }, callback: (response: string) => void) => {
             logger.debugLargeJson(`[API MACHINE] Received RPC request:`, data);
             callback(await this.rpcHandlerManager.handleRequest(data));
+        });
+
+        this.socket.on('tts-relay-request', async (data, callback) => {
+            const request = TtsSynthesisRequestSchema.safeParse(data);
+            const configuration = this.machine.metadata.tts;
+            if (!request.success || !configuration || !this.ttsSynthesizeHandler) {
+                callback?.({ type: 'error', code: 'configuration_invalid' });
+                return;
+            }
+            callback?.(await this.ttsSynthesizeHandler(request.data, configuration));
+        });
+
+        this.socket.on('tts-relay-stream-request', (data, callback) => {
+            const stream = TtsSynthesisStreamRequestSchema.safeParse(data);
+            const configuration = this.machine.metadata.tts;
+            if (!stream.success || !configuration || !this.ttsSynthesizeStreamHandler) {
+                callback?.({ accepted: false });
+                return;
+            }
+            const controller = new AbortController();
+            this.activeTtsStreams.set(stream.data.streamId, controller);
+            callback?.({ accepted: true });
+            void this.ttsSynthesizeStreamHandler(stream.data.request, configuration, (event) => {
+                this.socket.emit('tts-relay-stream-event', { streamId: stream.data.streamId, event });
+            }, controller.signal).then((result) => {
+                if (result.type === 'error') {
+                    this.socket.emit('tts-relay-stream-event', { streamId: stream.data.streamId, event: result });
+                }
+            }).finally(() => this.activeTtsStreams.delete(stream.data.streamId));
+        });
+
+        this.socket.on('tts-relay-stream-cancel', (data) => {
+            if (typeof data.streamId === 'string') this.activeTtsStreams.get(data.streamId)?.abort();
+        });
+
+        this.socket.on('tts-relay-status-request', async (callback) => {
+            if (!this.ttsRuntimeStatusHandler) {
+                callback?.({ type: 'error', code: 'configuration_invalid' });
+                return;
+            }
+            try {
+                callback?.({ type: 'success', status: await this.ttsRuntimeStatusHandler() });
+            } catch {
+                callback?.({ type: 'error', code: 'provider_error' });
+            }
         });
 
         // Handle update events from server
@@ -824,6 +890,27 @@ export class ApiMachineClient {
         this.socket.io.on('error', (error: any) => {
             logger.debug('[API MACHINE] Socket error:', error);
         });
+    }
+
+    private async publishConnectedDaemonState(): Promise<void> {
+        let tts: TtsRuntimeStatus | undefined;
+        try {
+            tts = await this.ttsRuntimeStatusHandler?.();
+        } catch (error) {
+            logger.debug('[API MACHINE] Could not get TTS runtime status', error);
+        }
+        try {
+            await this.updateDaemonState((state) => ({
+                ...state,
+                status: 'running',
+                pid: process.pid,
+                httpPort: this.machine.daemonState?.httpPort,
+                startedAt: Date.now(),
+                ...(tts ? { tts } : {}),
+            }));
+        } catch (error) {
+            logger.debug('[API MACHINE] Could not publish connected daemon state', error);
+        }
     }
 
     private startKeepAlive() {

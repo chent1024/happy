@@ -6,7 +6,9 @@ export function enableAuthentication(app: Fastify) {
     app.decorate('authenticate', async function (request: any, reply: any) {
         try {
             const authHeader = request.headers.authorization;
-            log({ module: 'auth-decorator' }, `Auth check - path: ${request.url}, has header: ${!!authHeader}, header start: ${authHeader?.substring(0, 50)}...`);
+            // Never include a bearer value (or its prefix) in logs. This route
+            // is used by the Android system TTS relay as well as normal API calls.
+            log({ module: 'auth-decorator' }, `Auth check - path: ${request.url}, has bearer header: ${typeof authHeader === 'string' && authHeader.startsWith('Bearer ')}`);
             if (!authHeader || !authHeader.startsWith('Bearer ')) {
                 log({ module: 'auth-decorator' }, `Auth failed - missing or invalid header`);
                 return reply.code(401).send({ error: 'Missing authorization header' });

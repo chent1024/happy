@@ -14,6 +14,7 @@ import { sessionUpdateHandler } from "./socket/sessionUpdateHandler";
 import { machineUpdateHandler } from "./socket/machineUpdateHandler";
 import { artifactUpdateHandler } from "./socket/artifactUpdateHandler";
 import { accessKeyHandler } from "./socket/accessKeyHandler";
+import { configureTtsRelay } from "./socket/ttsRelay";
 
 export function startSocket(app: Fastify) {
     const io = new Server(app.server, {
@@ -72,6 +73,7 @@ export function startSocket(app: Fastify) {
         }, 5000);
     }
 
+    configureTtsRelay(io);
     // Initialize event router with Socket.IO server instance
     eventRouter.init(io);
 

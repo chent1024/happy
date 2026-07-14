@@ -36,7 +36,7 @@ export type SandboxConfig = z.infer<typeof SandboxConfigSchema>;
 // Used for migration logic in readSettings()
 export const SUPPORTED_SCHEMA_VERSION = 2;
 
-interface Settings {
+export interface Settings {
   schemaVersion: number
   onboardingCompleted: boolean
   machineId?: string
@@ -46,6 +46,11 @@ interface Settings {
   sandboxConfig?: SandboxConfig
   serverUrl?: string
   webappUrl?: string
+  ttsSidecar?: {
+    url: string
+    model: string
+    instruct?: string
+  }
 }
 
 const defaultSettings: Settings = {
@@ -112,7 +117,6 @@ export async function readSettings(): Promise<Settings> {
         migrated.sandboxConfig = undefined;
       }
     }
-
     // Merge with defaults to ensure all required fields exist
     return { ...defaultSettings, ...migrated };
   } catch (error: any) {

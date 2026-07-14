@@ -243,6 +243,14 @@ export const SettingsView = React.memo(function SettingsView() {
                     icon={<Ionicons name="color-palette-outline" size={29} color="#5856D6" />}
                     onPress={() => router.push('/settings/appearance')}
                 />
+                {Platform.OS === 'android' && (
+                    <Item
+                        title="Qwen3 高品质朗读"
+                        subtitle="选择运行 Qwen3 的 Happy 设备"
+                        icon={<Ionicons name="volume-high-outline" size={29} color="#5856D6" />}
+                        onPress={() => router.push('/settings/tts')}
+                    />
+                )}
                 <Item
                     title="Agent Defaults"
                     subtitle="Default model, effort, and permissions"

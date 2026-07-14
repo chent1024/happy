@@ -1,5 +1,10 @@
 import { z } from 'zod'
-import type { Update, UpdateMachineBody } from '@slopus/happy-wire';
+import {
+  TtsRuntimeStatusSchema,
+  TtsServiceConfigurationSchema,
+  type Update,
+  type UpdateMachineBody,
+} from '@slopus/happy-wire';
 import { UsageSchema } from '@/claude/types'
 import type { SandboxConfig } from '@/persistence'
 
@@ -148,6 +153,9 @@ export const MachineMetadataSchema = z.object({
     happyAgentAuthenticated: z.boolean(),
     detectedAt: z.number(),
   }).optional(),
+  // Encrypted machine metadata: contains only narrator identifiers and cache
+  // limits, never a provider URL, token, text, PCM, or model path.
+  tts: TtsServiceConfigurationSchema.optional(),
 })
 
 export type MachineMetadata = z.infer<typeof MachineMetadataSchema>
@@ -163,12 +171,15 @@ export const DaemonStateSchema = z.object({
   pid: z.number().optional(),
   httpPort: z.number().optional(),
   startedAt: z.number().optional(),
+  startTime: z.union([z.string(), z.number()]).optional(),
+  startedWithCliVersion: z.string().optional(),
   shutdownRequestedAt: z.number().optional(),
   shutdownSource:
     z.union([
       z.enum(['mobile-app', 'cli', 'os-signal', 'unknown']),
       z.string() // Forward compatibility
-    ]).optional()
+    ]).optional(),
+  tts: TtsRuntimeStatusSchema.optional(),
 })
 
 export type DaemonState = z.infer<typeof DaemonStateSchema>

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiMachineClient } from './apiMachine';
 import type { Machine } from './types';
+import { decodeBase64, decrypt } from './encryption';
 
 const {
     mockIo,
@@ -151,6 +152,96 @@ describe('ApiMachineClient socket reconnection', () => {
         await vi.advanceTimersByTimeAsync(3000);
         expect(mockSocket.connect).toHaveBeenCalledTimes(2);
 
+        client.shutdown();
+    });
+
+    it('does not crash the daemon when a TTS relay event arrives without an acknowledgement callback', async () => {
+        const machine = makeMachine();
+        machine.metadata.tts = {
+            version: 1,
+            enabled: true,
+            provider: 'cosyvoice',
+            narratorProfileId: 'narrator',
+            voiceProfiles: [{ id: 'narrator', label: '旁白', providerVoiceId: 'Uncle_Fu' }],
+            roleRules: [],
+            cache: { maxEntries: 1, maxBytes: 1024 },
+        };
+        const synthesizeStream = vi.fn(async () => ({ type: 'success' as const }));
+        const client = new ApiMachineClient('fake-token', machine);
+        client.setRPCHandlers({
+            spawnSession: vi.fn(),
+            stopSession: vi.fn(),
+            requestShutdown: vi.fn(),
+            ttsSynthesizeStream: synthesizeStream,
+        });
+        client.connect();
+
+        expect(() => emitSocketEvent('tts-relay-stream-request', {
+            streamId: 'stream-1',
+            request: { requestId: 'request-1', text: '测试。', locale: 'zh-CN', rate: 1 },
+        })).not.toThrow();
+        await vi.waitFor(() => expect(synthesizeStream).toHaveBeenCalledOnce());
+        client.shutdown();
+    });
+
+    it('publishes redacted TTS provider readiness with the regular encrypted daemon state', async () => {
+        const machine = makeMachine();
+        mockSocket.emitWithAck.mockImplementation(async (_event: string, data: { daemonState: string }) => ({
+            result: 'success', version: 1, daemonState: data.daemonState,
+        }));
+        const runtimeStatus = vi.fn(async () => ({
+            state: 'ready' as const,
+            provider: 'cosyvoice' as const,
+            modelRevision: 'mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit',
+            cache: { entries: 0, bytes: 0 },
+            lastError: null,
+            diagnostics: { pendingRequests: 0, preAudioRetries: 0, lastFailure: null },
+        }));
+        const client = new ApiMachineClient('fake-token', machine);
+        client.setRPCHandlers({
+            spawnSession: vi.fn(),
+            stopSession: vi.fn(),
+            requestShutdown: vi.fn(),
+            ttsRuntimeStatus: runtimeStatus,
+        });
+        client.connect();
+
+        emitSocketEvent('connect');
+        await vi.waitFor(() => expect(runtimeStatus).toHaveBeenCalledOnce());
+        const stateUpdate = mockSocket.emitWithAck.mock.calls.find(([event]: [string]) => event === 'machine-update-state');
+        expect(stateUpdate).toBeDefined();
+        const encryptedState = stateUpdate?.[1].daemonState as string;
+        expect(decrypt(machine.encryptionKey, machine.encryptionVariant, decodeBase64(encryptedState))).toMatchObject({
+            status: 'running',
+            tts: { state: 'ready', provider: 'cosyvoice', modelRevision: 'mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit' },
+        });
+        client.shutdown();
+    });
+
+    it('answers selected-machine TTS status through the existing authenticated relay', async () => {
+        const runtimeStatus = vi.fn(async () => ({
+            state: 'ready' as const,
+            provider: 'cosyvoice' as const,
+            modelRevision: 'qwen3',
+            cache: { entries: 0, bytes: 0 },
+            lastError: null,
+            diagnostics: { pendingRequests: 0, preAudioRetries: 0, lastFailure: null },
+        }));
+        const callback = vi.fn();
+        const client = new ApiMachineClient('fake-token', makeMachine());
+        client.setRPCHandlers({
+            spawnSession: vi.fn(),
+            stopSession: vi.fn(),
+            requestShutdown: vi.fn(),
+            ttsRuntimeStatus: runtimeStatus,
+        });
+        client.connect();
+
+        emitSocketEvent('tts-relay-status-request', callback);
+        await vi.waitFor(() => expect(callback).toHaveBeenCalledWith({
+            type: 'success', status: expect.objectContaining({ state: 'ready', provider: 'cosyvoice' }),
+        }));
+        expect(runtimeStatus).toHaveBeenCalledOnce();
         client.shutdown();
     });
 });

@@ -1,5 +1,10 @@
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
-import { MachineMetadata, MachineMetadataSchema } from '../storageTypes';
+import {
+    DaemonState,
+    DaemonStateSchema,
+    MachineMetadata,
+    MachineMetadataSchema,
+} from '../storageTypes';
 import { EncryptionCache } from './encryptionCache';
 import { Decryptor, Encryptor } from './encryptor';
 
@@ -62,7 +67,7 @@ export class MachineEncryption {
     /**
      * Encrypt daemon state
      */
-    async encryptDaemonState(state: any): Promise<string> {
+    async encryptDaemonState(state: DaemonState): Promise<string> {
         const encrypted = await this.encryptor.encrypt([state]);
         return encodeBase64(encrypted[0], 'base64');
     }
@@ -70,7 +75,7 @@ export class MachineEncryption {
     /**
      * Decrypt daemon state with caching
      */
-    async decryptDaemonState(version: number, encrypted: string | null | undefined): Promise<any | null> {
+    async decryptDaemonState(version: number, encrypted: string | null | undefined): Promise<DaemonState | null> {
         if (!encrypted) {
             return null;
         }
@@ -85,7 +90,17 @@ export class MachineEncryption {
         try {
             const encryptedData = decodeBase64(encrypted, 'base64');
             const decrypted = await this.encryptor.decrypt([encryptedData]);
-            const result = decrypted[0] || null;
+            if (!decrypted[0]) {
+                this.cache.setCachedDaemonState(this.machineId, version, null);
+                return null;
+            }
+            const parsed = DaemonStateSchema.safeParse(decrypted[0]);
+            if (!parsed.success) {
+                console.error('Failed to parse daemon state:', parsed.error);
+                this.cache.setCachedDaemonState(this.machineId, version, null);
+                return null;
+            }
+            const result = parsed.data;
             
             // Cache the result (including null values)
             this.cache.setCachedDaemonState(this.machineId, version, result);

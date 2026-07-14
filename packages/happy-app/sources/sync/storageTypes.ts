@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TtsRuntimeStatusSchema } from '@slopus/happy-wire';
 
 //
 // Agent states
@@ -250,6 +251,22 @@ export const MachineMetadataSchema = z.object({
 
 export type MachineMetadata = z.infer<typeof MachineMetadataSchema>;
 
+export const DaemonStateSchema = z.object({
+    status: z.union([z.enum(['running', 'shutting-down']), z.string()]),
+    pid: z.number().optional(),
+    httpPort: z.number().optional(),
+    startedAt: z.number().optional(),
+    startTime: z.union([z.string(), z.number()]).optional(),
+    startedWithCliVersion: z.string().optional(),
+    shutdownRequestedAt: z.number().optional(),
+    shutdownSource: z.union([
+        z.enum(['mobile-app', 'cli', 'os-signal', 'unknown']),
+        z.string(),
+    ]).optional(),
+    tts: TtsRuntimeStatusSchema.optional(),
+});
+export type DaemonState = z.infer<typeof DaemonStateSchema>;
+
 export interface Machine {
     id: string;
     seq: number;
@@ -259,7 +276,7 @@ export interface Machine {
     activeAt: number;  // Changed from lastActiveAt to activeAt for consistency
     metadata: MachineMetadata | null;
     metadataVersion: number;
-    daemonState: any | null;  // Dynamic daemon state (runtime info)
+    daemonState: DaemonState | null;  // Dynamic daemon state (runtime info)
     daemonStateVersion: number;
 }
 

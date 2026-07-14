@@ -12,7 +12,7 @@ import { startCaffeinate, stopCaffeinate } from '@/utils/caffeinate';
 import packageJson from '../../package.json';
 import { getEnvironmentInfo } from '@/ui/doctor';
 import { spawnHappyCLI } from '@/utils/spawnHappyCLI';
-import { writeDaemonState, DaemonLocallyPersistedState, readDaemonState, acquireDaemonLock, releaseDaemonLock, readPersistedSessions, persistSession } from '@/persistence';
+import { writeDaemonState, DaemonLocallyPersistedState, readDaemonState, acquireDaemonLock, releaseDaemonLock, readPersistedSessions, persistSession, readSettings } from '@/persistence';
 import type { PersistedSession } from '@/persistence';
 
 import { cleanupDaemonState, isDaemonRunningCurrentlyInstalledHappyVersion, stopDaemon } from './controlClient';
@@ -37,6 +37,9 @@ import { createHappyChildEnv, createHappyTmuxChildEnv } from '@/utils/happyRecon
 import { fetchServerSessionSnapshot } from './serverSessionSnapshot';
 import { mergeServerSessionMetadataForResume } from './sessionMetadataMerge';
 import { createDaemonCodexRuntimeManager } from './codexRuntimeManager';
+import { CosyVoiceProvider } from '@/tts/CosyVoiceProvider';
+import { TtsManager } from '@/tts/TtsManager';
+import type { TtsServiceConfiguration } from '@slopus/happy-wire';
 
 const SESSION_STARTUP_STABILITY_WINDOW_MS = 3_000;
 
@@ -59,6 +62,16 @@ export const initialMachineMetadata: MachineMetadata = {
   happyLibDir: projectPath(),
   cliAvailability: detectCLIAvailability(),
   resumeSupport: { ...detectResumeSupport(), rpcAvailable: true },
+};
+
+export const qwenNarrationConfiguration: TtsServiceConfiguration = {
+  version: 1,
+  enabled: true,
+  provider: 'cosyvoice',
+  narratorProfileId: 'serena',
+  voiceProfiles: [{ id: 'serena', label: '温柔温暖中文女声旁白', providerVoiceId: 'Serena' }],
+  roleRules: [],
+  cache: { maxEntries: 64, maxBytes: 64 * 1024 * 1024 },
 };
 
 export async function startDaemon(): Promise<void> {
@@ -998,18 +1011,31 @@ export async function startDaemon(): Promise<void> {
 
     // Create API client
     const api = await ApiClient.create(credentials);
+    const ttsSidecar = (await readSettings()).ttsSidecar;
+    const ttsManager = new TtsManager(
+      new CosyVoiceProvider(
+        ttsSidecar?.url,
+        ttsSidecar?.model,
+        ttsSidecar?.instruct,
+      ),
+      {
+        onStreamDiagnostic: diagnostic => {
+          logger.debug(`[TTS] ${JSON.stringify(diagnostic)}`);
+        },
+      },
+    );
 
     // Get or create machine
     const machine = await api.getOrCreateMachine({
       machineId,
-      metadata: initialMachineMetadata,
+      metadata: { ...initialMachineMetadata, tts: qwenNarrationConfiguration },
       daemonState: initialDaemonState
     });
     logger.debug(`[DAEMON RUN] Machine registered: ${machine.id}`);
+    machine.metadata = { ...machine.metadata, tts: qwenNarrationConfiguration };
 
     // Create realtime machine session
     const apiMachine = api.machineSyncClient(machine);
-
     // Set RPC handlers
     apiMachine.setRPCHandlers({
       spawnSession,
@@ -1018,6 +1044,9 @@ export async function startDaemon(): Promise<void> {
       restartSession,
       codexRuntimeStatus: (sessionId) => codexRuntimeManager.getSession(sessionId),
       codexRuntimeReplay: (sessionId, options) => codexRuntimeManager.replay(sessionId, options),
+      ttsSynthesize: (request, ttsConfiguration) => ttsManager.synthesize(ttsConfiguration, request),
+      ttsSynthesizeStream: (request, ttsConfiguration, emit, signal) => ttsManager.synthesizeStream(ttsConfiguration, request, emit, signal),
+      ttsRuntimeStatus: () => ttsManager.runtimeStatus(qwenNarrationConfiguration),
       stopSession,
       requestShutdown: () => requestShutdown('happy-app')
     });
