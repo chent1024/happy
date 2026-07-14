@@ -70,6 +70,12 @@ docs/competition/opencode/traces/
 .cdp-scripts/
 happy-workspaces/
 /tmp/
+__pycache__/
+*.py[cod]
+
+# package-manager links created beside the tracked CLI launchers
+/packages/happy-cli/bin/happy
+/packages/happy-cli/bin/happy-mcp
 
 # local HAPPY_HOME_DIR for self-host testing
 .happy-fully-local/
