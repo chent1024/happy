@@ -84,3 +84,6 @@ __pycache__/
 # third party tools
 .supervibe/
 .codegraph/
+
+# agent-ct local project validation config
+/.agent-ct/
