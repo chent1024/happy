@@ -306,12 +306,25 @@ export type CodexSessionSyncResult =
     | { type: 'success'; fetched: number; imported: number; refreshed: number; archived: number; skipped: number }
     | { type: 'error'; errorMessage: string };
 
+export type CodexSessionsBatchSyncResult = {
+    type: 'success' | 'partial' | 'error';
+    machines: number;
+    succeeded: number;
+    failed: number;
+    fetched: number;
+    imported: number;
+    refreshed: number;
+    archived: number;
+    skipped: number;
+};
+
 export type CodexAccountRateLimitsRefreshResult =
     | { type: 'success'; updated: boolean }
     | { type: 'error'; errorMessage: string };
 
 const CODEX_SYNC_MAX_THREADS_PER_PROJECT = 15;
 const CODEX_SYNC_MAX_THREAD_AGE_MS = 3 * 24 * 60 * 60 * 1000;
+const CODEX_SYNC_MACHINE_CONCURRENCY = 2;
 const CODEX_SECONDS_TIMESTAMP_THRESHOLD = 10_000_000_000;
 const CODEX_IMPORTED_ARCHIVED_BY_USER = 'user';
 const CODEX_IMPORTED_ARCHIVE_REASON = 'manual-archive';
@@ -595,6 +608,23 @@ function importedCodexSessionUpdatedAt(session: Session | null): number | null {
         ?? normalizeCodexTimestamp(session.createdAt);
 }
 
+function importedCodexMetadataMatches(existing: Metadata | null | undefined, desired: Metadata): boolean {
+    return existing?.path === desired.path
+        && existing.host === desired.host
+        && existing.name === desired.name
+        && existing.summary?.text === desired.summary?.text
+        && normalizeCodexTimestamp(existing.summary?.updatedAt) === normalizeCodexTimestamp(desired.summary?.updatedAt)
+        && existing.machineId === desired.machineId
+        && existing.homeDir === desired.homeDir
+        && existing.happyHomeDir === desired.happyHomeDir
+        && existing.codexThreadId === desired.codexThreadId
+        && existing.codexProject === desired.codexProject
+        && existing.flavor === desired.flavor
+        && existing.version === desired.version
+        && existing.lifecycleState === desired.lifecycleState
+        && existing.archivedBy === desired.archivedBy;
+}
+
 function isImportedCodexMetadataForManualArchive(metadata: Metadata | null | undefined): metadata is Metadata & { codexThreadId: string } {
     return Boolean(
         metadata?.flavor === 'codex'
@@ -784,7 +814,7 @@ async function applyImportedCodexSessionLocally(response: Response, metadata: Me
     storage.getState().applySessions([localSession]);
 }
 
-async function createImportedCodexSession(machineId: string, thread: CodexThreadListItem, existingSession?: Session | null): Promise<void> {
+async function createImportedCodexSession(machineId: string, thread: CodexThreadListItem, existingSession?: Session | null): Promise<boolean> {
     const machineMetadata = storage.getState().machines[machineId]?.metadata ?? null;
     const metadata = buildCodexImportedSessionMetadata(
         thread,
@@ -792,6 +822,9 @@ async function createImportedCodexSession(machineId: string, thread: CodexThread
         machineMetadata,
         importedCodexSessionUpdatedAt(existingSession ?? null),
     );
+    if (existingSession && importedCodexMetadataMatches(existingSession.metadata, metadata)) {
+        return false;
+    }
     const dataEncryptionKey = getRandomBytes(32);
     const encryptedDataKey = await sync.encryption.encryptEncryptionKey(dataEncryptionKey);
     const sessionEncryption = await sync.encryption.openEncryption(dataEncryptionKey);
@@ -828,6 +861,7 @@ async function createImportedCodexSession(machineId: string, thread: CodexThread
     }
 
     await applyImportedCodexSessionLocally(response, metadata);
+    return true;
 }
 
 // Exported session operation functions
@@ -1101,7 +1135,7 @@ export async function codexListThreads(machineId: string): Promise<CodexListThre
     }
 }
 
-export async function syncCodexSessions(machineId: string): Promise<CodexSessionSyncResult> {
+async function syncCodexSessionsWithoutRefresh(machineId: string): Promise<CodexSessionSyncResult> {
     try {
         const listResult = await codexListThreads(machineId);
         if (listResult.type !== 'success') {
@@ -1138,16 +1172,14 @@ export async function syncCodexSessions(machineId: string): Promise<CodexSession
             }
 
             const existingImportedSession = findImportedCodexThread(machineId, thread.id);
-            await createImportedCodexSession(machineId, thread, existingImportedSession);
-            if (existingImportedSession) {
+            const changed = await createImportedCodexSession(machineId, thread, existingImportedSession);
+            if (!changed) {
+                skipped++;
+            } else if (existingImportedSession) {
                 refreshed++;
             } else {
                 imported++;
             }
-        }
-
-        if (imported > 0 || refreshed > 0 || archived > 0) {
-            await sync.refreshSessions();
         }
 
         return {
@@ -1164,6 +1196,75 @@ export async function syncCodexSessions(machineId: string): Promise<CodexSession
             errorMessage: errorMessageFromUnknown(error, 'Failed to sync Codex sessions'),
         };
     }
+}
+
+function codexSyncChangedSessions(result: CodexSessionSyncResult): boolean {
+    return result.type === 'success'
+        && (result.imported > 0 || result.refreshed > 0 || result.archived > 0);
+}
+
+export async function syncCodexSessions(machineId: string): Promise<CodexSessionSyncResult> {
+    const result = await syncCodexSessionsWithoutRefresh(machineId);
+    if (codexSyncChangedSessions(result)) {
+        await sync.refreshSessions();
+    }
+    return result;
+}
+
+export async function syncCodexSessionsForMachines(
+    machineIds: string[],
+): Promise<CodexSessionsBatchSyncResult> {
+    const uniqueMachineIds = [...new Set(machineIds)];
+    const results = new Array<CodexSessionSyncResult>(uniqueMachineIds.length);
+    let nextMachineIndex = 0;
+
+    const worker = async () => {
+        while (nextMachineIndex < uniqueMachineIds.length) {
+            const machineIndex = nextMachineIndex++;
+            results[machineIndex] = await syncCodexSessionsWithoutRefresh(uniqueMachineIds[machineIndex]);
+        }
+    };
+
+    await Promise.all(
+        Array.from(
+            { length: Math.min(CODEX_SYNC_MACHINE_CONCURRENCY, uniqueMachineIds.length) },
+            () => worker(),
+        ),
+    );
+
+    const summary: CodexSessionsBatchSyncResult = {
+        type: 'success',
+        machines: uniqueMachineIds.length,
+        succeeded: 0,
+        failed: 0,
+        fetched: 0,
+        imported: 0,
+        refreshed: 0,
+        archived: 0,
+        skipped: 0,
+    };
+
+    for (const result of results) {
+        if (result.type === 'error') {
+            summary.failed++;
+            continue;
+        }
+        summary.succeeded++;
+        summary.fetched += result.fetched;
+        summary.imported += result.imported;
+        summary.refreshed += result.refreshed;
+        summary.archived += result.archived;
+        summary.skipped += result.skipped;
+    }
+
+    if (summary.failed === summary.machines && summary.failed > 0) {
+        summary.type = 'error';
+    } else if (summary.failed > 0) {
+        summary.type = 'partial';
+    }
+
+    await sync.refreshSessions();
+    return summary;
 }
 
 export async function refreshCodexAccountRateLimits(sessionId: string): Promise<CodexAccountRateLimitsRefreshResult> {

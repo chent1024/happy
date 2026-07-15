@@ -21,18 +21,6 @@ const stylesheet = StyleSheet.create((theme) => ({
         justifyContent: 'center',
         paddingBottom: 32,
     },
-    emptyStateContainer: {
-        flex: 1,
-        flexBasis: 0,
-        flexGrow: 1,
-        flexDirection: 'column',
-        backgroundColor: theme.colors.groupped.background,
-    },
-    emptyStateContentContainer: {
-        flex: 1,
-        flexBasis: 0,
-        flexGrow: 1,
-    },
 }));
 
 interface SessionsListWrapperProps {
@@ -56,21 +44,12 @@ export const SessionsListWrapper = React.memo(({ activeSessionsCollapsed = false
         );
     }
 
-    if (sessionListViewData.length === 0) {
-        return (
-            <View style={styles.container}>
-                <View style={styles.emptyStateContainer}>
-                    <View style={styles.emptyStateContentContainer}>
-                        <EmptyMainScreen />
-                    </View>
-                </View>
-            </View>
-        );
-    }
-
     return (
         <View style={styles.container}>
-            <SessionsList activeSessionsCollapsed={activeSessionsCollapsed} />
+            <SessionsList
+                activeSessionsCollapsed={activeSessionsCollapsed}
+                emptyComponent={sessionListViewData.length === 0 ? <EmptyMainScreen /> : undefined}
+            />
         </View>
     );
 });

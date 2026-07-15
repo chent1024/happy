@@ -864,6 +864,7 @@ export const es: TranslationStructure = {
             ready: 'Ready',
             offline: 'Offline',
             failed: 'Failed to sync Codex sessions.',
+            partialFailed: ({ failed, machines }: { failed: number; machines: number }) => `Synced Codex sessions on some machines, but ${failed} of ${machines} machines failed.`,
             resultTitle: 'Codex sessions synced',
             changedSummary: ({ count }: { count: number }) => `${count} ${count === 1 ? 'session' : 'sessions'} changed on this machine.`,
             unchangedSummary: 'Everything already matches the latest local metadata.',

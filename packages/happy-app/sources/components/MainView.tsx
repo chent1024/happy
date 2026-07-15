@@ -49,13 +49,6 @@ const styles = StyleSheet.create((theme) => ({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    emptyStateContainer: {
-        flex: 1,
-        flexBasis: 0,
-        flexGrow: 1,
-        flexDirection: 'column',
-        backgroundColor: theme.colors.groupped.background,
-    },
     emptyStateContentContainer: {
         flex: 1,
         flexBasis: 0,
@@ -218,21 +211,12 @@ export const MainView = React.memo(({ variant }: MainViewProps) => {
             );
         }
 
-        // Empty state
-        if (sessionListViewData.length === 0) {
-            return (
-                <View style={styles.sidebarContentContainer}>
-                    <View style={styles.emptyStateContainer}>
-                        <EmptySessionsTablet />
-                    </View>
-                </View>
-            );
-        }
-
         // Sessions list
         return (
             <View style={styles.sidebarContentContainer}>
-                <SessionsList />
+                <SessionsList
+                    emptyComponent={sessionListViewData.length === 0 ? <EmptySessionsTablet /> : undefined}
+                />
             </View>
         );
     }

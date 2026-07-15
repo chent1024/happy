@@ -864,6 +864,7 @@ export const zhHant: TranslationStructure = {
             ready: '就緒',
             offline: '離線',
             failed: '同步 Codex 工作階段失敗。',
+            partialFailed: ({ failed, machines }: { failed: number; machines: number }) => `已同步部分裝置的 Codex 工作階段，但 ${machines} 台裝置中有 ${failed} 台失敗。`,
             resultTitle: 'Codex 工作階段已同步',
             changedSummary: ({ count }: { count: number }) => `此裝置有 ${count} 個工作階段已變更。`,
             unchangedSummary: '已是最新本機中繼資料。',

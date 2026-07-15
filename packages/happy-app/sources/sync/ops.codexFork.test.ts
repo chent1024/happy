@@ -519,6 +519,89 @@ describe('codex fork ops', () => {
         }));
     });
 
+    it('syncs Codex sessions across machines and refreshes the Happy list once', async () => {
+        machineRPC.mockImplementation(async (machineId: string, method: string) => {
+            if (method !== 'codex-list-threads') {
+                throw new Error(`unexpected method ${method}`);
+            }
+            if (machineId === 'machine-2') {
+                return { type: 'error', errorMessage: 'Codex is unavailable' };
+            }
+            return {
+                type: 'success',
+                threads: [],
+                sourceThreadIds: [],
+                nextCursor: null,
+                backwardsCursor: null,
+            };
+        });
+
+        const { syncCodexSessionsForMachines } = await import('./ops');
+        const result = await syncCodexSessionsForMachines(['machine-1', 'machine-2']);
+
+        expect(result).toEqual({
+            type: 'partial',
+            machines: 2,
+            succeeded: 1,
+            failed: 1,
+            fetched: 0,
+            imported: 0,
+            refreshed: 0,
+            archived: 0,
+            skipped: 0,
+        });
+        expect(machineRPC).toHaveBeenCalledTimes(2);
+        expect(refreshSessions).toHaveBeenCalledTimes(1);
+    });
+
+    it('refreshes the Happy session list when there are no online machines to sync', async () => {
+        const { syncCodexSessionsForMachines } = await import('./ops');
+        const result = await syncCodexSessionsForMachines([]);
+
+        expect(result).toEqual({
+            type: 'success',
+            machines: 0,
+            succeeded: 0,
+            failed: 0,
+            fetched: 0,
+            imported: 0,
+            refreshed: 0,
+            archived: 0,
+            skipped: 0,
+        });
+        expect(machineRPC).not.toHaveBeenCalled();
+        expect(refreshSessions).toHaveBeenCalledTimes(1);
+    });
+
+    it('limits concurrent Codex machine syncs', async () => {
+        const pending = new Map<string, (value: unknown) => void>();
+        machineRPC.mockImplementation((machineId: string, method: string) => {
+            if (method !== 'codex-list-threads') {
+                throw new Error(`unexpected method ${method}`);
+            }
+            return new Promise((resolve) => pending.set(machineId, resolve));
+        });
+
+        const { syncCodexSessionsForMachines } = await import('./ops');
+        const syncPromise = syncCodexSessionsForMachines(['machine-1', 'machine-2', 'machine-3']);
+        await vi.waitFor(() => expect(machineRPC).toHaveBeenCalledTimes(2));
+
+        const emptyListResult = {
+            type: 'success',
+            threads: [],
+            sourceThreadIds: [],
+            nextCursor: null,
+            backwardsCursor: null,
+        };
+        pending.get('machine-1')?.(emptyListResult);
+        await vi.waitFor(() => expect(machineRPC).toHaveBeenCalledTimes(3));
+        pending.get('machine-2')?.(emptyListResult);
+        pending.get('machine-3')?.(emptyListResult);
+
+        await expect(syncPromise).resolves.toMatchObject({ type: 'success', machines: 3 });
+        expect(refreshSessions).toHaveBeenCalledTimes(1);
+    });
+
     it('imports nested Codex environment threads under the Codex project root for the same git origin', async () => {
         machineRPC.mockResolvedValue({
             type: 'success',
@@ -773,6 +856,58 @@ describe('codex fork ops', () => {
             }),
         ]);
         expect(refreshSessions).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not refresh an imported Codex session when its source metadata is unchanged', async () => {
+        storageState.sessions = {
+            existing: {
+                id: 'happy-existing',
+                active: false,
+                createdAt: 1700000005000,
+                updatedAt: 1700000005000,
+                activeAt: 1700000005000,
+                metadata: {
+                    path: '/tmp/project',
+                    host: 'macbook',
+                    name: 'stable title',
+                    summary: { text: 'stable title', updatedAt: 1700000005000 },
+                    machineId: 'machine-1',
+                    homeDir: '/Users/tester',
+                    happyHomeDir: '/Users/tester/.happy',
+                    codexThreadId: 'thread-existing',
+                    codexProject: true,
+                    flavor: 'codex',
+                    lifecycleState: 'imported',
+                    archivedBy: 'codex-session-sync',
+                },
+            },
+        };
+        machineRPC.mockResolvedValue({
+            type: 'success',
+            threads: [{
+                id: 'thread-existing',
+                cwd: '/tmp/project',
+                preview: 'stable title',
+                updatedAt: 1700000005000,
+                gitInfo: { originUrl: 'https://example.com/project.git' },
+            }],
+            nextCursor: null,
+            backwardsCursor: null,
+        });
+
+        const { syncCodexSessions } = await import('./ops');
+        const result = await syncCodexSessions('machine-1');
+
+        expect(result).toEqual({
+            type: 'success',
+            fetched: 1,
+            imported: 0,
+            refreshed: 0,
+            archived: 0,
+            skipped: 1,
+        });
+        expect(request).not.toHaveBeenCalled();
+        expect(refreshSessions).not.toHaveBeenCalled();
     });
 
     it('refreshes Codex account rate limits into local session agent state', async () => {

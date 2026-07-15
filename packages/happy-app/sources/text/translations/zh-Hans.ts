@@ -865,6 +865,7 @@ export const zhHans: TranslationStructure = {
             ready: '就绪',
             offline: '离线',
             failed: '同步 Codex 会话失败。',
+            partialFailed: ({ failed, machines }: { failed: number; machines: number }) => `已同步部分设备的 Codex 会话，但 ${machines} 台设备中有 ${failed} 台失败。`,
             resultTitle: 'Codex 会话已同步',
             changedSummary: ({ count }: { count: number }) => `此设备有 ${count} 个会话已变更。`,
             unchangedSummary: '已是最新本地元数据。',

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, FlatList } from 'react-native';
+import { View, FlatList, RefreshControl } from 'react-native';
 import { Text } from '@/components/StyledText';
 import { usePathname } from 'expo-router';
 import { SessionListViewItem, SessionRowData, useSessionListViewData } from '@/sync/storage';
@@ -12,6 +12,10 @@ import { requestReview } from '@/utils/requestReview';
 import { UpdateBanner } from './UpdateBanner';
 import { layout } from './layout';
 import { t } from '@/text';
+import { useCodexSessionListRefresh } from '@/hooks/useCodexSessionListRefresh';
+import { CodexSessionListRefreshStatus } from '@/hooks/codexSessionListRefresh';
+import { Ionicons } from '@expo/vector-icons';
+import { useUnistyles } from 'react-native-unistyles';
 
 type SessionsListDisplayItem =
     | { type: 'section-header'; section: 'projects' }
@@ -70,18 +74,49 @@ const stylesheet = StyleSheet.create((theme) => ({
         letterSpacing: 0.1,
         ...Typography.default('semiBold'),
     },
+    refreshStatus: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginHorizontal: 16,
+        marginTop: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        borderRadius: 10,
+    },
+    refreshStatusText: {
+        flex: 1,
+        fontSize: 13,
+        ...Typography.default(),
+    },
 }));
+
+function getRefreshStatusText(status: CodexSessionListRefreshStatus): string {
+    switch (status.type) {
+        case 'changed':
+            return `${t('codex.sync.resultTitle')}: ${t('codex.sync.imported')} ${status.imported} · ${t('codex.sync.updated')} ${status.refreshed} · ${t('codex.sync.archived')} ${status.archived}`;
+        case 'unchanged':
+            return t('codex.sync.unchangedSummary');
+        case 'partial':
+            return t('codex.sync.partialFailed', { failed: status.failed, machines: status.machines });
+        case 'error':
+            return t('codex.sync.failed');
+    }
+}
 
 interface SessionsListProps {
     activeSessionsCollapsed?: boolean;
+    emptyComponent?: React.ReactElement;
 }
 
-export function SessionsList({ activeSessionsCollapsed = false }: SessionsListProps) {
+export function SessionsList({ activeSessionsCollapsed = false, emptyComponent }: SessionsListProps) {
     const styles = stylesheet;
     const safeArea = useSafeAreaInsets();
     const data = useSessionListViewData();
     const pathname = usePathname();
     const isTablet = useIsTablet();
+    const { theme } = useUnistyles();
+    const { isRefreshing, refreshStatus, refresh } = useCodexSessionListRefresh();
     // Selection is derived once from pathname so the data array stays stable
     // across navigations. This keeps FlatList virtualization intact: only
     // the previously- and newly-selected rows re-render, instead of the
@@ -135,10 +170,36 @@ export function SessionsList({ activeSessionsCollapsed = false }: SessionsListPr
 
 
     const HeaderComponent = React.useCallback(() => {
+        const isFailure = refreshStatus?.type === 'error';
+        const isPartial = refreshStatus?.type === 'partial';
+        const color = isFailure
+            ? theme.colors.textDestructive
+            : isPartial
+                ? theme.colors.warning
+                : theme.colors.success;
         return (
-            <UpdateBanner />
+            <>
+                <UpdateBanner />
+                {refreshStatus && (
+                    <View
+                        style={[styles.refreshStatus, { backgroundColor: `${color}18` }]}
+                        accessible
+                        accessibilityRole="alert"
+                        accessibilityLiveRegion="polite"
+                    >
+                        <Ionicons
+                            name={isFailure ? 'alert-circle' : isPartial ? 'warning' : 'checkmark-circle'}
+                            size={18}
+                            color={color}
+                        />
+                        <Text style={[styles.refreshStatusText, { color }]}>
+                            {getRefreshStatusText(refreshStatus)}
+                        </Text>
+                    </View>
+                )}
+            </>
         );
-    }, []);
+    }, [refreshStatus, styles.refreshStatus, styles.refreshStatusText, theme.colors]);
 
     // Early return if no data yet — placed AFTER all hooks so the hook order is
     // identical on every render (Rules of Hooks). Returning before the
@@ -161,10 +222,18 @@ export function SessionsList({ activeSessionsCollapsed = false }: SessionsListPr
                     keyExtractor={keyExtractor}
                     extraData={`${selectedSessionId ?? ''}:${activeSessionsCollapsed ? 'collapsed' : 'expanded'}`}
                     contentContainerStyle={{
+                        flexGrow: 1,
                         paddingBottom: safeArea.bottom + 24,
                         maxWidth: layout.maxWidth,
                     }}
                     ListHeaderComponent={HeaderComponent}
+                    ListEmptyComponent={emptyComponent}
+                    refreshControl={(
+                        <RefreshControl
+                            refreshing={isRefreshing}
+                            onRefresh={refresh}
+                        />
+                    )}
                     windowSize={5}
                     maxToRenderPerBatch={8}
                     initialNumToRender={10}
