@@ -175,6 +175,7 @@ export default {
             require("./plugins/withAndroidSystemBarAppearance.js"),
             require("./plugins/withEinkCompatibility.js"),
             require("./plugins/withAndroidArm64Only.js"),
+            require("./plugins/withAndroidGradleDaemon.js"),
             [
                 "expo-router",
                 {
