@@ -28,6 +28,39 @@ describe('CosyVoiceProvider', () => {
         });
     });
 
+    it('sends the fixed reference prompt and clone sampling profile to Qwen Base', async () => {
+        let body: Record<string, unknown> = {};
+        vi.stubGlobal('fetch', vi.fn(async (_input: unknown, init?: RequestInit) => {
+            body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+            return new Response(Uint8Array.from([100, 0]), { status: 200 });
+        }));
+        const provider = new CosyVoiceProvider(
+            'http://127.0.0.1:8876',
+            'mlx-community/Qwen3-TTS-12Hz-1.7B-Base-4bit',
+            '这条风格指令不应传给 Base 模型。',
+            '/Users/test/.happy/tts-runtime/voices/magnetic-emotional.wav',
+            '夜色渐深，他停下脚步。',
+        );
+
+        await provider.synthesize({
+            text: '远处的灯火慢慢亮起。',
+            locale: 'zh-CN',
+            rate: 1,
+            voiceId: 'magnetic_emotional',
+        });
+
+        expect(body).toMatchObject({
+            model: 'mlx-community/Qwen3-TTS-12Hz-1.7B-Base-4bit',
+            ref_audio: '/Users/test/.happy/tts-runtime/voices/magnetic-emotional.wav',
+            ref_text: '夜色渐深，他停下脚步。',
+            temperature: 0.65,
+            top_p: 0.9,
+            top_k: 35,
+            repetition_penalty: 1.08,
+        });
+        expect(body).not.toHaveProperty('instruct');
+    });
+
     it('forwards the first Qwen PCM chunk before the sidecar stream completes', async () => {
         const bodies: string[] = [];
         let finishStream!: () => void;
@@ -56,22 +89,49 @@ describe('CosyVoiceProvider', () => {
             onChunk: ({ pcm16le }) => chunks.push(pcm16le),
         });
 
-        await vi.waitFor(() => expect(chunks).toEqual([Buffer.from([100, 0])]));
+        await vi.waitFor(() => expect(chunks).toEqual([Buffer.from([180, 0])]));
         finishStream();
         await synthesis;
 
-        expect(chunks).toEqual([Buffer.from([100, 0]), Buffer.from([101, 0])]);
+        expect(chunks).toEqual([Buffer.from([180, 0]), Buffer.from([182, 0])]);
         expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:8876/v1/audio/speech', expect.objectContaining({
             body: expect.stringContaining('"model":"mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit"'),
         }));
         expect(bodies).toHaveLength(1);
         expect(bodies[0]).toContain('"lang_code":"Chinese"');
-        expect(bodies[0]).toContain('"temperature":0.18');
+        expect(bodies[0]).toContain('"temperature":0.12');
         expect(bodies[0]).toContain('"top_p":1');
-        expect(bodies[0]).toContain('"top_k":50');
+        expect(bodies[0]).toContain('"top_k":30');
         expect(bodies[0]).toContain('"repetition_penalty":1.35');
         expect(bodies[0]).toContain('"stream":true');
         expect(bodies[0]).toContain('"streaming_interval":0.4');
+    });
+
+    it('applies the same 1.8x gain and -1 dB peak limit to streamed and buffered PCM', async () => {
+        const raw = Buffer.alloc(8);
+        [1_000, -1_000, 25_000, -25_000].forEach((sample, index) => raw.writeInt16LE(sample, index * 2));
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(Buffer.from(raw), { status: 200 })));
+        const provider = new CosyVoiceProvider(
+            'http://127.0.0.1:8876',
+            'mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit',
+        );
+        const streamed: Buffer[] = [];
+
+        await provider.synthesizeStream!({
+            text: '测试音量。', locale: 'zh-CN', rate: 1, voiceId: 'Uncle_Fu',
+            signal: new AbortController().signal,
+            onChunk: ({ pcm16le }) => streamed.push(pcm16le),
+        });
+        const buffered = await provider.synthesize({
+            text: '测试音量。', locale: 'zh-CN', rate: 1, voiceId: 'Uncle_Fu',
+        });
+
+        const samples = (pcm: Buffer) => Array.from(
+            { length: pcm.byteLength / 2 },
+            (_value, index) => pcm.readInt16LE(index * 2),
+        );
+        expect(samples(Buffer.concat(streamed))).toEqual([1_800, -1_800, 29_203, -29_203]);
+        expect(samples(buffered.pcm16le)).toEqual([1_800, -1_800, 29_203, -29_203]);
     });
 
     it('cancels the sidecar stream when downstream rejects the first PCM chunk', async () => {
@@ -159,7 +219,8 @@ describe('CosyVoiceProvider', () => {
         expect(bodies).toHaveLength(2);
         expect(bodies).toEqual(bodies.map((body) => expect.objectContaining({
             voice: 'Uncle_Fu',
-            temperature: 0.18,
+            temperature: 0.12,
+            top_k: 30,
             repetition_penalty: 1.35,
         })));
     });
@@ -273,6 +334,34 @@ describe('CosyVoiceProvider', () => {
         })).rejects.toThrow(/inaudible/i);
     });
 
+    it('recovers an inaudible Qwen result by buffering two shorter halves', async () => {
+        const originalText = '甲乙丙丁戊己';
+        const bodies: Array<{ input: string }> = [];
+        vi.stubGlobal('fetch', vi.fn(async (_input: unknown, init?: RequestInit) => {
+            bodies.push(JSON.parse(String(init?.body)) as { input: string });
+            return new Response(
+                bodies.length === 1 ? Buffer.alloc(48_000) : Buffer.from([100, 0]),
+                { status: 200 },
+            );
+        }));
+        const provider = new CosyVoiceProvider(
+            'http://127.0.0.1:8876',
+            'mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit',
+        );
+
+        await expect(provider.synthesize({
+            text: originalText, locale: 'zh-CN', rate: 1, voiceId: 'Uncle_Fu',
+        })).resolves.toEqual({
+            sampleRateHz: 24_000,
+            pcm16le: Buffer.from([180, 0, 180, 0]),
+        });
+        expect(bodies.map((body) => body.input)).toEqual([
+            originalText,
+            originalText.slice(0, 3),
+            originalText.slice(3),
+        ]);
+    });
+
     it('recovers a deterministic generation ceiling by buffering two shorter halves before playback', async () => {
         const originalText = '甲乙丙丁戊己';
         const ceilingPcm = Buffer.alloc(96 * 1_920 * 2);
@@ -295,7 +384,7 @@ describe('CosyVoiceProvider', () => {
             text: originalText, locale: 'zh-CN', rate: 1, voiceId: 'Eric',
         })).resolves.toEqual({
             sampleRateHz: 24_000,
-            pcm16le: Buffer.from([100, 0, 100, 0]),
+            pcm16le: Buffer.from([180, 0, 180, 0]),
         });
         expect(bodies).toEqual([
             { input: originalText, max_tokens: 96, repetition_penalty: 1.35 },
@@ -345,7 +434,7 @@ describe('CosyVoiceProvider', () => {
             text, locale: 'zh-CN', rate: 1, voiceId: 'Eric',
         })).resolves.toEqual({
             sampleRateHz: 24_000,
-            pcm16le: Buffer.from([1, 2, 1, 2]),
+            pcm16le: Buffer.from([155, 3, 155, 3]),
         });
 
         expect(bodies).toHaveLength(3);
@@ -376,7 +465,7 @@ describe('CosyVoiceProvider', () => {
             text, locale: 'zh-CN', rate: 1, voiceId: 'Eric',
         })).resolves.toMatchObject({
             sampleRateHz: 24_000,
-            pcm16le: Buffer.from([100, 0, 100, 0, 100, 0]),
+            pcm16le: Buffer.from([180, 0, 180, 0, 180, 0]),
         });
         expect(requestedInputs).toEqual([
             text,

@@ -50,6 +50,8 @@ export interface Settings {
     url: string
     model: string
     instruct?: string
+    refAudio?: string
+    refText?: string
   }
 }
 

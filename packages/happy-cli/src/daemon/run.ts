@@ -68,8 +68,12 @@ export const qwenNarrationConfiguration: TtsServiceConfiguration = {
   version: 1,
   enabled: true,
   provider: 'cosyvoice',
-  narratorProfileId: 'serena',
-  voiceProfiles: [{ id: 'serena', label: '温柔温暖中文女声旁白', providerVoiceId: 'Serena' }],
+  narratorProfileId: 'magnetic_emotional',
+  voiceProfiles: [{
+    id: 'magnetic_emotional',
+    label: '磁性高情感中文男声旁白',
+    providerVoiceId: 'magnetic_emotional',
+  }],
   roleRules: [],
   cache: { maxEntries: 64, maxBytes: 64 * 1024 * 1024 },
 };
@@ -1017,6 +1021,8 @@ export async function startDaemon(): Promise<void> {
         ttsSidecar?.url,
         ttsSidecar?.model,
         ttsSidecar?.instruct,
+        ttsSidecar?.refAudio,
+        ttsSidecar?.refText,
       ),
       {
         onStreamDiagnostic: diagnostic => {

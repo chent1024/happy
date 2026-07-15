@@ -156,6 +156,25 @@ describe('TtsManager stream contract', () => {
         await expect(manager.runtimeStatus(configuration)).resolves.toMatchObject({ diagnostics: { preAudioRetries: 1 } });
     });
 
+    it('uses one bounded buffered recovery after an inaudible stream attempt', async () => {
+        const stream = vi.fn(async () => {
+            throw new Error('TTS stream produced a silent pre-audio buffer');
+        });
+        const buffered = vi.fn(async () => ({ sampleRateHz: 24_000, pcm16le: audiblePcm(2_400) }));
+        const emit = vi.fn();
+        const manager = new TtsManager(provider({ synthesizeStream: stream, synthesize: buffered }));
+
+        await expect(manager.synthesizeStream(configuration, request, emit, new AbortController().signal))
+            .resolves.toEqual({ type: 'success' });
+
+        expect(stream).toHaveBeenCalledOnce();
+        expect(buffered).toHaveBeenCalledOnce();
+        expect(emit).toHaveBeenLastCalledWith({ type: 'end' });
+        await expect(manager.runtimeStatus(configuration)).resolves.toMatchObject({
+            diagnostics: { preAudioRetries: 1, lastFailure: null },
+        });
+    });
+
     it('allows the provider to finish after audible PCM has started', async () => {
         vi.useFakeTimers();
         try {
@@ -188,7 +207,10 @@ describe('TtsManager stream contract', () => {
         const stream = vi.fn(async () => {
             throw new Error('Qwen3 sidecar response reached its generation ceiling');
         });
-        const manager = new TtsManager(provider({ synthesizeStream: stream }), { onStreamDiagnostic });
+        const buffered = vi.fn(async () => {
+            throw new Error('Qwen3 sidecar response reached its generation ceiling');
+        });
+        const manager = new TtsManager(provider({ synthesizeStream: stream, synthesize: buffered }), { onStreamDiagnostic });
 
         await expect(manager.synthesizeStream(configuration, request, vi.fn(), new AbortController().signal))
             .resolves.toEqual({ type: 'error', code: 'provider_error' });

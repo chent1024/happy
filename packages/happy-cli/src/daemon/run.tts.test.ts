@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { qwenNarrationConfiguration } from './run';
 
 describe('daemon Qwen narration configuration', () => {
-  it('uses Serena as the active narrator voice', () => {
+  it('uses the fixed magnetic emotional clone as the active narrator voice', () => {
     expect(qwenNarrationConfiguration).toMatchObject({
-      narratorProfileId: 'serena',
+      narratorProfileId: 'magnetic_emotional',
       voiceProfiles: [
         {
-          id: 'serena',
-          label: '温柔温暖中文女声旁白',
-          providerVoiceId: 'Serena',
+          id: 'magnetic_emotional',
+          label: '磁性高情感中文男声旁白',
+          providerVoiceId: 'magnetic_emotional',
         },
       ],
     });

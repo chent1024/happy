@@ -19,6 +19,8 @@ export type LocalTtsProvider = {
         locale: string;
         rate: number;
         voiceId: string;
+        attempt?: number;
+        signal?: AbortSignal;
     }): Promise<{
         sampleRateHz: number;
         pcm16le: Buffer;
@@ -326,6 +328,7 @@ export class TtsManager {
         }
         try {
             const providerRequest = { text, locale: request.locale, rate: request.rate, voiceId: resolved.voiceId };
+            let recoverWithBufferedFallback = false;
             for (let attempt = 0; attempt <= 1; attempt++) {
                 attemptStartedAt = Date.now();
                 bufferedPreAudio = Buffer.alloc(0);
@@ -340,7 +343,13 @@ export class TtsManager {
                 if (streamController.signal.aborted) abortAttempt();
                 else streamController.signal.addEventListener('abort', abortOuterStream, { once: true });
                 try {
-                    if (this.provider.synthesizeStream) {
+                    if (recoverWithBufferedFallback) {
+                        push(await this.provider.synthesize({
+                            ...providerRequest,
+                            attempt: attempt + 1,
+                            signal: attemptController.signal,
+                        }));
+                    } else if (this.provider.synthesizeStream) {
                         await this.provider.synthesizeStream({
                             ...providerRequest,
                             attempt: attempt + 1,
@@ -371,9 +380,11 @@ export class TtsManager {
                         return { type: 'success' };
                     }
                 } catch (error) {
+                    const outcome = classifyProviderFailure(error, signal.aborted, timedOut);
+                    recoverWithBufferedFallback = outcome === 'inaudible' || outcome === 'generation_ceiling';
                     this.reportStreamDiagnostic({
                         phase: 'provider_attempt',
-                        outcome: classifyProviderFailure(error, signal.aborted, timedOut),
+                        outcome,
                         attempt: attempt + 1,
                         bytes,
                         elapsedMs: Date.now() - attemptStartedAt,

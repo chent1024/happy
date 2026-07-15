@@ -7,15 +7,26 @@ const MINIMUM_AUDIBLE_MEAN_ABSOLUTE_SAMPLE = 32;
 // Each Android utterance is a separate model request. A low temperature adds
 // gentle emotional variation while keeping the selected speaker timbre stable
 // across adjacent narration fragments.
-const QWEN3_TEMPERATURE = 0.18;
+const QWEN3_TEMPERATURE = 0.12;
 const QWEN3_TOP_P = 1.0;
-const QWEN3_TOP_K = 50;
+const QWEN3_TOP_K = 30;
 const QWEN3_STREAMING_INTERVAL_SECONDS = 0.4;
 // The MLX server default is 1.0, but the Qwen3 model itself defaults to 1.05.
 // Repeated local smokes found that 1.0/1.05 can deterministically run to the
 // token ceiling for ordinary Chinese sentences; 1.35 adds margin for short
 // fragments and is kept identical across retries to avoid audible drift.
 const QWEN3_REPETITION_PENALTY = 1.35;
+// Voice cloning already anchors timbre through a fixed reference prompt. Use
+// the auditioned sampling profile so the selected expressive delivery remains
+// audible without changing the reference voice between sentences.
+const QWEN3_CLONE_TEMPERATURE = 0.65;
+const QWEN3_CLONE_TOP_P = 0.9;
+const QWEN3_CLONE_TOP_K = 35;
+const QWEN3_CLONE_REPETITION_PENALTY = 1.08;
+// Qwen output is noticeably quieter than Android media at the same system
+// volume. Raise PCM uniformly while retaining 1 dB of peak margin.
+const QWEN3_OUTPUT_GAIN = 1.8;
+const PCM16_MINUS_ONE_DB_PEAK = Math.floor(32_767 * Math.pow(10, -1 / 20));
 const QWEN3_PCM16_BYTES_PER_ACOUSTIC_TOKEN = 1_920 * 2;
 const MAXIMUM_QWEN_SHORT_TEXT_LENGTH = 4;
 const MAXIMUM_QWEN_SHORT_TEXT_TOKENS = 72;
@@ -34,6 +45,7 @@ type SynthesisInput = {
 };
 
 class QwenGenerationCeilingError extends Error {}
+class QwenInaudibleGenerationError extends Error {}
 
 /**
  * Adapter for a user-installed CosyVoice-compatible sidecar. It accepts only
@@ -44,15 +56,24 @@ export class CosyVoiceProvider implements LocalTtsProvider {
     private readonly baseUrl: string | null;
     private readonly mlxModelId: string | null;
     private readonly mlxInstruct: string | null;
+    private readonly mlxRefAudio: string | null;
+    private readonly mlxRefText: string | null;
 
     constructor(
         baseUrl = process.env.HAPPY_TTS_COSYVOICE_URL,
         mlxModelId = process.env.HAPPY_TTS_MLX_MODEL,
         mlxInstruct = process.env.HAPPY_TTS_MLX_INSTRUCT,
+        mlxRefAudio = process.env.HAPPY_TTS_MLX_REF_AUDIO,
+        mlxRefText = process.env.HAPPY_TTS_MLX_REF_TEXT,
     ) {
         this.baseUrl = baseUrl ? normalizeLoopbackUrl(baseUrl) : null;
         this.mlxModelId = normalizeOptionalValue(mlxModelId);
         this.mlxInstruct = normalizeOptionalValue(mlxInstruct);
+        this.mlxRefAudio = normalizeOptionalValue(mlxRefAudio);
+        this.mlxRefText = normalizeOptionalValue(mlxRefText);
+        if (Boolean(this.mlxRefAudio) !== Boolean(this.mlxRefText)) {
+            throw new Error('Qwen voice cloning requires both refAudio and refText');
+        }
     }
 
     async status(): Promise<{
@@ -113,7 +134,8 @@ export class CosyVoiceProvider implements LocalTtsProvider {
         try {
             return await this.synthesizeOnce(request);
         } catch (error) {
-            if (!(error instanceof QwenGenerationCeilingError)) throw error;
+            if (!(error instanceof QwenGenerationCeilingError)
+                && !(error instanceof QwenInaudibleGenerationError)) throw error;
             if (depth >= MAXIMUM_QWEN_FALLBACK_DEPTH) throw error;
             const parts = splitQwenFallbackText(request.text);
             if (!parts) throw error;
@@ -152,6 +174,9 @@ export class CosyVoiceProvider implements LocalTtsProvider {
             throw new Error('CosyVoice response is not complete PCM16');
         }
         if (!hasAudiblePcm(pcm16le)) {
+            if (this.mlxModelId && isQwen3TtsModel(this.mlxModelId)) {
+                throw new QwenInaudibleGenerationError('CosyVoice sidecar returned inaudible PCM16');
+            }
             throw new Error('CosyVoice sidecar returned inaudible PCM16');
         }
         if (this.mlxModelId && isQwen3TtsModel(this.mlxModelId)) {
@@ -161,7 +186,12 @@ export class CosyVoiceProvider implements LocalTtsProvider {
                 throw new QwenGenerationCeilingError('Qwen3 sidecar response reached its generation ceiling');
             }
         }
-        return { sampleRateHz, pcm16le };
+        return {
+            sampleRateHz,
+            pcm16le: this.mlxModelId && isQwen3TtsModel(this.mlxModelId)
+                ? applyQwenOutputGain(pcm16le)
+                : pcm16le,
+        };
     }
 
     async synthesizeStream(request: {
@@ -218,7 +248,10 @@ export class CosyVoiceProvider implements LocalTtsProvider {
                     absoluteSampleSum += Math.abs(pcm16le.readInt16LE(offset));
                     sampleCount++;
                 }
-                request.onChunk({ sampleRateHz, pcm16le });
+                request.onChunk({
+                    sampleRateHz,
+                    pcm16le: applyQwenOutputGain(pcm16le),
+                });
             }
         } finally {
             if (!streamCompleted) await reader.cancel().catch(() => undefined);
@@ -238,6 +271,7 @@ export class CosyVoiceProvider implements LocalTtsProvider {
     }
 
     private requestBody(request: SynthesisInput, stream = false) {
+        const sampling = qwenSamplingProfile(this.mlxModelId);
         return this.mlxModelId
             ? {
                 model: this.mlxModelId,
@@ -249,10 +283,7 @@ export class CosyVoiceProvider implements LocalTtsProvider {
                 voice: request.voiceId,
                 ...(isQwen3TtsModel(this.mlxModelId)
                     ? {
-                        temperature: QWEN3_TEMPERATURE,
-                        top_p: QWEN3_TOP_P,
-                        top_k: QWEN3_TOP_K,
-                        repetition_penalty: QWEN3_REPETITION_PENALTY,
+                        ...sampling,
                         ...(stream
                             ? {
                                 stream: true,
@@ -260,6 +291,9 @@ export class CosyVoiceProvider implements LocalTtsProvider {
                             }
                             : {}),
                     }
+                    : {}),
+                ...(this.mlxRefAudio && this.mlxRefText
+                    ? { ref_audio: this.mlxRefAudio, ref_text: this.mlxRefText }
                     : {}),
                 ...(shouldSendMlxInstruct(this.mlxModelId, this.mlxInstruct)
                     ? { instruct: this.mlxInstruct }
@@ -269,6 +303,22 @@ export class CosyVoiceProvider implements LocalTtsProvider {
             }
             : { input: request.text, locale: request.locale, speed: request.rate, voice: request.voiceId };
     }
+}
+
+function qwenSamplingProfile(modelId: string | null) {
+    return isQwen3BaseModel(modelId)
+        ? {
+            temperature: QWEN3_CLONE_TEMPERATURE,
+            top_p: QWEN3_CLONE_TOP_P,
+            top_k: QWEN3_CLONE_TOP_K,
+            repetition_penalty: QWEN3_CLONE_REPETITION_PENALTY,
+        }
+        : {
+            temperature: QWEN3_TEMPERATURE,
+            top_p: QWEN3_TOP_P,
+            top_k: QWEN3_TOP_K,
+            repetition_penalty: QWEN3_REPETITION_PENALTY,
+        };
 }
 
 function splitQwenFallbackText(text: string): [string, string] | null {
@@ -328,8 +378,15 @@ function isQwen3TtsModel(modelId: string): boolean {
     return /Qwen3-TTS/iu.test(modelId);
 }
 
+function isQwen3BaseModel(modelId: string | null): boolean {
+    return /Qwen3-TTS-12Hz-(?:0\.6B|1\.7B)-Base(?:-|$)/iu.test(modelId ?? '');
+}
+
 function shouldSendMlxInstruct(modelId: string | null, instruct: string | null): instruct is string {
     if (!instruct) return false;
+    // Base checkpoints use ref_audio/ref_text ICL cloning and do not implement
+    // VoiceDesign or CustomVoice style instructions.
+    if (isQwen3BaseModel(modelId)) return false;
     // MLX Audio's 0.6B CustomVoice checkpoints accept the field but can emit
     // a long silent PCM response when it is present.  Their predefined voices
     // remain usable without style control; 1.7B CustomVoice retains it.
@@ -364,4 +421,16 @@ function hasAudiblePcm(pcm16le: Buffer): boolean {
         absoluteSum += Math.abs(pcm16le.readInt16LE(index));
     }
     return absoluteSum / (pcm16le.length / 2) >= MINIMUM_AUDIBLE_MEAN_ABSOLUTE_SAMPLE;
+}
+
+function applyQwenOutputGain(pcm16le: Buffer): Buffer {
+    const amplified = Buffer.allocUnsafe(pcm16le.byteLength);
+    for (let offset = 0; offset < pcm16le.byteLength; offset += 2) {
+        const gained = Math.round(pcm16le.readInt16LE(offset) * QWEN3_OUTPUT_GAIN);
+        amplified.writeInt16LE(
+            Math.max(-PCM16_MINUS_ONE_DB_PEAK, Math.min(PCM16_MINUS_ONE_DB_PEAK, gained)),
+            offset,
+        );
+    }
+    return amplified;
 }
