@@ -24,6 +24,7 @@ import { ApiClient } from './api/api'
 import { runDoctorCommand, runDoctorDaemon } from './ui/doctor'
 import { listDaemonSessions, stopDaemonSession } from './daemon/controlClient'
 import { handleAuthCommand } from './commands/auth'
+import { handleTtsCommand } from './commands/tts'
 import { handleConnectCommand } from './commands/connect'
 import { handleSandboxCommand } from './commands/sandbox'
 import { handleServerCommand } from './commands/server'
@@ -141,6 +142,14 @@ Conversation history is preserved on the server, but in-flight tool calls are in
       if (process.env.DEBUG) {
         console.error(error)
       }
+      process.exit(1)
+    }
+    return;
+  } else if (subcommand === 'tts') {
+    try {
+      await handleTtsCommand(args.slice(1));
+    } catch (error) {
+      console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error')
       process.exit(1)
     }
     return;

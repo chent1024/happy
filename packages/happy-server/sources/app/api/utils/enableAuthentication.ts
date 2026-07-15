@@ -3,7 +3,7 @@ import { log } from "@/utils/log";
 import { auth } from "@/app/auth/auth";
 
 export function enableAuthentication(app: Fastify) {
-    app.decorate('authenticate', async function (request: any, reply: any) {
+    const verify = async (request: any, reply: any) => {
         try {
             const authHeader = request.headers.authorization;
             // Never include a bearer value (or its prefix) in logs. This route
@@ -20,11 +20,30 @@ export function enableAuthentication(app: Fastify) {
                 log({ module: 'auth-decorator' }, `Auth failed - invalid token`);
                 return reply.code(401).send({ error: 'Invalid token' });
             }
-
-            log({ module: 'auth-decorator' }, `Auth success - user: ${verified.userId}`);
-            request.userId = verified.userId;
+            return verified;
         } catch (error) {
             return reply.code(401).send({ error: 'Authentication failed' });
         }
+    };
+
+    app.decorate('authenticate', async function (request: any, reply: any) {
+        const verified = await verify(request, reply);
+        if (!verified || reply.sent) return;
+        if (verified.extras?.purpose === 'tts-client') {
+            return reply.code(403).send({ error: 'Token is restricted to TTS' });
+        }
+        log({ module: 'auth-decorator' }, `Auth success - user: ${verified.userId}`);
+        request.userId = verified.userId;
+    });
+
+    app.decorate('authenticateTts', async function (request: any, reply: any) {
+        const verified = await verify(request, reply);
+        if (!verified || reply.sent) return;
+        if (verified.extras?.purpose === 'tts-client'
+            && verified.extras.machineId !== request.params?.id) {
+            return reply.code(403).send({ error: 'Token is not valid for this machine' });
+        }
+        log({ module: 'auth-decorator' }, `TTS auth success - user: ${verified.userId}`);
+        request.userId = verified.userId;
     });
 }

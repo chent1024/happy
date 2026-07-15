@@ -5,13 +5,14 @@ import type { Fastify } from '../types';
 import { ttsRelay, type TtsRelay } from '../socket/ttsRelay';
 
 /**
- * Internal endpoint used exclusively by Happy's Android system TTS service.
- * It authenticates with the normal Happy bearer token; Legado never receives
- * this URL or credential.
+ * Authenticated endpoint shared by trusted TTS clients, including Happy's
+ * Android system service and the embedded yuedu narration engine. Each client
+ * keeps either a normal Happy token or a machine-bound TTS token in
+ * app-private encrypted storage.
  */
 export function ttsRoutes(app: Fastify, relay: TtsRelay = ttsRelay) {
     app.get('/v1/machines/:id/tts/status', {
-        preHandler: app.authenticate,
+        preHandler: app.authenticateTts,
         schema: { params: z.object({ id: z.string().min(1) }) },
     }, async (request, reply) => {
         const machine = await db.machine.findFirst({
@@ -27,7 +28,7 @@ export function ttsRoutes(app: Fastify, relay: TtsRelay = ttsRelay) {
     });
 
     app.post('/v1/machines/:id/tts/stream', {
-        preHandler: app.authenticate,
+        preHandler: app.authenticateTts,
         schema: {
             params: z.object({ id: z.string().min(1) }),
             body: TtsSynthesisRequestSchema,
@@ -68,7 +69,7 @@ export function ttsRoutes(app: Fastify, relay: TtsRelay = ttsRelay) {
     });
 
     app.post('/v1/machines/:id/tts', {
-        preHandler: app.authenticate,
+        preHandler: app.authenticateTts,
         schema: {
             params: z.object({ id: z.string().min(1) }),
             body: TtsSynthesisRequestSchema,
