@@ -4,10 +4,10 @@ const HEALTH_TIMEOUT_MS = 2_000;
 const SYNTHESIS_TIMEOUT_MS = 90_000;
 const DEFAULT_SAMPLE_RATE_HZ = 24_000;
 const MINIMUM_AUDIBLE_MEAN_ABSOLUTE_SAMPLE = 32;
-// Each Android utterance is a separate model request. Greedy decoding keeps the
-// selected speaker timbre stable across adjacent sentences instead of drawing
-// a new high-temperature rendition for every fragment.
-const QWEN3_TEMPERATURE = 0;
+// Each Android utterance is a separate model request. A low temperature adds
+// gentle emotional variation while keeping the selected speaker timbre stable
+// across adjacent narration fragments.
+const QWEN3_TEMPERATURE = 0.18;
 const QWEN3_TOP_P = 1.0;
 const QWEN3_TOP_K = 50;
 const QWEN3_STREAMING_INTERVAL_SECONDS = 0.4;

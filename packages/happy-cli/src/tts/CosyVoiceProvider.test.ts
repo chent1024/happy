@@ -66,7 +66,7 @@ describe('CosyVoiceProvider', () => {
         }));
         expect(bodies).toHaveLength(1);
         expect(bodies[0]).toContain('"lang_code":"Chinese"');
-        expect(bodies[0]).toContain('"temperature":0');
+        expect(bodies[0]).toContain('"temperature":0.18');
         expect(bodies[0]).toContain('"top_p":1');
         expect(bodies[0]).toContain('"top_k":50');
         expect(bodies[0]).toContain('"repetition_penalty":1.35');
@@ -138,7 +138,7 @@ describe('CosyVoiceProvider', () => {
         });
     });
 
-    it('uses deterministic speaker sampling for adjacent narration sentences', async () => {
+    it('uses the same low-emotion sampling profile for adjacent narration sentences', async () => {
         const bodies: Array<Record<string, unknown>> = [];
         vi.stubGlobal('fetch', vi.fn(async (_input: unknown, init?: RequestInit) => {
             bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
@@ -159,7 +159,7 @@ describe('CosyVoiceProvider', () => {
         expect(bodies).toHaveLength(2);
         expect(bodies).toEqual(bodies.map((body) => expect.objectContaining({
             voice: 'Uncle_Fu',
-            temperature: 0,
+            temperature: 0.18,
             repetition_penalty: 1.35,
         })));
     });

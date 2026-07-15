@@ -57,6 +57,7 @@ export type TtsStreamDiagnostic = {
     attempt: number;
     bytes: number;
     elapsedMs: number;
+    firstAudioMs: number | null;
 };
 
 type CachedAudio = {
@@ -216,6 +217,31 @@ export class TtsManager {
         if (!text) return this.failure('request_too_large');
 
         const resolved = resolveVoice(configuration, text);
+        const key = cacheKey({
+            text,
+            locale: request.locale,
+            rate: request.rate,
+            voiceId: resolved.voiceId,
+            roleResolution: resolved.roleResolution,
+            provider: providerStatus.provider,
+            modelRevision: providerStatus.modelRevision,
+        });
+        const cached = this.readCache(key);
+        if (cached) {
+            if (signal.aborted) return this.failure('machine_offline');
+            emit({ type: 'start', sampleRateHz: cached.sampleRateHz });
+            const pcm = Buffer.from(cached.pcm16leBase64, 'base64');
+            let cachedSequence = 0;
+            for (let offset = 0; offset < pcm.byteLength; offset += 96 * 1024) {
+                emit({
+                    type: 'chunk',
+                    sequence: cachedSequence++,
+                    pcm16leBase64: pcm.subarray(offset, offset + 96 * 1024).toString('base64'),
+                });
+            }
+            emit({ type: 'end' });
+            return { type: 'success' };
+        }
         const streamController = new AbortController();
         const abortStream = () => streamController.abort();
         let timedOut = false;
@@ -231,6 +257,9 @@ export class TtsManager {
         let bytes = 0;
         let bufferedPreAudio = Buffer.alloc(0);
         let bufferedSampleRateHz: number | null = null;
+        let emittedPcmChunks: Buffer[] = [];
+        let attemptStartedAt = 0;
+        let firstAudioMs: number | null = null;
         let cancelProviderAttempt: (() => void) | undefined;
         const startCallback = (sampleRateHz: number) => {
             if (callbackStarted) {
@@ -246,8 +275,10 @@ export class TtsManager {
         const emitPcm = (audio: { sampleRateHz: number; pcm16le: Buffer }, audible = true) => {
             startCallback(audio.sampleRateHz);
             if (audible) {
+                if (!audiblePcmEmitted) firstAudioMs = Date.now() - attemptStartedAt;
                 audiblePcmEmitted = true;
             }
+            emittedPcmChunks.push(audio.pcm16le);
             for (let offset = 0; offset < audio.pcm16le.byteLength; offset += 96 * 1024) {
                 emit({
                     type: 'chunk',
@@ -296,9 +327,11 @@ export class TtsManager {
         try {
             const providerRequest = { text, locale: request.locale, rate: request.rate, voiceId: resolved.voiceId };
             for (let attempt = 0; attempt <= 1; attempt++) {
-                const attemptStartedAt = Date.now();
+                attemptStartedAt = Date.now();
                 bufferedPreAudio = Buffer.alloc(0);
                 bufferedSampleRateHz = null;
+                emittedPcmChunks = [];
+                firstAudioMs = null;
                 bytes = 0;
                 const attemptController = new AbortController();
                 const abortAttempt = () => attemptController.abort();
@@ -325,7 +358,14 @@ export class TtsManager {
                             attempt: attempt + 1,
                             bytes,
                             elapsedMs: Date.now() - attemptStartedAt,
+                            firstAudioMs,
                         });
+                        const pcm16le = Buffer.concat(emittedPcmChunks);
+                        this.writeCache(key, {
+                            sampleRateHz: callbackSampleRateHz!,
+                            pcm16leBase64: pcm16le.toString('base64'),
+                            bytes: pcm16le.byteLength,
+                        }, configuration);
                         this.lastError = null;
                         emit({ type: 'end' });
                         return { type: 'success' };
@@ -337,6 +377,7 @@ export class TtsManager {
                         attempt: attempt + 1,
                         bytes,
                         elapsedMs: Date.now() - attemptStartedAt,
+                        firstAudioMs,
                     });
                     if (audiblePcmEmitted) return this.failure(signal.aborted ? 'machine_offline' : timedOut ? 'timeout' : 'provider_error');
                     if (signal.aborted || timedOut) return this.failure(signal.aborted ? 'machine_offline' : 'timeout');

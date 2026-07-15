@@ -45,6 +45,25 @@ describe('TtsManager stream contract', () => {
         expect(emit).toHaveBeenLastCalledWith({ type: 'end' });
     });
 
+    it('caches a completed stream and replays it without invoking the provider again', async () => {
+        const stream = vi.fn(async ({ onChunk }: Parameters<NonNullable<LocalTtsProvider['synthesizeStream']>>[0]) => {
+            onChunk({ sampleRateHz: 24_000, pcm16le: audiblePcm() });
+        });
+        const manager = new TtsManager(provider({ synthesizeStream: stream }));
+
+        await manager.synthesizeStream(configuration, request, vi.fn(), new AbortController().signal);
+        const replay = vi.fn();
+        await expect(manager.synthesizeStream(configuration, request, replay, new AbortController().signal))
+            .resolves.toEqual({ type: 'success' });
+
+        expect(stream).toHaveBeenCalledOnce();
+        expect(replay).toHaveBeenCalledWith({ type: 'start', sampleRateHz: 24_000 });
+        expect(replay).toHaveBeenLastCalledWith({ type: 'end' });
+        await expect(manager.runtimeStatus(configuration)).resolves.toMatchObject({
+            cache: { entries: 1, bytes: audiblePcm().byteLength },
+        });
+    });
+
     it('does not emit a synthetic silent chunk while full-fragment audio is still being prepared', async () => {
         let releaseProvider!: () => void;
         const providerReady = new Promise<void>((resolve) => { releaseProvider = resolve; });
@@ -181,10 +200,32 @@ describe('TtsManager stream contract', () => {
             attempt: 2,
             bytes: 0,
             elapsedMs: expect.any(Number),
+            firstAudioMs: null,
         });
         const serialized = JSON.stringify(onStreamDiagnostic.mock.calls);
         expect(serialized).not.toContain(request.text);
         expect(serialized).not.toContain(request.requestId);
+    });
+
+    it('reports time to first audible PCM for successful streams', async () => {
+        vi.useFakeTimers();
+        try {
+            const onStreamDiagnostic = vi.fn();
+            const stream = vi.fn(async ({ onChunk }: Parameters<NonNullable<LocalTtsProvider['synthesizeStream']>>[0]) => {
+                await new Promise((resolve) => setTimeout(resolve, 725));
+                onChunk({ sampleRateHz: 24_000, pcm16le: audiblePcm() });
+            });
+            const manager = new TtsManager(provider({ synthesizeStream: stream }), { onStreamDiagnostic });
+            const pending = manager.synthesizeStream(configuration, request, vi.fn(), new AbortController().signal);
+            await vi.advanceTimersByTimeAsync(725);
+            await pending;
+
+            expect(onStreamDiagnostic).toHaveBeenLastCalledWith(expect.objectContaining({
+                outcome: 'success', firstAudioMs: 725,
+            }));
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('does not retry after audible PCM and never emits end after that error', async () => {
