@@ -11,6 +11,9 @@ export function resolveSendMessageDeliveryIntent(opts: {
     }
 
     if (opts.explicitIntent !== undefined) {
+        if (opts.explicitIntent === 'steer' && !opts.sessionThinking) {
+            return undefined;
+        }
         return opts.explicitIntent;
     }
 

@@ -1026,7 +1026,7 @@ describe('codex fork ops', () => {
         ]);
     });
 
-    it('skips new Codex history threads that are not tied to a project', async () => {
+    it('syncs a recent non-Git Codex project using its working directory', async () => {
         machineRPC.mockResolvedValue({
             type: 'success',
             threads: [
@@ -1042,6 +1042,13 @@ describe('codex fork ops', () => {
                     cwd: '/Users/tester/Documents/Codex/2026-06-29/nam',
                     preview: 'Scratch',
                     updatedAt: 1700000008000,
+                    gitInfo: null,
+                },
+                {
+                    id: 'thread-missing-cwd',
+                    path: '/Users/tester/.codex/sessions/rollout-thread-missing-cwd.jsonl',
+                    preview: 'Missing cwd',
+                    updatedAt: 1700000007000,
                     gitInfo: null,
                 },
             ],
@@ -1068,25 +1075,29 @@ describe('codex fork ops', () => {
 
         expect(result).toEqual({
             type: 'success',
-            fetched: 2,
-            imported: 1,
+            fetched: 3,
+            imported: 2,
             refreshed: 0,
             archived: 0,
             skipped: 1,
         });
-        expect(request).toHaveBeenCalledTimes(1);
-        expect(JSON.parse(request.mock.calls[0][1].body).tag).toBe('codex:machine-1:thread-project');
-        expect(applySessions).toHaveBeenCalledWith([
+        expect(request).toHaveBeenCalledTimes(2);
+        expect(request.mock.calls.map((call) => JSON.parse(call[1].body).tag)).toEqual([
+            'codex:machine-1:thread-project',
+            'codex:machine-1:thread-scratch',
+        ]);
+        expect(applySessions.mock.calls.flatMap((call) => call[0])).toEqual(expect.arrayContaining([
             expect.objectContaining({
                 metadata: expect.objectContaining({
-                    codexThreadId: 'thread-project',
+                    codexThreadId: 'thread-scratch',
                     codexProject: true,
+                    path: '/Users/tester/Documents/Codex/2026-06-29/nam',
                 }),
             }),
-        ]);
+        ]));
     });
 
-    it('refreshes existing non-project Codex imports with a hidden project marker', async () => {
+    it('promotes an existing non-Git Codex import into the project list', async () => {
         storageState.sessions = {
             existing: {
                 id: 'happy-scratch',
@@ -1156,7 +1167,7 @@ describe('codex fork ops', () => {
                 id: 'happy-scratch',
                 metadata: expect.objectContaining({
                     codexThreadId: 'thread-scratch',
-                    codexProject: false,
+                    codexProject: true,
                 }),
             }),
         ]);

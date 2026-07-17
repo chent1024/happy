@@ -60,6 +60,25 @@ describe('session list visibility', () => {
         })).toBe(false);
     });
 
+    it('keeps stopped real Codex sessions with a resumable thread in the project group', () => {
+        expect(isProjectGroupSession({
+            active: false,
+            metadata: {
+                flavor: 'codex',
+                lifecycleState: 'running',
+                codexThreadId: 'thread-1',
+            } as any,
+        })).toBe(true);
+
+        expect(isProjectGroupSession({
+            active: false,
+            metadata: {
+                flavor: 'codex',
+                lifecycleState: 'running',
+            } as any,
+        })).toBe(false);
+    });
+
     it('hides archived sessions from session lists even if they still look active', () => {
         const archivedSession = {
             active: true,

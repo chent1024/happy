@@ -22,6 +22,7 @@ import { randomUUID } from 'expo-crypto';
 import * as Notifications from 'expo-notifications';
 import { syncCurrentPushToken } from './pushRegistration';
 import { Platform, AppState, type AppStateStatus } from 'react-native';
+import { mergeSessionSnapshotActivity } from './sessionSnapshotActivity';
 import { isRunningOnMac } from '@/utils/platform';
 import { NormalizedMessage, normalizeRawMessage, RawRecord } from './typesRaw';
 import { applySettings, Settings, settingsDefaults, settingsParse, settingsToSyncPayload, SUPPORTED_SCHEMA_VERSION } from './settings';
@@ -792,7 +793,7 @@ class Sync {
     }
 
     /** Server sent us settings — merge any pending local changes on top, then apply as one update. */
-    private applyServerSettings = (serverSettings: Settings, version: number) => {
+    private applyServerSettings = (serverSettings: Settings, version: number, rebaseVersion = false) => {
         let merged = Object.keys(this.pendingSettings).length > 0
             ? applySettings(serverSettings, this.pendingSettings)
             : serverSettings;
@@ -807,7 +808,11 @@ class Sync {
             merged = { ...merged, agentDefaultOverrides: localOverrides };
         }
 
-        storage.getState().applySettings(merged, version);
+        if (rebaseVersion) {
+            storage.getState().rebaseSettingsAfterServerRollback(merged, version);
+        } else {
+            storage.getState().applySettings(merged, version);
+        }
     }
 
     applySettings = (delta: Partial<Settings>) => {
@@ -895,10 +900,13 @@ class Sync {
             let agentState = await sessionEncryption.decryptAgentState(session.agentStateVersion, session.agentState);
 
             // Put it all together
+            const activity = mergeSessionSnapshotActivity(
+                session,
+                storage.getState().sessions[session.id],
+            );
             const processedSession = {
                 ...session,
-                thinking: false,
-                thinkingAt: 0,
+                ...activity,
                 metadata,
                 agentState
             };
@@ -1345,6 +1353,8 @@ class Sync {
         const API_ENDPOINT = getServerUrl();
         const maxRetries = 3;
         let retryCount = 0;
+        let conflictBase: { settings: Settings; version: number } | null = null;
+        let serverVersionRollbackDetected = false;
 
         // Apply pending settings
         if (Object.keys(this.pendingSettings).length > 0) {
@@ -1352,13 +1362,14 @@ class Sync {
             while (retryCount < maxRetries) {
                 // Snapshot what we're about to send so we can detect concurrent changes
                 const sentPending = { ...this.pendingSettings };
-                let version = storage.getState().settingsVersion;
-                let settings = applySettings(storage.getState().settings, this.pendingSettings);
+                const localState = storage.getState();
+                const version = conflictBase?.version ?? localState.settingsVersion ?? 0;
+                const settings = applySettings(conflictBase?.settings ?? localState.settings, this.pendingSettings);
                 const response = await fetch(`${API_ENDPOINT}/v1/account/settings`, {
                     method: 'POST',
                     body: JSON.stringify({
                         settings: await this.encryption.encryptRaw(settingsToSyncPayload(settings)),
-                        expectedVersion: version ?? 0
+                        expectedVersion: version
                     }),
                     headers: {
                         'Authorization': `Bearer ${this.credentials.token}`,
@@ -1392,6 +1403,14 @@ class Sync {
                     const serverSettings = data.currentSettings
                         ? settingsParse(await this.encryption.decryptRaw(data.currentSettings))
                         : { ...settingsDefaults };
+
+                    if (data.currentVersion < version) {
+                        serverVersionRollbackDetected = true;
+                    }
+                    conflictBase = {
+                        settings: serverSettings,
+                        version: data.currentVersion,
+                    };
 
                     // Merge: server base + our pending changes (our changes win)
                     const mergedSettings = applySettings(serverSettings, this.pendingSettings);
@@ -1449,7 +1468,7 @@ class Sync {
         }));
 
         // Apply settings to storage, re-layering any pending local changes on top
-        this.applyServerSettings(parsedSettings, data.settingsVersion);
+        this.applyServerSettings(parsedSettings, data.settingsVersion, serverVersionRollbackDetected);
 
     }
 

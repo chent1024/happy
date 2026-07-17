@@ -547,12 +547,11 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
         const liveMessage = composerHandleRef.current?.getMessage() ?? '';
         if (liveMessage.trim() || (expImageUpload && selectedImages.length > 0)) {
             const attachments = expImageUpload ? selectedImages : undefined;
-            const deliveryIntent = sessionStatus.state === 'thinking' || sessionStatus.state === 'waiting' ? 'steer' : undefined;
             composerHandleRef.current?.clearMessage();
             if (expImageUpload) clearImages();
-            sync.sendMessage(sessionId, liveMessage, { source: 'chat', attachments, deliveryIntent });
+            sync.sendMessage(sessionId, liveMessage, { source: 'chat', attachments });
         }
-    }, [sessionId, expImageUpload, selectedImages, clearImages, sessionStatus.state]);
+    }, [sessionId, expImageUpload, selectedImages, clearImages]);
 
     const handleAbort = React.useCallback(() => {
         storage.getState().resetSessionAgentOverrides(sessionId);

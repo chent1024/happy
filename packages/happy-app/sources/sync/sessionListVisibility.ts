@@ -52,6 +52,15 @@ function isCodexResumeChild(session: Pick<Session, 'metadata'>): boolean {
     );
 }
 
+function isResumableRealCodexSession(session: Pick<Session, 'metadata'>): boolean {
+    return Boolean(
+        session.metadata?.flavor === 'codex'
+        && session.metadata.lifecycleState === 'running'
+        && typeof session.metadata.codexThreadId === 'string'
+        && session.metadata.codexThreadId.length > 0,
+    );
+}
+
 export function buildDuplicateImportedCodexSessionIds(
     sessions: Record<string, Pick<Session, 'id' | 'active' | 'metadata'>>,
 ): Set<string> {
@@ -172,7 +181,9 @@ export function isProjectGroupSession(session: Pick<Session, 'active' | 'metadat
     if (isArchivedSession(session)) {
         return false;
     }
-    return session.active || (isImportedCodexSession(session) && !isNonProjectImportedCodexSession(session));
+    return session.active
+        || (isImportedCodexSession(session) && !isNonProjectImportedCodexSession(session))
+        || isResumableRealCodexSession(session);
 }
 
 export function getSessionProjectGroupPath(session: {

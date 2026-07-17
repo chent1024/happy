@@ -2,6 +2,7 @@ import { apiSocket } from './apiSocket';
 import { resolveMessageModeMeta } from './messageMeta';
 import { storage } from './storage';
 import type { Session } from './storageTypes';
+import { SOCKET_RPC_ACK_TIMEOUT_MS } from './apiSocketRpc';
 
 export type EnsureSessionLiveResult =
     | {
@@ -160,6 +161,7 @@ export async function machineEnsureSessionLive(options: EnsureSessionLiveOptions
                 ...(permissionMode !== undefined ? { permissionMode } : {}),
                 ...(reason !== undefined ? { reason } : {}),
             },
+            { ackTimeoutMs: SOCKET_RPC_ACK_TIMEOUT_MS },
         );
     } catch (error) {
         return {

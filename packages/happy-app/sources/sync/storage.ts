@@ -192,6 +192,7 @@ interface StorageState {
     applyOlderMessagesPagination: (sessionId: string, info: { hasMore: boolean }) => void;
     applyOlderMessagesLoading: (sessionId: string, isLoading: boolean) => void;
     applySettings: (settings: Settings, version: number) => void;
+    rebaseSettingsAfterServerRollback: (settings: Settings, version: number) => void;
     applySettingsLocal: (settings: Partial<Settings>) => void;
     applyLocalSettings: (settings: Partial<LocalSettings>) => void;
     applyPurchases: (customerInfo: CustomerInfo) => void;
@@ -836,6 +837,14 @@ export const storage = create<StorageState>()((set, get) => {
             } else {
                 return state;
             }
+        }),
+        rebaseSettingsAfterServerRollback: (settings: Settings, version: number) => set((state) => {
+            saveSettings(settings, version);
+            return {
+                ...state,
+                settings,
+                settingsVersion: version
+            };
         }),
         applyLocalSettings: (delta: Partial<LocalSettings>) => set((state) => {
             const updatedLocalSettings = applyLocalSettings(state.localSettings, delta);

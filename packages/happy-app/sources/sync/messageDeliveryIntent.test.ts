@@ -10,6 +10,14 @@ describe('resolveSendMessageDeliveryIntent', () => {
         })).toBe('steer');
     });
 
+    it('does not honor a stale explicit steer intent after the session becomes idle', () => {
+        expect(resolveSendMessageDeliveryIntent({
+            source: 'chat',
+            sessionThinking: false,
+            explicitIntent: 'steer',
+        })).toBeUndefined();
+    });
+
     it('queues Codex.app intake messages even when the new Happy session is marked thinking', () => {
         expect(resolveSendMessageDeliveryIntent({
             source: 'codex-app',

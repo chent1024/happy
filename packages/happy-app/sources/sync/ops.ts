@@ -396,7 +396,11 @@ function codexThreadGitOrigin(thread: CodexThreadListItem): string | null {
 }
 
 function codexThreadHasProjectIdentity(thread: CodexThreadListItem): boolean {
-    return Boolean(codexThreadExplicitProjectPath(thread) || codexThreadGitOrigin(thread));
+    return Boolean(
+        codexThreadExplicitProjectPath(thread)
+        || codexThreadGitOrigin(thread)
+        || normalizeCodexPath(thread.cwd),
+    );
 }
 
 function findCodexProjectPathForThread(

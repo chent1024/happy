@@ -5,6 +5,7 @@ import { TokenStorage } from '@/auth/tokenStorage';
 import { Encryption } from './encryption/encryption';
 import { storage } from './storage';
 import { fetchWithRetry, type HappyRequestInit } from './httpRetry';
+import { emitRpcWithAck } from './apiSocketRpc';
 
 export function getHappyClientId(): string {
     let platform: string = Platform.OS; // 'ios' | 'android' | 'web'
@@ -49,6 +50,10 @@ export interface SyncSocketState {
 }
 
 export type SyncSocketListener = (state: SyncSocketState) => void;
+
+type RpcCallResponse =
+    | { ok: true; result: string }
+    | { ok: false; error?: string };
 
 //
 // Main Class
@@ -150,7 +155,10 @@ class ApiSocket {
             throw new Error(`Session encryption not found for ${sessionId}`);
         }
         
-        const result = await this.socket!.emitWithAck('rpc-call', {
+        if (!this.socket) {
+            throw new Error('Socket not initialized');
+        }
+        const result = await emitRpcWithAck<RpcCallResponse>(this.socket, 'rpc-call', {
             method: `${sessionId}:${method}`,
             params: await sessionEncryption.encryptRaw(params)
         });
@@ -164,16 +172,24 @@ class ApiSocket {
     /**
      * RPC call for machines - uses legacy/global encryption (for now)
      */
-    async machineRPC<R, A>(machineId: string, method: string, params: A): Promise<R> {
+    async machineRPC<R, A>(
+        machineId: string,
+        method: string,
+        params: A,
+        options?: { ackTimeoutMs?: number },
+    ): Promise<R> {
         const machineEncryption = this.encryption!.getMachineEncryption(machineId);
         if (!machineEncryption) {
             throw new Error(`Machine encryption not found for ${machineId}`);
         }
 
-        const result = await this.socket!.emitWithAck('rpc-call', {
+        if (!this.socket) {
+            throw new Error('Socket not initialized');
+        }
+        const result = await emitRpcWithAck<RpcCallResponse>(this.socket, 'rpc-call', {
             method: `${machineId}:${method}`,
             params: await machineEncryption.encryptRaw(params)
-        });
+        }, options?.ackTimeoutMs);
 
         if (result.ok) {
             return await machineEncryption.decryptRaw(result.result) as R;

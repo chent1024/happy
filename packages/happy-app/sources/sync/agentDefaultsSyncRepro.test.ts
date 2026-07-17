@@ -81,13 +81,18 @@ class Client {
             this.settingsVersion = version;
         }
     }
+    private storageRebaseServer(settings: Settings, version: number) {
+        this.mmkv.saveSettings(settings, version);
+        this.settings = settings;
+        this.settingsVersion = version;
+    }
     // storage.ts applySettingsLocal (optimistic local write, no version bump)
     private storageApplyLocal(delta: Partial<Settings>) {
         this.mmkv.saveSettings(applySettings(this.settings, delta), this.settingsVersion ?? 0);
         this.settings = applySettings(this.settings, delta);
     }
     // sync.ts applyServerSettings (incl. the empty-override clobber guard)
-    private applyServerSettings(serverSettings: Settings, version: number) {
+    private applyServerSettings(serverSettings: Settings, version: number, rebaseVersion = false) {
         let merged = Object.keys(this.pending).length > 0
             ? applySettings(serverSettings, this.pending)
             : serverSettings;
@@ -95,7 +100,11 @@ class Client {
         if (isEmptyAgentDefaultOverrides(merged.agentDefaultOverrides) && !isEmptyAgentDefaultOverrides(localOverrides)) {
             merged = { ...merged, agentDefaultOverrides: localOverrides };
         }
-        this.storageApplyServer(merged, version);
+        if (rebaseVersion) {
+            this.storageRebaseServer(merged, version);
+        } else {
+            this.storageApplyServer(merged, version);
+        }
     }
 
     // Mirrors the socket 'update-account' path: applies a server settings
@@ -117,15 +126,17 @@ class Client {
     syncSettings() {
         const maxRetries = 3;
         let retryCount = 0;
+        let conflictBase: { settings: Settings; version: number } | null = null;
+        let serverVersionRollbackDetected = false;
 
         if (Object.keys(this.pending).length > 0) {
             while (retryCount < maxRetries) {
                 const sentPending = { ...this.pending };
-                const version = this.settingsVersion;
-                const settings = applySettings(this.settings, this.pending);
+                const version = conflictBase?.version ?? this.settingsVersion ?? 0;
+                const settings = applySettings(conflictBase?.settings ?? this.settings, this.pending);
                 const data = this.server.post({
                     settings: JSON.stringify(settingsToSyncPayload(settings)),
-                    expectedVersion: version ?? 0,
+                    expectedVersion: version,
                 });
                 if (data.success) {
                     const newPending: Partial<Settings> = {};
@@ -142,6 +153,13 @@ class Client {
                     const serverSettings = data.currentSettings
                         ? settingsParse(JSON.parse(data.currentSettings))
                         : { ...settingsDefaults };
+                    if (data.currentVersion < version) {
+                        serverVersionRollbackDetected = true;
+                    }
+                    conflictBase = {
+                        settings: serverSettings,
+                        version: data.currentVersion,
+                    };
                     const mergedSettings = applySettings(serverSettings, this.pending);
                     this.applyServerSettings(mergedSettings, data.currentVersion);
                     retryCount++;
@@ -156,7 +174,7 @@ class Client {
         const parsedSettings: Settings = data.settings
             ? settingsParse(JSON.parse(data.settings))
             : { ...settingsDefaults };
-        this.applyServerSettings(parsedSettings, data.settingsVersion);
+        this.applyServerSettings(parsedSettings, data.settingsVersion, serverVersionRollbackDetected);
     }
 }
 
@@ -171,6 +189,21 @@ function restart(mmkv: FakeMMKV, server: FakeServer): Client {
 }
 
 describe('agent defaults sync lifecycle (full fidelity)', () => {
+    it('rebases pending settings when the authoritative server version is lower than the local cache', () => {
+        const mmkv = new FakeMMKV();
+        const server = new FakeServer();
+
+        mmkv.saveSettings({ ...settingsDefaults, viewInline: false }, 8);
+        mmkv.savePending({ viewInline: true });
+
+        const client = new Client(mmkv, server);
+        expect(() => client.syncSettings()).not.toThrow();
+        expect(server.settingsVersion).toBe(1);
+        expect(client.settingsVersion).toBe(1);
+        expect(client.settings.viewInline).toBe(true);
+        expect(client.pending).toEqual({});
+    });
+
     it('survives a clean set then restart', () => {
         const mmkv = new FakeMMKV();
         const server = new FakeServer();

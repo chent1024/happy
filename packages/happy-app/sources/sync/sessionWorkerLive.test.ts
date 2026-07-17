@@ -82,6 +82,7 @@ describe('session worker live helpers', () => {
                 permissionMode: 'yolo',
                 reason: 'send-message',
             },
+            { ackTimeoutMs: 10_000 },
         );
     });
 
@@ -166,6 +167,7 @@ describe('session worker live helpers', () => {
                 permissionMode: 'yolo',
                 reason: 'send-message',
             },
+            { ackTimeoutMs: 10_000 },
         );
         expect(applySessions).not.toHaveBeenCalled();
 

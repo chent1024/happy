@@ -1150,7 +1150,7 @@ export class CodexAppServerClient {
         clientUserMessageId?: string | null;
         extraInputItems?: InputItem[];
     }): Promise<SteerResult> {
-        if (!this._threadId || !this._turnId) {
+        if (!this._threadId || !this._turnId || !this.pendingTurnCompletion) {
             return { steered: false, reason: 'no-active-turn' };
         }
 
@@ -1258,7 +1258,8 @@ export class CodexAppServerClient {
             timer = setTimeout(() => {
                 if (this.pendingTurnCompletion) {
                     logger.warn(`[CodexAppServer] Turn timed out after ${timeoutMs}ms — treating as abort`);
-                    this.resolvePendingTurn(true);
+                    this._turnId = null;
+                    this.resolvePendingTurn(true, { runtimeInterrupted: true });
                 }
             }, timeoutMs);
         });
