@@ -19,8 +19,38 @@ vi.mock('@/ui/logger', () => ({
 
 import {
   checkIfDaemonRunningAndCleanupStaleState,
+  getRunningNewerDaemonVersion,
   inspectDaemonRunningState,
 } from './controlClient';
+
+describe('daemon version downgrade guard', () => {
+  const originalKill = process.kill;
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.kill = vi.fn(() => true) as unknown as typeof process.kill;
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 }) as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    process.kill = originalKill;
+    global.fetch = originalFetch;
+  });
+
+  it('protects a live 1.2.5 daemon from a 1.1.10 CLI', async () => {
+    mocks.readDaemonState.mockResolvedValue({ ...daemonState(), startedWithCliVersion: '1.2.5' });
+    await expect(getRunningNewerDaemonVersion()).resolves.toBe('1.2.5');
+  });
+
+  it('allows the existing upgrade path and ignores stale state', async () => {
+    mocks.readDaemonState.mockResolvedValue(daemonState());
+    await expect(getRunningNewerDaemonVersion()).resolves.toBeNull();
+    process.kill = vi.fn(() => { throw new Error('missing pid'); }) as unknown as typeof process.kill;
+    mocks.readDaemonState.mockResolvedValue({ ...daemonState(), startedWithCliVersion: '1.2.5' });
+    await expect(getRunningNewerDaemonVersion()).resolves.toBeNull();
+  });
+});
 
 describe('controlClient daemon state inspection', () => {
   const originalKill = process.kill;

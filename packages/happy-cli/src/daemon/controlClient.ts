@@ -17,6 +17,29 @@ export type DaemonRunningState =
   | { state: 'http-unhealthy'; running: false; pid: number; httpPort: number; status?: number; detail?: string }
   | { state: 'running-no-http-port'; running: true; pid: number };
 
+function isNewerStableCliVersion(runningVersion: string, currentVersion: string): boolean {
+  const stableVersion = /^(\d+)\.(\d+)\.(\d+)$/;
+  const running = runningVersion.match(stableVersion);
+  const current = currentVersion.match(stableVersion);
+  if (!running || !current) return false;
+
+  for (let i = 1; i <= 3; i++) {
+    const runningPart = Number(running[i]);
+    const currentPart = Number(current[i]);
+    if (runningPart !== currentPart) return runningPart > currentPart;
+  }
+  return false;
+}
+
+export async function getRunningNewerDaemonVersion(): Promise<string | null> {
+  if (!(await checkIfDaemonRunningAndCleanupStaleState())) return null;
+  const state = await readDaemonState();
+  if (!state) return null;
+  return isNewerStableCliVersion(state.startedWithCliVersion, configuration.currentCliVersion)
+    ? state.startedWithCliVersion
+    : null;
+}
+
 function daemonStateBase(state: DaemonLocallyPersistedState): { pid: number; httpPort: number } {
   return {
     pid: state.pid,

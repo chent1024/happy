@@ -15,7 +15,7 @@ import { spawnHappyCLI } from '@/utils/spawnHappyCLI';
 import { writeDaemonState, DaemonLocallyPersistedState, readDaemonState, acquireDaemonLock, releaseDaemonLock, readPersistedSessions, persistSession, readSettings } from '@/persistence';
 import type { PersistedSession } from '@/persistence';
 
-import { cleanupDaemonState, isDaemonRunningCurrentlyInstalledHappyVersion, stopDaemon } from './controlClient';
+import { cleanupDaemonState, getRunningNewerDaemonVersion, isDaemonRunningCurrentlyInstalledHappyVersion, stopDaemon } from './controlClient';
 import { startDaemonControlServer } from './controlServer';
 import type { EnsureSessionLiveResult } from './types';
 import {
@@ -148,6 +148,13 @@ export async function startDaemon(): Promise<void> {
   // Check if running daemon version matches current CLI version
   const runningDaemonVersionMatches = await isDaemonRunningCurrentlyInstalledHappyVersion();
   if (!runningDaemonVersionMatches) {
+    const newerDaemonVersion = await getRunningNewerDaemonVersion();
+    if (newerDaemonVersion) {
+      const message = `Daemon ${newerDaemonVersion} is newer than CLI ${configuration.currentCliVersion}; keeping the running daemon`;
+      logger.debug(`[DAEMON RUN] ${message}`);
+      console.error(message);
+      process.exit(1);
+    }
     // TODO: This hand-rolled self-restart path is awkward to reason about and awkward to test.
     // We should probably migrate this daemon to native system service management
     // (launchd/systemd, similar to OpenClaw's model), so startup/start-at-login and upgrades
